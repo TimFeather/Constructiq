@@ -30,7 +30,6 @@ const DEFAULT_FOLDERS = [
   'Sub Contractor Uploads',
 ];
 
-const INTERNAL_ROLES = ['Architect', 'Internal Project Manager', 'Site Manager', 'Quantity Surveyor'];
 const SUBCONTRACTOR_FOLDER = 'Sub Contractor Uploads';
 
 export default function ProjectDocsPanel({ project, docs = [] }) {
@@ -44,9 +43,8 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
   const [extraFolders, setExtraFolders] = useState([]);
   const queryClient = useQueryClient();
 
-  // Determine user's role on this project
-  const teamMember = project?.team?.find(m => m.user_email === user?.email);
-  const isInternal = user?.role === 'admin' || INTERNAL_ROLES.includes(teamMember?.role);
+  // Internal = admin or internal role tag; External = external role tag
+  const isInternal = user?.role === 'admin' || user?.role === 'internal';
   // External users can only upload to Sub Contractor Uploads
   const allowedFolders = isInternal ? null : [SUBCONTRACTOR_FOLDER]; // null = all folders
 
