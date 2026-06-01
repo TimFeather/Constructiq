@@ -22,6 +22,7 @@ import TaskList from '@/components/programme/TaskList';
 import GanttChart from '@/components/programme/GanttChart';
 import TaskEditPanel from '@/components/programme/TaskEditPanel';
 import { parseXML, parseMPX, parseExcelCSV } from '@/lib/scheduleImportParsers';
+import { runScheduleEngine } from '@/lib/schedulingEngine';
 
 export default function Programme() {
   const { user } = useAuth();
@@ -144,9 +145,41 @@ export default function Programme() {
         }
       });
 
-      // Apply predecessor updates in parallel batches
+      // Apply predecessor updates sequentially
       for (const update of updates) {
         await base44.entities.Task.update(update.id, { predecessors: update.predecessors });
+      }
+
+      // ── Pass 3: re-schedule all tasks using the engine so dates follow dependencies ──
+      // Build in-memory task list with predecessors applied
+      const taskListForEngine = created.map((createdTask, i) => {
+        const pt = parsedTasks[i];
+        const predecessors = updates.find(u => u.id === createdTask.id)?.predecessors || [];
+        return { ...createdTask, predecessors };
+      });
+
+      // Find earliest start date as project anchor
+      const projectStart = taskListForEngine.reduce((min, t) => {
+        if (!t.start_date) return min;
+        return !min || t.start_date < min ? t.start_date : min;
+      }, null) || new Date().toISOString().split('T')[0];
+
+      const scheduled = runScheduleEngine(taskListForEngine, projectStart);
+
+      // Only update tasks whose dates differ from what the engine resolved
+      for (const task of taskListForEngine) {
+        const resolved = scheduled.get(task.id);
+        if (!resolved) continue;
+        const newStart = resolved.startStr;
+        const newEnd = resolved.finishStr;
+        const newDur = resolved.durationDays;
+        if (newStart !== task.start_date || newEnd !== task.end_date || newDur !== task.duration) {
+          await base44.entities.Task.update(task.id, {
+            start_date: newStart,
+            end_date: newEnd,
+            duration: newDur,
+          });
+        }
       }
 
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
