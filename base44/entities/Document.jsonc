@@ -10,6 +10,10 @@
       "type": "string",
       "description": "Associated project ID"
     },
+    "folder": {
+      "type": "string",
+      "description": "Folder name within the project"
+    },
     "file_url": {
       "type": "string",
       "description": "URL of the uploaded file"

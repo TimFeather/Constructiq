@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
-import { Plus, Search, FileText, Upload, ExternalLink } from 'lucide-react';
+import { Plus, Search, FileText, Upload, ExternalLink, Folder } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -27,8 +27,10 @@ export default function Documents() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [projectFilter, setProjectFilter] = useState('all');
+  const [folderFilter, setFolderFilter] = useState('all');
   const [showUpload, setShowUpload] = useState(false);
-  const [uploadForm, setUploadForm] = useState({ name: '', project_id: '', file: null });
+  const [uploadForm, setUploadForm] = useState({ name: '', project_id: '', file: null, folder: '' });
+  const [newFolder, setNewFolder] = useState('');
   const [uploading, setUploading] = useState(false);
   const queryClient = useQueryClient();
 
@@ -70,10 +72,12 @@ export default function Documents() {
   const handleUpload = async () => {
     if (!uploadForm.file || !uploadForm.name || !uploadForm.project_id) return;
     setUploading(true);
+    const folder = uploadForm.folder === '__new__' ? newFolder.trim() : uploadForm.folder;
     const { file_url } = await base44.integrations.Core.UploadFile({ file: uploadForm.file });
     await base44.entities.Document.create({
       name: uploadForm.name,
       project_id: uploadForm.project_id,
+      folder: folder || undefined,
       file_url,
       file_type: getFileType(uploadForm.file.name),
       status: 'Draft',
@@ -82,15 +86,22 @@ export default function Documents() {
     });
     queryClient.invalidateQueries({ queryKey: ['documents'] });
     setShowUpload(false);
-    setUploadForm({ name: '', project_id: '', file: null });
+    setUploadForm({ name: '', project_id: '', file: null, folder: '' });
+    setNewFolder('');
     setUploading(false);
   };
+
+  // Folders available for selected project
+  const projectFolders = [...new Set(documents.filter(d => d.project_id === uploadForm.project_id).map(d => d.folder).filter(Boolean))].sort();
+
+  const allFolders = [...new Set(documents.map(d => d.folder).filter(Boolean))].sort();
 
   const filtered = documents.filter(d => {
     const matchSearch = d.name?.toLowerCase().includes(search.toLowerCase());
     const matchStatus = statusFilter === 'all' || d.status === statusFilter;
     const matchProject = projectFilter === 'all' || d.project_id === projectFilter;
-    return matchSearch && matchStatus && matchProject;
+    const matchFolder = folderFilter === 'all' ? true : folderFilter === '__none__' ? !d.folder : d.folder === folderFilter;
+    return matchSearch && matchStatus && matchProject && matchFolder;
   });
 
   const projectMap = Object.fromEntries(projects.map(p => [p.id, p.name]));
@@ -123,6 +134,18 @@ export default function Documents() {
             </SelectContent>
           </Select>
         )}
+        {allFolders.length > 0 && (
+          <Select value={folderFilter} onValueChange={setFolderFilter}>
+            <SelectTrigger className="w-full sm:w-44">
+              <SelectValue placeholder="All Folders" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Folders</SelectItem>
+              <SelectItem value="__none__">No Folder</SelectItem>
+              {allFolders.map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        )}
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-full sm:w-40">
             <SelectValue />
@@ -152,7 +175,7 @@ export default function Documents() {
                   <tr className="text-left text-xs text-muted-foreground border-b bg-muted/30">
                     <th className="p-3 font-medium">Name</th>
                     <th className="p-3 font-medium hidden sm:table-cell">Project</th>
-                    <th className="p-3 font-medium hidden md:table-cell">Type</th>
+                    <th className="p-3 font-medium hidden md:table-cell">Folder</th>
                     <th className="p-3 font-medium hidden md:table-cell">Uploaded By</th>
                     <th className="p-3 font-medium hidden lg:table-cell">Date</th>
                     <th className="p-3 font-medium">Status</th>
@@ -170,7 +193,11 @@ export default function Documents() {
                       <td className="p-3 hidden sm:table-cell text-muted-foreground">
                         {projectMap[doc.project_id] || '—'}
                       </td>
-                      <td className="p-3 hidden md:table-cell text-muted-foreground">{doc.file_type}</td>
+                      <td className="p-3 hidden md:table-cell text-muted-foreground">
+                        {doc.folder ? (
+                          <span className="flex items-center gap-1"><Folder className="w-3 h-3" />{doc.folder}</span>
+                        ) : <span className="text-muted-foreground/40">—</span>}
+                      </td>
                       <td className="p-3 hidden md:table-cell text-muted-foreground">{doc.uploaded_by_name}</td>
                       <td className="p-3 hidden lg:table-cell text-muted-foreground">
                         {format(new Date(doc.created_date), 'MMM d, yyyy')}
@@ -218,12 +245,31 @@ export default function Documents() {
             </div>
             <div>
               <Label>Project *</Label>
-              <Select value={uploadForm.project_id} onValueChange={v => setUploadForm({...uploadForm, project_id: v})}>
+              <Select value={uploadForm.project_id} onValueChange={v => setUploadForm({...uploadForm, project_id: v, folder: ''})}>
                 <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
                 <SelectContent>
                   {projects.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
                 </SelectContent>
               </Select>
+            </div>
+            <div>
+              <Label>Folder</Label>
+              <Select value={uploadForm.folder} onValueChange={v => setUploadForm({...uploadForm, folder: v})}>
+                <SelectTrigger><SelectValue placeholder="No folder" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={null}>No folder</SelectItem>
+                  {projectFolders.map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+                  <SelectItem value="__new__">+ Create new folder…</SelectItem>
+                </SelectContent>
+              </Select>
+              {uploadForm.folder === '__new__' && (
+                <Input
+                  className="mt-2"
+                  placeholder="New folder name"
+                  value={newFolder}
+                  onChange={e => setNewFolder(e.target.value)}
+                />
+              )}
             </div>
             <div>
               <Label>File *</Label>

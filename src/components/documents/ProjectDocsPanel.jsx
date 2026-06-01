@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Card, CardContent } from '@/components/ui/card';
 import StatusBadge from '@/components/shared/StatusBadge';
-import { Upload, ExternalLink, FileText } from 'lucide-react';
+import { Upload, ExternalLink, FileText, Folder } from 'lucide-react';
 import { format } from 'date-fns';
 
 function getFileType(name) {
@@ -23,8 +23,12 @@ function getFileType(name) {
 export default function ProjectDocsPanel({ project, docs = [] }) {
   const { user } = useAuth();
   const [showUpload, setShowUpload] = useState(false);
-  const [uploadForm, setUploadForm] = useState({ name: '', file: null });
+  const [uploadForm, setUploadForm] = useState({ name: '', file: null, folder: '' });
+  const [newFolder, setNewFolder] = useState('');
   const [uploading, setUploading] = useState(false);
+
+  // Derive existing folders for this project's docs
+  const folders = [...new Set(docs.map(d => d.folder).filter(Boolean))].sort();
   const queryClient = useQueryClient();
 
   const statusMutation = useMutation({
@@ -45,10 +49,12 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
   const handleUpload = async () => {
     if (!uploadForm.file || !uploadForm.name) return;
     setUploading(true);
+    const folder = uploadForm.folder === '__new__' ? newFolder.trim() : uploadForm.folder;
     const { file_url } = await base44.integrations.Core.UploadFile({ file: uploadForm.file });
     await base44.entities.Document.create({
       name: uploadForm.name,
       project_id: project.id,
+      folder: folder || undefined,
       file_url,
       file_type: getFileType(uploadForm.file.name),
       status: 'Draft',
@@ -56,8 +62,10 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
       uploaded_by_email: user?.email || '',
     });
     queryClient.invalidateQueries({ queryKey: ['documents', project.id] });
+    queryClient.invalidateQueries({ queryKey: ['documents'] });
     setShowUpload(false);
-    setUploadForm({ name: '', file: null });
+    setUploadForm({ name: '', file: null, folder: '' });
+    setNewFolder('');
     setUploading(false);
   };
 
@@ -83,7 +91,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
                 <thead>
                   <tr className="text-left text-xs text-muted-foreground border-b bg-muted/30">
                     <th className="p-3 font-medium">Name</th>
-                    <th className="p-3 font-medium hidden sm:table-cell">Type</th>
+                    <th className="p-3 font-medium hidden sm:table-cell">Folder</th>
                     <th className="p-3 font-medium hidden md:table-cell">Uploaded By</th>
                     <th className="p-3 font-medium hidden lg:table-cell">Date</th>
                     <th className="p-3 font-medium">Status</th>
@@ -99,7 +107,11 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
                           {doc.name} <ExternalLink className="w-3 h-3" />
                         </a>
                       </td>
-                      <td className="p-3 hidden sm:table-cell text-muted-foreground">{doc.file_type}</td>
+                      <td className="p-3 hidden sm:table-cell text-muted-foreground">
+                        {doc.folder ? (
+                          <span className="flex items-center gap-1"><Folder className="w-3 h-3" />{doc.folder}</span>
+                        ) : <span className="text-muted-foreground/40">—</span>}
+                      </td>
                       <td className="p-3 hidden md:table-cell text-muted-foreground">{doc.uploaded_by_name}</td>
                       <td className="p-3 hidden lg:table-cell text-muted-foreground">
                         {format(new Date(doc.created_date), 'MMM d, yyyy')}
@@ -144,6 +156,25 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
             <div>
               <Label>Document Name *</Label>
               <Input value={uploadForm.name} onChange={e => setUploadForm({ ...uploadForm, name: e.target.value })} placeholder="Document name" />
+            </div>
+            <div>
+              <Label>Folder</Label>
+              <Select value={uploadForm.folder} onValueChange={v => setUploadForm({ ...uploadForm, folder: v })}>
+                <SelectTrigger><SelectValue placeholder="No folder" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={null}>No folder</SelectItem>
+                  {folders.map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+                  <SelectItem value="__new__">+ Create new folder…</SelectItem>
+                </SelectContent>
+              </Select>
+              {uploadForm.folder === '__new__' && (
+                <Input
+                  className="mt-2"
+                  placeholder="New folder name"
+                  value={newFolder}
+                  onChange={e => setNewFolder(e.target.value)}
+                />
+              )}
             </div>
             <div>
               <Label>File *</Label>
