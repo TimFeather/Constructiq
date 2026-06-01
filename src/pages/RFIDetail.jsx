@@ -138,9 +138,20 @@ export default function RFIDetail() {
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Assigned To</p>
-              <p className="text-sm font-medium mt-0.5 flex items-center gap-1">
-                <User className="w-3 h-3" /> {rfi.assigned_to_name || '—'}
-              </p>
+              {(rfi.assignees?.length > 0) ? (
+                <div className="mt-0.5 space-y-0.5">
+                  {rfi.assignees.map((a, i) => (
+                    <p key={i} className="text-sm font-medium flex items-center gap-1">
+                      <User className="w-3 h-3 flex-shrink-0" /> {a.name}
+                      {a.role && <span className="text-xs text-muted-foreground font-normal">· {a.role}</span>}
+                    </p>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm font-medium mt-0.5 flex items-center gap-1">
+                  <User className="w-3 h-3" /> {rfi.assigned_to_name || '—'}
+                </p>
+              )}
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Due Date</p>

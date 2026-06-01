@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -7,61 +7,71 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Badge } from '@/components/ui/badge';
+import { X } from 'lucide-react';
 
 export default function RFIFormDialog({ open, onOpenChange, projects = [] }) {
   const [form, setForm] = useState({
-    title: '', description: '', project_id: '', due_date: '',
-    priority: 'Medium', assigned_to_email: '', assigned_to_name: '',
+    title: '', description: '', project_id: '', due_date: '', priority: 'Medium',
   });
+  const [selectedEmails, setSelectedEmails] = useState([]);
   const queryClient = useQueryClient();
 
-  // Get team members for the selected project
   const selectedProject = projects.find(p => p.id === form.project_id);
   const teamMembers = selectedProject?.team || [];
 
-  // Reset assignee when project changes
   useEffect(() => {
-    setForm(f => ({ ...f, assigned_to_email: '', assigned_to_name: '' }));
+    setSelectedEmails([]);
   }, [form.project_id]);
+
+  const toggleMember = (member) => {
+    setSelectedEmails(prev => {
+      const exists = prev.find(m => m.email === member.user_email);
+      if (exists) return prev.filter(m => m.email !== member.user_email);
+      return [...prev, { email: member.user_email, name: member.full_name, role: member.role }];
+    });
+  };
+
+  const selectAll = () => {
+    setSelectedEmails(teamMembers.map(m => ({ email: m.user_email, name: m.full_name, role: m.role })));
+  };
+
+  const clearAll = () => setSelectedEmails([]);
 
   const createMutation = useMutation({
     mutationFn: async (data) => {
-      // Number RFIs per project
       const projectRfis = await base44.entities.RFI.filter({ project_id: data.project_id }, '-number', 1);
       const nextNumber = projectRfis.length > 0 ? (projectRfis[0].number || 0) + 1 : 1;
+      // keep legacy single-assignee fields populated with first assignee for backwards compat
+      const firstAssignee = selectedEmails[0];
       const rfi = await base44.entities.RFI.create({
         ...data,
         number: nextNumber,
         status: 'Open',
         responses: [],
         attachments: [],
+        assignees: selectedEmails,
+        assigned_to_email: firstAssignee?.email || '',
+        assigned_to_name: firstAssignee?.name || '',
       });
-      if (data.assigned_to_email) {
+      // send email to all assignees
+      selectedEmails.forEach(assignee => {
         base44.integrations.Core.SendEmail({
-          to: data.assigned_to_email,
+          to: assignee.email,
           subject: `New RFI Assigned: ${data.title}`,
           body: `You have been assigned RFI-${String(nextNumber).padStart(3, '0')}: ${data.title}\n\nDescription: ${data.description || 'No description'}\n\nPlease log in to respond.`
         });
-      }
+      });
       return rfi;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['rfis'] });
       onOpenChange(false);
-      setForm({ title: '', description: '', project_id: '', due_date: '', priority: 'Medium', assigned_to_email: '', assigned_to_name: '' });
+      setForm({ title: '', description: '', project_id: '', due_date: '', priority: 'Medium' });
+      setSelectedEmails([]);
     }
   });
-
-  const handleAssigneeChange = (value) => {
-    if (value === 'unassigned') {
-      setForm({ ...form, assigned_to_email: '', assigned_to_name: '' });
-      return;
-    }
-    const member = teamMembers.find(m => m.user_email === value);
-    if (member) {
-      setForm({ ...form, assigned_to_email: member.user_email, assigned_to_name: member.full_name });
-    }
-  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -110,44 +120,61 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [] }) {
             <Label>Due Date</Label>
             <Input type="date" value={form.due_date} onChange={e => setForm({...form, due_date: e.target.value})} />
           </div>
+
+          {/* Multi-select assignees */}
           <div>
-            <Label>Assign To</Label>
-            {teamMembers.length > 0 ? (
-              <Select
-                value={form.assigned_to_email || 'unassigned'}
-                onValueChange={handleAssigneeChange}
-                disabled={!form.project_id}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select team member" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="unassigned">— Unassigned —</SelectItem>
-                  {teamMembers.map(m => (
-                    <SelectItem key={m.user_email} value={m.user_email}>
-                      {m.full_name} — {m.role}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="flex items-center justify-between mb-1.5">
+              <Label>Assign To</Label>
+              {teamMembers.length > 0 && (
+                <div className="flex gap-2">
+                  <button type="button" onClick={selectAll} className="text-xs text-primary hover:underline">Select All</button>
+                  {selectedEmails.length > 0 && (
+                    <button type="button" onClick={clearAll} className="text-xs text-muted-foreground hover:underline">Clear</button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {!form.project_id ? (
+              <p className="text-xs text-muted-foreground py-2">Select a project first</p>
+            ) : teamMembers.length === 0 ? (
+              <p className="text-xs text-muted-foreground py-2">No team members in this project</p>
             ) : (
-              <div className="grid grid-cols-2 gap-3">
-                <Input
-                  value={form.assigned_to_name}
-                  onChange={e => setForm({...form, assigned_to_name: e.target.value})}
-                  placeholder={form.project_id ? 'No team members yet' : 'Select project first'}
-                  disabled={!!form.project_id && teamMembers.length === 0}
-                />
-                <Input
-                  type="email"
-                  value={form.assigned_to_email}
-                  onChange={e => setForm({...form, assigned_to_email: e.target.value})}
-                  placeholder="Assignee email"
-                  disabled={!!form.project_id && teamMembers.length === 0}
-                />
+              <div className="border rounded-md p-2 space-y-1 max-h-40 overflow-y-auto">
+                {teamMembers.map(m => {
+                  const isChecked = !!selectedEmails.find(s => s.email === m.user_email);
+                  return (
+                    <label
+                      key={m.user_email}
+                      className="flex items-center gap-2 px-1 py-1 rounded hover:bg-muted/50 cursor-pointer"
+                    >
+                      <Checkbox
+                        checked={isChecked}
+                        onCheckedChange={() => toggleMember(m)}
+                      />
+                      <span className="text-sm flex-1">{m.full_name}</span>
+                      <span className="text-xs text-muted-foreground">{m.role}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Selected badges */}
+            {selectedEmails.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-2">
+                {selectedEmails.map(s => (
+                  <Badge key={s.email} variant="secondary" className="gap-1 pr-1">
+                    {s.name}
+                    <button type="button" onClick={() => setSelectedEmails(prev => prev.filter(m => m.email !== s.email))}>
+                      <X className="w-3 h-3" />
+                    </button>
+                  </Badge>
+                ))}
               </div>
             )}
           </div>
+
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
             <Button type="submit" disabled={createMutation.isPending || !form.title || !form.project_id}>

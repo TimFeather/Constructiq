@@ -46,11 +46,29 @@
     },
     "assigned_to_email": {
       "type": "string",
-      "description": "Email of assigned user"
+      "description": "Email of assigned user (legacy single)"
     },
     "assigned_to_name": {
       "type": "string",
-      "description": "Name of assigned user"
+      "description": "Name of assigned user (legacy single)"
+    },
+    "assignees": {
+      "type": "array",
+      "description": "Multiple assignees",
+      "items": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          }
+        }
+      }
     },
     "assigned_role": {
       "type": "string",
