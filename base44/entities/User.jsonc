@@ -1,0 +1,39 @@
+{
+  "name": "User",
+  "type": "object",
+  "properties": {
+    "role": {
+      "type": "string",
+      "enum": [
+        "admin",
+        "internal",
+        "external"
+      ],
+      "default": "external",
+      "description": "Global role: admin (full control), internal (read/write), external (view only)"
+    },
+    "phone": {
+      "type": "string",
+      "description": "Phone number"
+    },
+    "business_name": {
+      "type": "string",
+      "description": "Company or business name"
+    },
+    "avatar_url": {
+      "type": "string",
+      "description": "Profile photo URL"
+    },
+    "notify_rfis": {
+      "type": "boolean",
+      "default": true,
+      "description": "Receive email notifications for RFIs"
+    },
+    "notify_documents": {
+      "type": "boolean",
+      "default": true,
+      "description": "Receive email notifications for document changes"
+    }
+  },
+  "required": []
+}

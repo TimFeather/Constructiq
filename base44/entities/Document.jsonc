@@ -1,0 +1,45 @@
+{
+  "name": "Document",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Document name"
+    },
+    "project_id": {
+      "type": "string",
+      "description": "Associated project ID"
+    },
+    "file_url": {
+      "type": "string",
+      "description": "URL of the uploaded file"
+    },
+    "file_type": {
+      "type": "string",
+      "description": "File type (PDF, DOCX, Image, etc.)"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "Draft",
+        "In Review",
+        "Approved",
+        "Superseded"
+      ],
+      "default": "Draft",
+      "description": "Document status"
+    },
+    "uploaded_by_name": {
+      "type": "string",
+      "description": "Name of the uploader"
+    },
+    "uploaded_by_email": {
+      "type": "string",
+      "description": "Email of the uploader"
+    }
+  },
+  "required": [
+    "name",
+    "project_id"
+  ]
+}

@@ -1,0 +1,114 @@
+{
+  "name": "RFI",
+  "type": "object",
+  "properties": {
+    "number": {
+      "type": "number",
+      "description": "Auto-incremented RFI number"
+    },
+    "title": {
+      "type": "string",
+      "description": "RFI title"
+    },
+    "description": {
+      "type": "string",
+      "description": "Detailed description of the information request"
+    },
+    "project_id": {
+      "type": "string",
+      "description": "Associated project ID"
+    },
+    "due_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Due date for response"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "Open",
+        "Answered",
+        "Closed"
+      ],
+      "default": "Open",
+      "description": "RFI status"
+    },
+    "priority": {
+      "type": "string",
+      "enum": [
+        "Low",
+        "Medium",
+        "High",
+        "Critical"
+      ],
+      "default": "Medium",
+      "description": "Priority level"
+    },
+    "assigned_to_email": {
+      "type": "string",
+      "description": "Email of assigned user"
+    },
+    "assigned_to_name": {
+      "type": "string",
+      "description": "Name of assigned user"
+    },
+    "assigned_role": {
+      "type": "string",
+      "description": "Role assigned to (optional)"
+    },
+    "attachments": {
+      "type": "array",
+      "description": "File attachments",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "responses": {
+      "type": "array",
+      "description": "Response thread",
+      "items": {
+        "type": "object",
+        "properties": {
+          "author_email": {
+            "type": "string"
+          },
+          "author_name": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string"
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "required": [
+    "title",
+    "project_id"
+  ]
+}

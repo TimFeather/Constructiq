@@ -1,0 +1,77 @@
+{
+  "name": "Task",
+  "type": "object",
+  "properties": {
+    "project_id": {
+      "type": "string",
+      "description": "Associated project ID"
+    },
+    "name": {
+      "type": "string",
+      "description": "Task name"
+    },
+    "wbs": {
+      "type": "string",
+      "description": "WBS number (auto-generated)"
+    },
+    "level": {
+      "type": "number",
+      "description": "Hierarchy level: 0=Phase, 1=Summary, 2=Task, 3=Subtask"
+    },
+    "parent_id": {
+      "type": "string",
+      "description": "Parent task ID for hierarchy"
+    },
+    "sort_order": {
+      "type": "number",
+      "description": "Sort order within siblings"
+    },
+    "start_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Task start date"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Task end date"
+    },
+    "duration": {
+      "type": "number",
+      "description": "Duration in days"
+    },
+    "percent_complete": {
+      "type": "number",
+      "description": "Percentage complete (0-100)",
+      "default": 0
+    },
+    "assignee_email": {
+      "type": "string",
+      "description": "Assigned user email"
+    },
+    "assignee_name": {
+      "type": "string",
+      "description": "Assigned user name"
+    },
+    "predecessors": {
+      "type": "array",
+      "description": "Predecessor task IDs with lag",
+      "items": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string"
+          },
+          "lag_days": {
+            "type": "number",
+            "default": 0
+          }
+        }
+      }
+    }
+  },
+  "required": [
+    "name",
+    "project_id"
+  ]
+}

@@ -1,0 +1,74 @@
+{
+  "name": "Project",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Project name"
+    },
+    "description": {
+      "type": "string",
+      "description": "Project description"
+    },
+    "start_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Project start date"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Project end date"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "Active",
+        "On Hold",
+        "Complete"
+      ],
+      "default": "Active",
+      "description": "Current project status"
+    },
+    "team": {
+      "type": "array",
+      "description": "Team members with their roles",
+      "items": {
+        "type": "object",
+        "properties": {
+          "user_email": {
+            "type": "string"
+          },
+          "full_name": {
+            "type": "string"
+          },
+          "business_name": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "Architect",
+              "Client",
+              "External Project Manager",
+              "Internal Project Manager",
+              "Site Manager",
+              "Quantity Surveyor",
+              "Subcontractor"
+            ]
+          },
+          "trade": {
+            "type": "string",
+            "description": "Trade field for subcontractors"
+          }
+        }
+      }
+    }
+  },
+  "required": [
+    "name"
+  ]
+}
