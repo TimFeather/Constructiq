@@ -38,9 +38,16 @@ export default function TaskEditPanel({ task, tasks = [], open, onOpenChange }) 
     updateMutation.mutate(data);
   };
 
+  const recalcEnd = (start, duration) => {
+    if (!start || !duration) return form.end_date || '';
+    const end = new Date(start);
+    end.setDate(end.getDate() + duration - 1);
+    return end.toISOString().split('T')[0];
+  };
+
   const adjustDuration = (delta) => {
     const newDuration = Math.max(1, (form.duration || 1) + delta);
-    setForm({ ...form, duration: newDuration });
+    setForm({ ...form, duration: newDuration, end_date: recalcEnd(form.start_date, newDuration) });
   };
 
   if (!task) return null;
@@ -87,7 +94,10 @@ export default function TaskEditPanel({ task, tasks = [], open, onOpenChange }) 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>Start Date</Label>
-              <Input type="date" value={form.start_date || ''} onChange={e => setForm({...form, start_date: e.target.value})} />
+              <Input type="date" value={form.start_date || ''} onChange={e => {
+                const start = e.target.value;
+                setForm({...form, start_date: start, end_date: recalcEnd(start, form.duration)});
+              }} />
             </div>
             <div>
               <Label>End Date</Label>
@@ -104,7 +114,10 @@ export default function TaskEditPanel({ task, tasks = [], open, onOpenChange }) 
                 type="number"
                 min="1"
                 value={form.duration || ''}
-                onChange={e => setForm({...form, duration: parseInt(e.target.value) || 0})}
+                onChange={e => {
+                  const dur = parseInt(e.target.value) || 1;
+                  setForm({...form, duration: dur, end_date: recalcEnd(form.start_date, dur)});
+                }}
                 className="text-center"
               />
               <Button type="button" variant="outline" size="icon" className="h-8 w-8" onClick={() => adjustDuration(1)}>
