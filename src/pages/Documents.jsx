@@ -31,15 +31,24 @@ export default function Documents() {
   const [uploading, setUploading] = useState(false);
   const queryClient = useQueryClient();
 
-  const { data: documents = [], isLoading } = useQuery({
+  const isAdmin = user?.role === 'admin';
+
+  const { data: allDocuments = [], isLoading } = useQuery({
     queryKey: ['documents'],
     queryFn: () => base44.entities.Document.list('-created_date', 200),
   });
 
-  const { data: projects = [] } = useQuery({
+  const { data: allProjects = [] } = useQuery({
     queryKey: ['projects'],
     queryFn: () => base44.entities.Project.list('-created_date', 100),
   });
+
+  const projects = isAdmin
+    ? allProjects
+    : allProjects.filter(p => p.team?.some(m => m.user_email === user?.email));
+
+  const projectIds = new Set(projects.map(p => p.id));
+  const documents = allDocuments.filter(d => projectIds.has(d.project_id));
 
   const statusMutation = useMutation({
     mutationFn: ({ id, status, ownerEmail }) => {

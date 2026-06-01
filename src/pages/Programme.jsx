@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
+import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -13,6 +14,8 @@ import GanttChart from '@/components/programme/GanttChart';
 import TaskEditPanel from '@/components/programme/TaskEditPanel';
 
 export default function Programme() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [selectedProjectId, setSelectedProjectId] = useState('all');
   const [taskListCollapsed, setTaskListCollapsed] = useState(false);
   const [zoom, setZoom] = useState('week');
@@ -21,19 +24,26 @@ export default function Programme() {
   const [newTask, setNewTask] = useState({ name: '', project_id: '', level: 2, start_date: '', end_date: '', duration: 5 });
   const queryClient = useQueryClient();
 
-  const { data: projects = [] } = useQuery({
+  const { data: allProjectsRaw = [] } = useQuery({
     queryKey: ['projects'],
     queryFn: () => base44.entities.Project.list('-created_date', 100),
   });
+
+  const projects = isAdmin
+    ? allProjectsRaw
+    : allProjectsRaw.filter(p => p.team?.some(m => m.user_email === user?.email));
+
+  const projectIds = new Set(projects.map(p => p.id));
 
   const { data: allTasks = [] } = useQuery({
     queryKey: ['tasks'],
     queryFn: () => base44.entities.Task.list('-created_date', 500),
   });
 
+  const accessibleTasks = allTasks.filter(t => projectIds.has(t.project_id));
   const tasks = selectedProjectId === 'all'
-    ? allTasks
-    : allTasks.filter(t => t.project_id === selectedProjectId);
+    ? accessibleTasks
+    : accessibleTasks.filter(t => t.project_id === selectedProjectId);
 
   const createMutation = useMutation({
     mutationFn: async (data) => {
@@ -125,7 +135,7 @@ export default function Programme() {
       {/* Task edit panel */}
       <TaskEditPanel
         task={selectedTask}
-        tasks={allTasks}
+        tasks={accessibleTasks}
         open={!!selectedTask}
         onOpenChange={(open) => { if (!open) setSelectedTask(null); }}
       />

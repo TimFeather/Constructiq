@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
+import { useAuth } from '@/lib/AuthContext';
 import { Link } from 'react-router-dom';
 import { Plus, Search, MessageSquareMore, Clock, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -14,21 +15,29 @@ import RFIFormDialog from '@/components/rfis/RFIFormDialog';
 import { format } from 'date-fns';
 
 export default function RFIs() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [showForm, setShowForm] = useState(false);
 
-  const { data: rfis = [], isLoading } = useQuery({
+  const { data: allRfis = [], isLoading } = useQuery({
     queryKey: ['rfis'],
     queryFn: () => base44.entities.RFI.list('-created_date', 200),
   });
 
-  const { data: projects = [] } = useQuery({
+  const { data: allProjects = [] } = useQuery({
     queryKey: ['projects'],
     queryFn: () => base44.entities.Project.list('-created_date', 100),
   });
 
+  const projects = isAdmin
+    ? allProjects
+    : allProjects.filter(p => p.team?.some(m => m.user_email === user?.email));
+
+  const projectIds = new Set(projects.map(p => p.id));
+  const rfis = allRfis.filter(r => projectIds.has(r.project_id));
   const projectMap = Object.fromEntries(projects.map(p => [p.id, p.name]));
 
   const filtered = rfis.filter(r => {

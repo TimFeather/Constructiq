@@ -1,6 +1,7 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
+import { useAuth } from '@/lib/AuthContext';
 import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { FolderKanban, FileText, MessageSquareMore, GanttChart, ArrowRight, Clock } from 'lucide-react';
@@ -32,25 +33,38 @@ function StatCard({ icon: Icon, label, value, color, to }) {
 }
 
 export default function Dashboard() {
-  const { data: projects = [] } = useQuery({
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+
+  const { data: allProjects = [] } = useQuery({
     queryKey: ['projects'],
     queryFn: () => base44.entities.Project.list('-created_date', 50),
   });
 
-  const { data: rfis = [] } = useQuery({
+  const projects = isAdmin
+    ? allProjects
+    : allProjects.filter(p => p.team?.some(m => m.user_email === user?.email));
+
+  const projectIds = new Set(projects.map(p => p.id));
+
+  const { data: allRfis = [] } = useQuery({
     queryKey: ['rfis'],
     queryFn: () => base44.entities.RFI.list('-created_date', 50),
   });
 
-  const { data: documents = [] } = useQuery({
+  const { data: allDocuments = [] } = useQuery({
     queryKey: ['documents'],
     queryFn: () => base44.entities.Document.list('-created_date', 50),
   });
 
-  const { data: tasks = [] } = useQuery({
+  const { data: allTasks = [] } = useQuery({
     queryKey: ['tasks'],
     queryFn: () => base44.entities.Task.list('-created_date', 50),
   });
+
+  const rfis = allRfis.filter(r => projectIds.has(r.project_id));
+  const documents = allDocuments.filter(d => projectIds.has(d.project_id));
+  const tasks = allTasks.filter(t => projectIds.has(t.project_id));
 
   const activeProjects = projects.filter(p => p.status === 'Active');
   const openRfis = rfis.filter(r => r.status === 'Open');

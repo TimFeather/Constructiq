@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
+import { useAuth } from '@/lib/AuthContext';
 import { Link } from 'react-router-dom';
 import { Plus, Search, Calendar } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -15,14 +16,20 @@ import { format } from 'date-fns';
 import { FolderKanban } from 'lucide-react';
 
 export default function Projects() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [showForm, setShowForm] = useState(false);
 
-  const { data: projects = [], isLoading } = useQuery({
+  const { data: allProjects = [], isLoading } = useQuery({
     queryKey: ['projects'],
     queryFn: () => base44.entities.Project.list('-created_date', 100),
   });
+
+  const projects = isAdmin
+    ? allProjects
+    : allProjects.filter(p => p.team?.some(m => m.user_email === user?.email));
 
   const filtered = projects.filter(p => {
     const matchSearch = p.name?.toLowerCase().includes(search.toLowerCase());
