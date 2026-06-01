@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
-import { Trash2, ChevronUp, ChevronDown } from 'lucide-react';
+import { Trash2, ChevronUp, ChevronDown, Plus, X } from 'lucide-react';
 
 export default function TaskEditPanel({ task, tasks = [], open, onOpenChange }) {
   const [form, setForm] = useState({});
@@ -129,6 +129,77 @@ export default function TaskEditPanel({ task, tasks = [], open, onOpenChange }) 
           <div>
             <Label>Assignee Email</Label>
             <Input value={form.assignee_email || ''} onChange={e => setForm({...form, assignee_email: e.target.value})} />
+          </div>
+
+          {/* Predecessors & Lag */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <Label>Predecessors & Lag</Label>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 gap-1 text-xs"
+                onClick={() => setForm({
+                  ...form,
+                  predecessors: [...(form.predecessors || []), { task_id: '', lag_days: 0 }]
+                })}
+              >
+                <Plus className="w-3 h-3" /> Add
+              </Button>
+            </div>
+            {(form.predecessors || []).length === 0 && (
+              <p className="text-xs text-muted-foreground">No predecessors set</p>
+            )}
+            <div className="space-y-2">
+              {(form.predecessors || []).map((pred, idx) => (
+                <div key={idx} className="flex items-center gap-2">
+                  <Select
+                    value={pred.task_id || 'none'}
+                    onValueChange={v => {
+                      const updated = [...form.predecessors];
+                      updated[idx] = { ...updated[idx], task_id: v === 'none' ? '' : v };
+                      setForm({ ...form, predecessors: updated });
+                    }}
+                  >
+                    <SelectTrigger className="flex-1 h-8 text-xs">
+                      <SelectValue placeholder="Select task" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {tasks.filter(t => t.id !== task.id).map(t => (
+                        <SelectItem key={t.id} value={t.id}>{t.wbs} {t.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <span className="text-xs text-muted-foreground">Lag:</span>
+                    <Input
+                      type="number"
+                      value={pred.lag_days ?? 0}
+                      onChange={e => {
+                        const updated = [...form.predecessors];
+                        updated[idx] = { ...updated[idx], lag_days: parseInt(e.target.value) || 0 };
+                        setForm({ ...form, predecessors: updated });
+                      }}
+                      className="w-16 h-8 text-xs text-center"
+                    />
+                    <span className="text-xs text-muted-foreground">d</span>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-muted-foreground hover:text-destructive flex-shrink-0"
+                    onClick={() => {
+                      const updated = form.predecessors.filter((_, i) => i !== idx);
+                      setForm({ ...form, predecessors: updated });
+                    }}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
         <SheetFooter className="mt-6 flex justify-between">
