@@ -51,14 +51,23 @@ export default function RFIDetail() {
       };
       const existing = rfi?.responses || [];
       await base44.entities.RFI.update(id, { responses: [...existing, newResponse] });
-      // Notify RFI creator
-      if (rfi?.created_by && rfi.created_by !== user?.email) {
+      // Notify all assignees and creator about the new response
+      const rfiUrl = `${window.location.origin}/rfis/${id}`;
+      const rfiRef = `RFI-${String(rfi.number).padStart(3, '0')}: ${rfi.title}`;
+      const emailBody = `Hi,\n\n${user?.full_name || 'A team member'} has posted a new response on ${rfiRef}.\n\nResponse:\n"${response}"\n\nView the full thread here:\n${rfiUrl}\n\nThank you.`;
+
+      const notifyEmails = new Set();
+      (rfi?.assignees || []).forEach(a => { if (a.email && a.email !== user?.email) notifyEmails.add(a.email); });
+      if (rfi?.created_by_email && rfi.created_by_email !== user?.email) notifyEmails.add(rfi.created_by_email);
+      if (rfi?.assigned_to_email && rfi.assigned_to_email !== user?.email) notifyEmails.add(rfi.assigned_to_email);
+
+      notifyEmails.forEach(email => {
         base44.integrations.Core.SendEmail({
-          to: rfi.created_by,
-          subject: `New response on RFI-${String(rfi.number).padStart(3, '0')}: ${rfi.title}`,
-          body: `${user?.full_name || 'A user'} responded to RFI-${String(rfi.number).padStart(3, '0')}:\n\n${response}`
+          to: email,
+          subject: `New response on ${rfiRef}`,
+          body: emailBody,
         });
-      }
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['rfi', id] });

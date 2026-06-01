@@ -56,11 +56,12 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [] }) {
         assigned_to_name: firstAssignee?.name || '',
       });
       // send email to all assignees
+      const rfiUrl = `${window.location.origin}/rfis/${rfi.id}`;
       selectedEmails.forEach(assignee => {
         base44.integrations.Core.SendEmail({
           to: assignee.email,
-          subject: `New RFI Assigned: ${data.title}`,
-          body: `You have been assigned RFI-${String(nextNumber).padStart(3, '0')}: ${data.title}\n\nDescription: ${data.description || 'No description'}\n\nPlease log in to respond.`
+          subject: `New RFI Assigned: RFI-${String(nextNumber).padStart(3, '0')} – ${data.title}`,
+          body: `Hi ${assignee.name},\n\nYou have been assigned a new Request for Information.\n\nRFI-${String(nextNumber).padStart(3, '0')}: ${data.title}\n\nPriority: ${data.priority || 'Medium'}\nDue Date: ${data.due_date || 'Not set'}\n\nDescription:\n${data.description || 'No description provided'}\n\nView the full RFI and respond here:\n${rfiUrl}\n\nThank you.`
         });
       });
       return rfi;
