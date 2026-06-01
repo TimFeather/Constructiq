@@ -280,7 +280,7 @@ export default function GanttChart({ tasks, zoom = 'week' }) {
                 <div
                   key={task.id}
                   className={cn("absolute flex items-center", color)}
-                  style={{ left: bar.left, width: bar.width, top: i * ROW_H + 14, height: 12, borderRadius: 2 }}
+                  style={{ left: bar.left, width: bar.width, top: i * ROW_H + 6, height: 28, borderRadius: 2 }}
                   title={`${task.name} (${task.duration || 0}d) — Summary`}
                 >
                   <div className="absolute inset-0 bg-black/20 rounded" style={{ width: `${percentComplete}%` }} />
@@ -300,7 +300,7 @@ export default function GanttChart({ tasks, zoom = 'week' }) {
                   "absolute rounded transition-all hover:opacity-80 hover:shadow-md cursor-pointer group",
                   color,
                 )}
-                style={{ left: bar.left, width: bar.width, top: i * ROW_H + 8, height: 24 }}
+                style={{ left: bar.left, width: bar.width, top: i * ROW_H + 3, height: 34 }}
                 title={`${task.name}\n${task.start_date} → ${task.end_date}\n${task.duration || 0}d | ${percentComplete}%`}
               >
                 {/* Progress overlay */}
@@ -312,12 +312,12 @@ export default function GanttChart({ tasks, zoom = 'week' }) {
                 )}
                 {/* Label */}
                 {bar.width > 50 && (
-                  <span className="absolute left-2 text-[10px] text-white font-medium truncate leading-6 pointer-events-none" style={{ maxWidth: bar.width - 16 }}>
+                  <span className="absolute left-2 text-[10px] text-white font-medium truncate leading-tight pointer-events-none" style={{ maxWidth: bar.width - 16, top: '50%', transform: 'translateY(-50%)' }}>
                     {task.name}
                   </span>
                 )}
                 {/* Percent label on hover */}
-                <span className="absolute right-1 top-0.5 text-[9px] text-white/80 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                <span className="absolute right-1 text-[9px] text-white/80 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" style={{ top: '50%', transform: 'translateY(-50%)' }}>
                   {percentComplete}%
                 </span>
               </div>
