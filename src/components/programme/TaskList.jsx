@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { ChevronRight, ChevronDown, Plus, Minus } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { ChevronRight, ChevronDown, Plus, Minus, AlertCircle } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { addDays, differenceInCalendarDays, format } from 'date-fns';
 import { cascadeTaskDates } from '@/lib/cascadeTaskDates';
+import { runScheduleEngine } from '@/lib/schedulingEngine';
 
 const levelColors = [
   'border-l-primary',
@@ -15,6 +16,13 @@ const levelColors = [
   'border-l-purple-500',
 ];
 
+const DEP_TYPE_BADGE = {
+  FS: 'bg-blue-100 text-blue-700',
+  SS: 'bg-emerald-100 text-emerald-700',
+  FF: 'bg-amber-100 text-amber-700',
+  SF: 'bg-purple-100 text-purple-700',
+};
+
 export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, canEdit = false }) {
   const [expandedIds, setExpandedIds] = useState(new Set(tasks.filter(t => t.level === 0).map(t => t.id)));
   const [editingId, setEditingId] = useState(null);
@@ -22,10 +30,24 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
   const [adjustingId, setAdjustingId] = useState(null);
   const queryClient = useQueryClient();
 
-  const updateMutation = useMutation({
-    mutationFn: ({ id, data }) => base44.entities.Task.update(id, data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['tasks'] }),
-  });
+  // Run the scheduling engine to get live-resolved dates for all tasks
+  const scheduledDates = useMemo(() => {
+    if (!tasks.length) return new Map();
+    const projectStart = tasks.reduce((min, t) => {
+      if (!t.start_date) return min;
+      return t.start_date < min ? t.start_date : min;
+    }, tasks.find(t => t.start_date)?.start_date || new Date().toISOString().split('T')[0]);
+    return runScheduleEngine(tasks, projectStart);
+  }, [tasks]);
+
+  const getResolvedDates = (task) => {
+    const resolved = scheduledDates.get(task.id);
+    return {
+      start: resolved?.startStr || task.start_date || '—',
+      end: resolved?.finishStr || task.end_date || '—',
+      duration: resolved?.durationDays || task.duration || 0,
+    };
+  };
 
   const adjustDays = async (task, delta) => {
     const newDuration = Math.max(1, (task.duration || 1) + delta);
@@ -34,9 +56,8 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
       : task.end_date;
     setAdjustingId(task.id);
     await base44.entities.Task.update(task.id, { duration: newDuration, end_date: newEnd });
-    if (newEnd) {
-      await cascadeTaskDates(task.id, newEnd, tasks, (id, data) => base44.entities.Task.update(id, data));
-    }
+    const mergedTasks = tasks.map(t => t.id === task.id ? { ...t, duration: newDuration, end_date: newEnd } : t);
+    await cascadeTaskDates(task.id, mergedTasks, (id, data) => base44.entities.Task.update(id, data));
     queryClient.invalidateQueries({ queryKey: ['tasks'] });
     setAdjustingId(null);
   };
@@ -72,16 +93,14 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
       finalData.duration = differenceInCalendarDays(new Date(v.end_date), new Date(v.start_date)) + 1;
     }
     await base44.entities.Task.update(taskId, finalData);
-    if (finalData.end_date) {
-      await cascadeTaskDates(taskId, finalData.end_date, tasks, (id, data) => base44.entities.Task.update(id, data));
-    }
+    const mergedTasks = tasks.map(t => t.id === taskId ? { ...t, ...finalData } : t);
+    await cascadeTaskDates(taskId, mergedTasks, (id, data) => base44.entities.Task.update(id, data));
     queryClient.invalidateQueries({ queryKey: ['tasks'] });
     setEditingId(null);
   };
 
   const handleFieldChange = (field, value) => {
     const updated = { ...editValues, [field]: value };
-    // Auto-recalculate
     if (field === 'start_date' && updated.duration) {
       updated.end_date = format(addDays(new Date(value), parseInt(updated.duration) - 1), 'yyyy-MM-dd');
     } else if (field === 'duration' && updated.start_date) {
@@ -100,22 +119,38 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
     const hasChildren = children.length > 0;
     const isExpanded = expandedIds.has(task.id);
     const isEditing = editingId === task.id;
+    const isSummary = task.is_summary || task.level === 0 || task.level === 1;
     const percentComplete = task.percent_complete || 0;
+    const resolved = getResolvedDates(task);
+
+    // Show if engine-resolved dates differ from stored (indicating pending cascade)
+    const hasPendingUpdate = resolved.start !== (task.start_date || '—') || resolved.end !== (task.end_date || '—');
+
+    // Get predecessor info for display
+    const preds = (task.predecessors || []);
+    const predTypes = preds
+      .filter(p => p.predecessor_id || p.task_id)
+      .map(p => ({
+        name: tasks.find(t => t.id === (p.predecessor_id || p.task_id))?.wbs || '?',
+        type: p.type || 'FS',
+        lag: p.lag_hours || p.lag_days * 8 || 0,
+      }));
 
     return (
       <React.Fragment key={task.id}>
         <div
           className={cn(
-            "flex items-center gap-1 hover:bg-muted/50 transition-colors border-l-3 group",
+            "flex items-start gap-1 hover:bg-muted/50 transition-colors border-l-3 group",
             levelColors[task.level || 0] || 'border-l-muted',
             isEditing ? 'bg-primary/5' : 'cursor-pointer',
+            hasPendingUpdate && !isEditing && 'bg-amber-50/50 dark:bg-amber-950/20',
           )}
           style={{ paddingLeft: `${8 + depth * 16}px` }}
           onClick={isEditing ? undefined : () => onTaskClick(task)}
           onDoubleClick={(e) => canEdit && startEdit(task, e)}
         >
           {/* Expand toggle */}
-          <div className="w-5 flex-shrink-0">
+          <div className="w-5 flex-shrink-0 mt-2">
             {hasChildren ? (
               <button
                 className="w-5 h-5 flex items-center justify-center hover:bg-muted rounded"
@@ -127,98 +162,99 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
           </div>
 
           {isEditing ? (
-            /* Inline edit row */
-            <>
+            <div className="flex items-center gap-1 flex-1 py-1">
               <Input
                 autoFocus
                 value={editValues.name}
                 onChange={e => handleFieldChange('name', e.target.value)}
-                className="h-7 text-xs flex-1 min-w-0 mr-1"
+                className="h-7 text-xs flex-1 min-w-0"
                 onClick={e => e.stopPropagation()}
                 onKeyDown={e => { if (e.key === 'Enter') commitEdit(task.id); if (e.key === 'Escape') setEditingId(null); }}
               />
-              <Input
-                type="date"
-                value={editValues.start_date}
+              <Input type="date" value={editValues.start_date}
                 onChange={e => handleFieldChange('start_date', e.target.value)}
-                className="h-7 text-xs w-32 flex-shrink-0"
-                onClick={e => e.stopPropagation()}
-              />
-              <Input
-                type="number"
-                min="1"
-                value={editValues.duration}
+                className="h-7 text-xs w-32 flex-shrink-0" onClick={e => e.stopPropagation()} />
+              <Input type="number" min="1" value={editValues.duration}
                 onChange={e => handleFieldChange('duration', e.target.value)}
-                className="h-7 text-xs w-14 flex-shrink-0 text-center"
-                onClick={e => e.stopPropagation()}
-                title="Duration (days)"
-              />
-              <Input
-                type="date"
-                value={editValues.end_date}
+                className="h-7 text-xs w-14 flex-shrink-0 text-center" onClick={e => e.stopPropagation()} />
+              <Input type="date" value={editValues.end_date}
                 onChange={e => handleFieldChange('end_date', e.target.value)}
-                className="h-7 text-xs w-32 flex-shrink-0"
-                onClick={e => e.stopPropagation()}
-              />
-              <button
-                className="ml-1 px-2 py-1 text-xs bg-primary text-primary-foreground rounded flex-shrink-0"
-                onClick={e => { e.stopPropagation(); commitEdit(task.id); }}
-              >✓</button>
-              <button
-                className="px-2 py-1 text-xs text-muted-foreground rounded flex-shrink-0"
-                onClick={e => { e.stopPropagation(); setEditingId(null); }}
-              >✕</button>
-            </>
+                className="h-7 text-xs w-32 flex-shrink-0" onClick={e => e.stopPropagation()} />
+              <button className="px-2 py-1 text-xs bg-primary text-primary-foreground rounded flex-shrink-0"
+                onClick={e => { e.stopPropagation(); commitEdit(task.id); }}>✓</button>
+              <button className="px-2 py-1 text-xs text-muted-foreground rounded flex-shrink-0"
+                onClick={e => { e.stopPropagation(); setEditingId(null); }}>✕</button>
+            </div>
           ) : (
-            /* Normal display row */
-            <>
-              <div className="flex-1 min-w-0 py-1.5">
+            <div className="flex-1 min-w-0 py-1.5 flex items-start justify-between gap-2">
+              {/* Left: WBS + Name + Dates + Predecessor badges */}
+              <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] font-mono text-muted-foreground w-10 flex-shrink-0">{task.wbs || '—'}</span>
+                  <span className="text-[10px] font-mono text-muted-foreground w-8 flex-shrink-0">{task.wbs || '—'}</span>
                   <span className={cn(
                     "text-xs truncate",
-                    task.level === 0 && "font-bold",
+                    task.level === 0 && "font-bold text-foreground",
                     task.level === 1 && "font-semibold",
+                    isSummary && "italic",
                   )}>
                     {task.name}
+                    {isSummary && <span className="ml-1 text-[9px] text-muted-foreground font-normal not-italic">(summary)</span>}
                   </span>
+                  {hasPendingUpdate && (
+                    <AlertCircle className="w-3 h-3 text-amber-500 flex-shrink-0" title="Engine date differs from stored — save to apply" />
+                  )}
                 </div>
-                <div className="flex items-center gap-2 mt-0.5 pl-11">
-                  <span className="text-[10px] text-muted-foreground">{task.start_date || '—'}</span>
+
+                {/* Engine-resolved dates */}
+                <div className="flex items-center gap-1.5 mt-0.5 pl-9">
+                  <span className="text-[10px] text-muted-foreground font-mono">{resolved.start}</span>
                   <span className="text-[10px] text-muted-foreground">→</span>
-                  <span className="text-[10px] text-muted-foreground">{task.end_date || '—'}</span>
+                  <span className="text-[10px] text-muted-foreground font-mono">{resolved.end}</span>
+                  <span className="text-[10px] text-muted-foreground/60">({resolved.duration}d)</span>
                 </div>
+
+                {/* Predecessor dependency badges */}
+                {predTypes.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-0.5 pl-9">
+                    {predTypes.map((p, i) => (
+                      <span key={i} className={cn("text-[9px] px-1.5 py-0.5 rounded font-mono", DEP_TYPE_BADGE[p.type] || 'bg-muted text-muted-foreground')}>
+                        {p.name} {p.type}{p.lag !== 0 ? ` ${p.lag > 0 ? '+' : ''}${p.lag}h` : ''}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
-              <div className="flex items-center gap-1.5 flex-shrink-0 pr-2">
-                {canEdit && (
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+
+              {/* Right: Duration controls + progress */}
+              <div className="flex items-center gap-1.5 flex-shrink-0 pr-2 pt-0.5">
+                {canEdit && !isSummary && (
+                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
-                      className="w-6 h-6 flex items-center justify-center rounded border border-border hover:bg-muted text-muted-foreground disabled:opacity-40"
+                      className="w-5 h-5 flex items-center justify-center rounded border border-border hover:bg-muted text-muted-foreground disabled:opacity-40"
                       onClick={e => { e.stopPropagation(); adjustDays(task, -1); }}
                       disabled={adjustingId === task.id}
                       title="Remove 1 day"
                     >
-                      <Minus className="w-3 h-3" />
+                      <Minus className="w-2.5 h-2.5" />
                     </button>
                     <button
-                      className="w-6 h-6 flex items-center justify-center rounded border border-border hover:bg-muted text-muted-foreground disabled:opacity-40"
+                      className="w-5 h-5 flex items-center justify-center rounded border border-border hover:bg-muted text-muted-foreground disabled:opacity-40"
                       onClick={e => { e.stopPropagation(); adjustDays(task, 1); }}
                       disabled={adjustingId === task.id}
                       title="Add 1 day"
                     >
-                      <Plus className="w-3 h-3" />
+                      <Plus className="w-2.5 h-2.5" />
                     </button>
                   </div>
                 )}
-                <span className="text-xs font-medium text-muted-foreground w-10 text-right">{task.duration || 0}d</span>
-                <div className="flex items-center gap-1 w-16">
+                <div className="flex items-center gap-1 w-14">
                   <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
                     <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${percentComplete}%` }} />
                   </div>
-                  <span className="text-[10px] w-7 flex-shrink-0">{percentComplete}%</span>
+                  <span className="text-[10px] w-7 flex-shrink-0 text-right">{percentComplete}%</span>
                 </div>
               </div>
-            </>
+            </div>
           )}
         </div>
 
@@ -229,7 +265,6 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
 
   return (
     <div className="border-r bg-card h-full flex flex-col">
-      {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b bg-muted/30">
         <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Task List</span>
         {canEdit && (
@@ -242,12 +277,10 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
       {/* Column headers */}
       <div className="flex items-center gap-1 px-2 py-1.5 border-b text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
         <div className="w-5" />
-        <div className="flex-1 flex items-center gap-1.5">
-          <span className="w-10">WBS</span>
-          <span>Name / Dates</span>
+        <div className="flex-1">
+          <span>WBS / Name / Dates / Dependencies</span>
         </div>
-        <span className="w-10 text-right">Dur.</span>
-        <span className="w-16 pr-2">Progress</span>
+        <span className="w-20 pr-2 text-right">Progress</span>
       </div>
 
       {/* Task rows */}
@@ -268,7 +301,7 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
 
       {canEdit && (
         <div className="px-3 py-1.5 border-t bg-muted/20">
-          <p className="text-[10px] text-muted-foreground">Double-click any row to edit inline</p>
+          <p className="text-[10px] text-muted-foreground">Double-click any row to edit inline · Click to open edit panel</p>
         </div>
       )}
     </div>

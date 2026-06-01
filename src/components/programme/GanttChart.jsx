@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
-import { differenceInDays, addDays, format, startOfWeek, eachWeekOfInterval, eachDayOfInterval } from 'date-fns';
+import { differenceInDays, addDays, format, eachWeekOfInterval, eachDayOfInterval, isToday, isWeekend } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { runScheduleEngine } from '@/lib/schedulingEngine';
 
 const levelColors = [
   'bg-primary',
@@ -9,188 +10,326 @@ const levelColors = [
   'bg-purple-500',
 ];
 
+const DEP_COLORS = {
+  FS: 'hsl(210 85% 55%)',
+  SS: 'hsl(168 60% 42%)',
+  FF: 'hsl(35 92% 55%)',
+  SF: 'hsl(280 55% 55%)',
+};
+
+const ROW_H = 40;
+
 export default function GanttChart({ tasks, zoom = 'week' }) {
-  const { minDate, maxDate, dayWidth, totalDays, dateHeaders } = useMemo(() => {
-    const dates = tasks
-      .filter(t => t.start_date && t.end_date)
-      .flatMap(t => [new Date(t.start_date), new Date(t.end_date)]);
+  const dayWidth = zoom === 'day' ? 40 : zoom === 'week' ? 18 : 5;
+
+  // Run scheduling engine to get resolved dates
+  const scheduledDates = useMemo(() => {
+    if (!tasks.length) return new Map();
+    const projectStart = tasks.reduce((min, t) => {
+      if (!t.start_date) return min;
+      return t.start_date < min ? t.start_date : min;
+    }, tasks.find(t => t.start_date)?.start_date || new Date().toISOString().split('T')[0]);
+    return runScheduleEngine(tasks, projectStart);
+  }, [tasks]);
+
+  const { minDate, maxDate, totalDays, dateHeaders } = useMemo(() => {
+    const dates = [];
+    scheduledDates.forEach(r => { dates.push(r.start, r.finish); });
+    tasks.forEach(t => {
+      if (t.start_date) dates.push(new Date(t.start_date));
+      if (t.end_date) dates.push(new Date(t.end_date));
+    });
 
     if (dates.length === 0) {
       const today = new Date();
-      return {
-        minDate: today,
-        maxDate: addDays(today, 60),
-        dayWidth: zoom === 'day' ? 40 : zoom === 'week' ? 20 : 6,
-        totalDays: 60,
-        dateHeaders: [],
-      };
+      const padMin = addDays(today, -7);
+      const padMax = addDays(today, 60);
+      return { minDate: padMin, maxDate: padMax, totalDays: 67, dateHeaders: [] };
     }
 
-    const min = new Date(Math.min(...dates));
-    const max = new Date(Math.max(...dates));
-    const padded_min = addDays(min, -7);
-    const padded_max = addDays(max, 14);
-    const total = differenceInDays(padded_max, padded_min) + 1;
-    const dw = zoom === 'day' ? 40 : zoom === 'week' ? 20 : 6;
+    const min = new Date(Math.min(...dates.map(d => d.getTime())));
+    const max = new Date(Math.max(...dates.map(d => d.getTime())));
+    const padMin = addDays(min, -7);
+    const padMax = addDays(max, 21);
+    const total = differenceInDays(padMax, padMin) + 1;
 
     let headers = [];
     if (zoom === 'day') {
-      headers = eachDayOfInterval({ start: padded_min, end: padded_max }).map(d => ({
-        date: d, label: format(d, 'd'), sublabel: format(d, 'EEE'),
+      headers = eachDayOfInterval({ start: padMin, end: padMax }).map(d => ({
+        date: d,
+        label: format(d, 'd'),
+        sublabel: format(d, 'EEE'),
+        isWeekend: isWeekend(d),
+        isToday: isToday(d),
+      }));
+    } else if (zoom === 'week') {
+      headers = eachWeekOfInterval({ start: padMin, end: padMax }).map(d => ({
+        date: d,
+        label: format(d, 'MMM d'),
+        sublabel: format(d, "'W'ww yyyy"),
       }));
     } else {
-      headers = eachWeekOfInterval({ start: padded_min, end: padded_max }).map(d => ({
-        date: d, label: format(d, 'MMM d'), sublabel: format(d, 'yyyy'),
-      }));
+      // month zoom
+      headers = eachWeekOfInterval({ start: padMin, end: padMax })
+        .filter((_, i) => i % 4 === 0 || i === 0)
+        .map(d => ({ date: d, label: format(d, 'MMM yyyy'), sublabel: '' }));
     }
 
-    return { minDate: padded_min, maxDate: padded_max, dayWidth: dw, totalDays: total, dateHeaders: headers };
-  }, [tasks, zoom]);
+    return { minDate: padMin, maxDate: padMax, totalDays: total, dateHeaders: headers };
+  }, [tasks, scheduledDates, zoom]);
 
-  const getTaskBar = (task) => {
-    if (!task.start_date || !task.end_date) return null;
-    const start = differenceInDays(new Date(task.start_date), minDate);
-    const duration = differenceInDays(new Date(task.end_date), new Date(task.start_date)) + 1;
-    return { left: start * dayWidth, width: Math.max(duration * dayWidth, dayWidth) };
-  };
-
-  // Flatten tasks in display order
+  // Flatten tasks in display order (WBS tree walk)
   const flatTasks = useMemo(() => {
     const result = [];
     const rootTasks = tasks.filter(t => !t.parent_id).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-
     const addTask = (task) => {
       result.push(task);
-      const children = tasks.filter(t => t.parent_id === task.id).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-      children.forEach(addTask);
+      tasks.filter(t => t.parent_id === task.id).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).forEach(addTask);
     };
-
     rootTasks.forEach(addTask);
     return result;
   }, [tasks]);
 
-  // Build dependency arrows
-  const getArrows = () => {
-    const arrows = [];
-    flatTasks.forEach((task, taskIndex) => {
-      if (!task.predecessors) return;
-      task.predecessors.forEach(pred => {
-        const predIndex = flatTasks.findIndex(t => t.id === pred.task_id);
-        if (predIndex === -1) return;
-        const predTask = flatTasks[predIndex];
-        const predBar = getTaskBar(predTask);
-        const taskBar = getTaskBar(task);
-        if (!predBar || !taskBar) return;
-
-        const startX = predBar.left + predBar.width;
-        const startY = predIndex * 36 + 18;
-        const endX = taskBar.left;
-        const endY = taskIndex * 36 + 18;
-
-        arrows.push({ startX, startY, endX, endY, lag: pred.lag_days || 0, key: `${predTask.id}-${task.id}` });
-      });
-    });
-    return arrows;
+  const getBar = (task) => {
+    const resolved = scheduledDates.get(task.id);
+    const startDate = resolved?.start || (task.start_date ? new Date(task.start_date) : null);
+    const endDate = resolved?.finish || (task.end_date ? new Date(task.end_date) : null);
+    if (!startDate || !endDate) return null;
+    const left = differenceInDays(startDate, minDate) * dayWidth;
+    const duration = Math.max(1, differenceInDays(endDate, startDate) + 1);
+    const width = Math.max(duration * dayWidth, dayWidth);
+    return { left, width };
   };
 
-  const arrows = getArrows();
-  const chartWidth = totalDays * dayWidth;
-  const chartHeight = flatTasks.length * 36 + 50;
+  // Build dependency arrows with type-aware anchor points
+  const arrows = useMemo(() => {
+    const result = [];
+    const taskIndexMap = new Map(flatTasks.map((t, i) => [t.id, i]));
+
+    flatTasks.forEach((task) => {
+      const taskIdx = taskIndexMap.get(task.id);
+      const taskBar = getBar(task);
+      if (!taskBar) return;
+
+      (task.predecessors || []).forEach(dep => {
+        const pid = dep.predecessor_id || dep.task_id;
+        const predIdx = taskIndexMap.get(pid);
+        if (predIdx === undefined) return;
+
+        const predTask = flatTasks[predIdx];
+        const predBar = getBar(predTask);
+        if (!predBar) return;
+
+        const type = dep.type || 'FS';
+        const color = DEP_COLORS[type] || DEP_COLORS.FS;
+
+        const predCy = predIdx * ROW_H + ROW_H / 2;
+        const taskCy = taskIdx * ROW_H + ROW_H / 2;
+
+        let startX, startY, endX, endY;
+
+        switch (type) {
+          case 'FS':
+            startX = predBar.left + predBar.width; // pred finish
+            startY = predCy;
+            endX = taskBar.left;                    // succ start
+            endY = taskCy;
+            break;
+          case 'SS':
+            startX = predBar.left;                  // pred start
+            startY = predCy;
+            endX = taskBar.left;                    // succ start
+            endY = taskCy;
+            break;
+          case 'FF':
+            startX = predBar.left + predBar.width;  // pred finish
+            startY = predCy;
+            endX = taskBar.left + taskBar.width;    // succ finish
+            endY = taskCy;
+            break;
+          case 'SF':
+            startX = predBar.left;                  // pred start
+            startY = predCy;
+            endX = taskBar.left + taskBar.width;    // succ finish
+            endY = taskCy;
+            break;
+          default:
+            startX = predBar.left + predBar.width;
+            startY = predCy;
+            endX = taskBar.left;
+            endY = taskCy;
+        }
+
+        result.push({ startX, startY, endX, endY, color, type, key: `${pid}-${task.id}-${type}` });
+      });
+    });
+
+    return result;
+  }, [flatTasks, scheduledDates, minDate, dayWidth]);
+
+  const chartWidth = Math.max(totalDays * dayWidth, 400);
+  const chartHeight = flatTasks.length * ROW_H + 50;
+  const todayX = differenceInDays(new Date(), minDate) * dayWidth;
 
   return (
     <div className="flex-1 overflow-auto bg-card">
       <div style={{ minWidth: chartWidth }} className="relative">
         {/* Timeline header */}
-        <div className="sticky top-0 z-10 bg-muted/60 backdrop-blur-sm border-b flex h-10">
-          {dateHeaders.map((h, i) => (
-            <div
-              key={i}
-              className="flex-shrink-0 border-r border-border/50 flex flex-col items-center justify-center"
-              style={{ width: zoom === 'day' ? dayWidth : dayWidth * 7 }}
-            >
-              <span className="text-[10px] font-medium text-muted-foreground">{h.label}</span>
-            </div>
-          ))}
+        <div className="sticky top-0 z-10 bg-muted/80 backdrop-blur-sm border-b">
+          <div className="flex h-10">
+            {dateHeaders.map((h, i) => (
+              <div
+                key={i}
+                className={cn(
+                  "flex-shrink-0 border-r border-border/40 flex flex-col items-center justify-center",
+                  h.isWeekend && "bg-muted/50",
+                  h.isToday && "bg-primary/10",
+                )}
+                style={{ width: zoom === 'day' ? dayWidth : zoom === 'week' ? dayWidth * 7 : dayWidth * 28 }}
+              >
+                <span className={cn("text-[10px] font-semibold", h.isToday ? "text-primary" : "text-muted-foreground")}>
+                  {h.label}
+                </span>
+                {h.sublabel && zoom !== 'month' && (
+                  <span className="text-[9px] text-muted-foreground/60">{h.sublabel}</span>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
 
-        {/* Rows and bars */}
+        {/* Chart body */}
         <div className="relative" style={{ height: chartHeight }}>
-          {/* Grid lines */}
+          {/* Weekend shading (day view) */}
+          {zoom === 'day' && dateHeaders.filter(h => h.isWeekend).map((h, i) => (
+            <div
+              key={i}
+              className="absolute top-0 bottom-0 bg-muted/30 pointer-events-none"
+              style={{ left: differenceInDays(h.date, minDate) * dayWidth, width: dayWidth }}
+            />
+          ))}
+
+          {/* Vertical grid lines */}
           {dateHeaders.map((h, i) => (
             <div
               key={i}
-              className="absolute top-0 bottom-0 border-r border-border/20"
-              style={{ left: (zoom === 'day' ? i * dayWidth : i * dayWidth * 7) }}
+              className="absolute top-0 bottom-0 border-r border-border/15 pointer-events-none"
+              style={{ left: zoom === 'day' ? i * dayWidth : zoom === 'week' ? i * dayWidth * 7 : i * dayWidth * 28 }}
             />
           ))}
+
+          {/* Today line */}
+          {todayX >= 0 && todayX <= chartWidth && (
+            <div
+              className="absolute top-0 bottom-0 border-r-2 border-primary/60 pointer-events-none z-10"
+              style={{ left: todayX }}
+            >
+              <div className="absolute -top-0 left-0 -translate-x-1/2 text-[9px] bg-primary text-primary-foreground px-1 rounded-b">
+                Today
+              </div>
+            </div>
+          )}
 
           {/* Row backgrounds */}
           {flatTasks.map((_, i) => (
             <div
               key={i}
-              className={cn("absolute w-full h-9 border-b border-border/10", i % 2 === 0 && "bg-muted/10")}
-              style={{ top: i * 36 }}
+              className={cn("absolute w-full border-b border-border/10", i % 2 === 0 ? "bg-muted/5" : "")}
+              style={{ top: i * ROW_H, height: ROW_H }}
             />
           ))}
 
-          {/* Task bars */}
-          {flatTasks.map((task, i) => {
-            const bar = getTaskBar(task);
-            if (!bar) return null;
-            const color = levelColors[task.level || 0] || 'bg-muted-foreground';
-            const isPhase = task.level === 0;
+          {/* Dependency arrows (SVG) */}
+          <svg className="absolute inset-0 pointer-events-none overflow-visible" width={chartWidth} height={chartHeight}>
+            <defs>
+              {Object.entries(DEP_COLORS).map(([type, color]) => (
+                <marker key={type} id={`arrow-${type}`} markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+                  <path d="M0,0 L6,3 L0,6 Z" fill={color} opacity="0.7" />
+                </marker>
+              ))}
+            </defs>
+            {arrows.map(({ startX, startY, endX, endY, color, type, key }) => {
+              // Route: elbow connector for cleaner look
+              const midX = startX + (endX - startX) * 0.5;
+              const dx = endX - startX;
+              const pathD = Math.abs(dx) > 20
+                ? `M ${startX} ${startY} C ${midX} ${startY}, ${midX} ${endY}, ${endX} ${endY}`
+                : `M ${startX} ${startY} L ${startX + 10} ${startY} L ${startX + 10} ${endY} L ${endX} ${endY}`;
 
-            return (
-              <div
-                key={task.id}
-                className={cn(
-                  "absolute rounded-sm transition-all hover:opacity-80 group",
-                  color,
-                  isPhase ? "h-3 mt-3" : "h-6 mt-1.5"
-                )}
-                style={{ left: bar.left, width: bar.width, top: i * 36 }}
-                title={`${task.name} (${task.duration || 0}d)`}
-              >
-                {/* Progress overlay */}
-                {(task.percent_complete || 0) > 0 && !isPhase && (
-                  <div
-                    className="absolute inset-0 bg-white/30 rounded-sm"
-                    style={{ width: `${task.percent_complete}%` }}
-                  />
-                )}
-                {/* Label */}
-                {bar.width > 60 && !isPhase && (
-                  <span className="absolute left-2 text-[10px] text-white font-medium truncate leading-6" style={{ maxWidth: bar.width - 16 }}>
-                    {task.name}
-                  </span>
-                )}
-              </div>
-            );
-          })}
-
-          {/* Dependency arrows */}
-          <svg className="absolute inset-0 pointer-events-none" width={chartWidth} height={chartHeight}>
-            {arrows.map(({ startX, startY, endX, endY, key }) => {
-              const midX = startX + (endX - startX) / 2;
               return (
                 <g key={key}>
                   <path
-                    d={`M ${startX} ${startY} C ${midX} ${startY}, ${midX} ${endY}, ${endX} ${endY}`}
+                    d={pathD}
                     fill="none"
-                    stroke="hsl(var(--muted-foreground))"
+                    stroke={color}
                     strokeWidth="1.5"
-                    strokeDasharray="4 2"
-                    opacity="0.5"
-                  />
-                  <polygon
-                    points={`${endX},${endY} ${endX - 6},${endY - 3} ${endX - 6},${endY + 3}`}
-                    fill="hsl(var(--muted-foreground))"
-                    opacity="0.5"
+                    strokeDasharray="5 2"
+                    opacity="0.65"
+                    markerEnd={`url(#arrow-${type})`}
                   />
                 </g>
               );
             })}
           </svg>
+
+          {/* Task bars */}
+          {flatTasks.map((task, i) => {
+            const bar = getBar(task);
+            if (!bar) return null;
+
+            const isSummary = task.is_summary || task.level === 0 || task.level === 1;
+            const color = levelColors[task.level || 0] || 'bg-muted-foreground';
+            const percentComplete = task.percent_complete || 0;
+
+            if (isSummary) {
+              // Diamond/chevron style for phase/summary
+              return (
+                <div
+                  key={task.id}
+                  className={cn("absolute flex items-center", color)}
+                  style={{ left: bar.left, width: bar.width, top: i * ROW_H + 14, height: 12, borderRadius: 2 }}
+                  title={`${task.name} (${task.duration || 0}d) — Summary`}
+                >
+                  <div className="absolute inset-0 bg-black/20 rounded" style={{ width: `${percentComplete}%` }} />
+                  {bar.width > 50 && (
+                    <span className="absolute left-2 text-[9px] text-white font-semibold truncate" style={{ maxWidth: bar.width - 16 }}>
+                      {task.name}
+                    </span>
+                  )}
+                </div>
+              );
+            }
+
+            return (
+              <div
+                key={task.id}
+                className={cn(
+                  "absolute rounded transition-all hover:opacity-80 hover:shadow-md cursor-pointer group",
+                  color,
+                )}
+                style={{ left: bar.left, width: bar.width, top: i * ROW_H + 8, height: 24 }}
+                title={`${task.name}\n${task.start_date} → ${task.end_date}\n${task.duration || 0}d | ${percentComplete}%`}
+              >
+                {/* Progress overlay */}
+                {percentComplete > 0 && (
+                  <div
+                    className="absolute inset-0 bg-white/30 rounded"
+                    style={{ width: `${percentComplete}%` }}
+                  />
+                )}
+                {/* Label */}
+                {bar.width > 50 && (
+                  <span className="absolute left-2 text-[10px] text-white font-medium truncate leading-6 pointer-events-none" style={{ maxWidth: bar.width - 16 }}>
+                    {task.name}
+                  </span>
+                )}
+                {/* Percent label on hover */}
+                <span className="absolute right-1 top-0.5 text-[9px] text-white/80 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                  {percentComplete}%
+                </span>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
