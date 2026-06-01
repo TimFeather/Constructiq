@@ -21,7 +21,7 @@ const DEP_COLORS = {
 import { ROW_HEIGHT } from './TaskList';
 const ROW_H = ROW_HEIGHT;
 
-export default function GanttChart({ tasks, zoom = 'week' }) {
+export default function GanttChart({ tasks, zoom = 'week', scrollRef, onScroll }) {
   const dayWidth = zoom === 'day' ? 40 : zoom === 'week' ? 18 : 5;
 
   // Run scheduling engine to get resolved dates
@@ -165,167 +165,159 @@ export default function GanttChart({ tasks, zoom = 'week' }) {
   const todayX = differenceInDays(new Date(), minDate) * dayWidth;
 
   return (
-    <div className="flex-1 overflow-auto bg-card">
-      <div style={{ minWidth: chartWidth }} className="relative">
-        {/* Header spacer (matches TaskList header height: toolbar 40px + columns 40px) */}
-        <div className="h-[80px]" />
-        
-        {/* Timeline header */}
-        <div className="sticky top-0 z-10 bg-muted/80 backdrop-blur-sm border-b">
-          <div className="flex h-10">
-            {dateHeaders.map((h, i) => (
-              <div
-                key={i}
-                className={cn(
-                  "flex-shrink-0 border-r border-border/40 flex flex-col items-center justify-center",
-                  h.isWeekend && "bg-muted/50",
-                  h.isToday && "bg-primary/10",
-                )}
-                style={{ width: zoom === 'day' ? dayWidth : zoom === 'week' ? dayWidth * 7 : dayWidth * 28 }}
-              >
-                <span className={cn("text-[10px] font-semibold", h.isToday ? "text-primary" : "text-muted-foreground")}>
-                  {h.label}
-                </span>
-                {h.sublabel && zoom !== 'month' && (
-                  <span className="text-[9px] text-muted-foreground/60">{h.sublabel}</span>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Chart body */}
-        <div className="relative" style={{ height: chartHeight }}>
-          {/* Weekend shading (day view) */}
-          {zoom === 'day' && dateHeaders.filter(h => h.isWeekend).map((h, i) => (
-            <div
-              key={i}
-              className="absolute top-0 bottom-0 bg-muted/30 pointer-events-none"
-              style={{ left: differenceInDays(h.date, minDate) * dayWidth, width: dayWidth }}
-            />
-          ))}
-
-          {/* Vertical grid lines */}
+    <div className="flex-1 flex flex-col overflow-hidden bg-card">
+      {/* Fixed headers — 2 rows of h-10 to match TaskList */}
+      <div className="flex-shrink-0 h-10 border-b bg-muted/30 flex items-center px-3">
+        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Timeline</span>
+      </div>
+      {/* Date header row — horizontally synced via same overflow-x scroll on body */}
+      <div className="flex-shrink-0 h-10 border-b bg-muted/30 overflow-hidden" id="gantt-date-header">
+        <div className="flex h-full" style={{ minWidth: chartWidth }}>
           {dateHeaders.map((h, i) => (
             <div
               key={i}
-              className="absolute top-0 bottom-0 border-r border-border/15 pointer-events-none"
-              style={{ left: zoom === 'day' ? i * dayWidth : zoom === 'week' ? i * dayWidth * 7 : i * dayWidth * 28 }}
-            />
-          ))}
-
-          {/* Today line */}
-          {todayX >= 0 && todayX <= chartWidth && (
-            <div
-              className="absolute top-0 bottom-0 border-r-2 border-primary/60 pointer-events-none z-10"
-              style={{ left: todayX }}
+              className={cn(
+                "flex-shrink-0 border-r border-border/40 flex flex-col items-center justify-center",
+                h.isWeekend && "bg-muted/50",
+                h.isToday && "bg-primary/10",
+              )}
+              style={{ width: zoom === 'day' ? dayWidth : zoom === 'week' ? dayWidth * 7 : dayWidth * 28 }}
             >
-              <div className="absolute -top-0 left-0 -translate-x-1/2 text-[9px] bg-primary text-primary-foreground px-1 rounded-b">
-                Today
-              </div>
+              <span className={cn("text-[10px] font-semibold", h.isToday ? "text-primary" : "text-muted-foreground")}>
+                {h.label}
+              </span>
+              {h.sublabel && zoom !== 'month' && (
+                <span className="text-[9px] text-muted-foreground/60">{h.sublabel}</span>
+              )}
             </div>
-          )}
-
-          {/* Row backgrounds */}
-          {flatTasks.map((_, i) => (
-            <div
-              key={i}
-              className={cn("absolute w-full border-b border-border/10", i % 2 === 0 ? "bg-muted/5" : "")}
-              style={{ top: i * ROW_H, height: ROW_H }}
-            />
           ))}
+        </div>
+      </div>
 
-          {/* Dependency arrows (SVG) */}
-          <svg className="absolute inset-0 pointer-events-none overflow-visible" width={chartWidth} height={chartHeight}>
-            <defs>
-              {Object.entries(DEP_COLORS).map(([type, color]) => (
-                <marker key={type} id={`arrow-${type}`} markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-                  <path d="M0,0 L6,3 L0,6 Z" fill={color} opacity="0.7" />
-                </marker>
-              ))}
-            </defs>
-            {arrows.map(({ startX, startY, endX, endY, color, type, key }) => {
-              // Route: elbow connector for cleaner look
-              const midX = startX + (endX - startX) * 0.5;
-              const dx = endX - startX;
-              const pathD = Math.abs(dx) > 20
-                ? `M ${startX} ${startY} C ${midX} ${startY}, ${midX} ${endY}, ${endX} ${endY}`
-                : `M ${startX} ${startY} L ${startX + 10} ${startY} L ${startX + 10} ${endY} L ${endX} ${endY}`;
+      {/* Scrollable body — synced vertically with TaskList, scrolls horizontally for timeline */}
+      <div
+        className="flex-1 overflow-auto"
+        ref={scrollRef}
+        onScroll={(e) => {
+          // Sync date header horizontal scroll
+          const header = document.getElementById('gantt-date-header');
+          if (header) header.scrollLeft = e.currentTarget.scrollLeft;
+          onScroll && onScroll(e);
+        }}
+      >
+        <div style={{ minWidth: chartWidth }} className="relative">
+          {/* Chart body */}
+          <div className="relative" style={{ height: chartHeight }}>
+            {/* Weekend shading (day view) */}
+            {zoom === 'day' && dateHeaders.filter(h => h.isWeekend).map((h, i) => (
+              <div
+                key={i}
+                className="absolute top-0 bottom-0 bg-muted/30 pointer-events-none"
+                style={{ left: differenceInDays(h.date, minDate) * dayWidth, width: dayWidth }}
+              />
+            ))}
 
-              return (
-                <g key={key}>
-                  <path
-                    d={pathD}
-                    fill="none"
-                    stroke={color}
-                    strokeWidth="1.5"
-                    strokeDasharray="5 2"
-                    opacity="0.65"
-                    markerEnd={`url(#arrow-${type})`}
-                  />
-                </g>
-              );
-            })}
-          </svg>
+            {/* Vertical grid lines */}
+            {dateHeaders.map((h, i) => (
+              <div
+                key={i}
+                className="absolute top-0 bottom-0 border-r border-border/15 pointer-events-none"
+                style={{ left: zoom === 'day' ? i * dayWidth : zoom === 'week' ? i * dayWidth * 7 : i * dayWidth * 28 }}
+              />
+            ))}
 
-          {/* Task bars */}
-          {flatTasks.map((task, i) => {
-            const bar = getBar(task);
-            if (!bar) return null;
+            {/* Today line */}
+            {todayX >= 0 && todayX <= chartWidth && (
+              <div
+                className="absolute top-0 bottom-0 border-r-2 border-primary/60 pointer-events-none z-10"
+                style={{ left: todayX }}
+              >
+                <div className="absolute top-0 left-0 -translate-x-1/2 text-[9px] bg-primary text-primary-foreground px-1 rounded-b">
+                  Today
+                </div>
+              </div>
+            )}
 
-            const isSummary = task.is_summary || task.level === 0 || task.level === 1;
-            const color = levelColors[task.level || 0] || 'bg-muted-foreground';
-            const percentComplete = task.percent_complete || 0;
+            {/* Row backgrounds — exact match to TaskList ROW_HEIGHT */}
+            {flatTasks.map((_, i) => (
+              <div
+                key={i}
+                className={cn("absolute w-full border-b border-border/10", i % 2 === 0 ? "bg-muted/5" : "")}
+                style={{ top: i * ROW_H, height: ROW_H }}
+              />
+            ))}
 
-            if (isSummary) {
-              // Diamond/chevron style for phase/summary
+            {/* Dependency arrows (SVG) */}
+            <svg className="absolute inset-0 pointer-events-none overflow-visible" width={chartWidth} height={chartHeight}>
+              <defs>
+                {Object.entries(DEP_COLORS).map(([type, color]) => (
+                  <marker key={type} id={`arrow-${type}`} markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+                    <path d="M0,0 L6,3 L0,6 Z" fill={color} opacity="0.7" />
+                  </marker>
+                ))}
+              </defs>
+              {arrows.map(({ startX, startY, endX, endY, color, type, key }) => {
+                const midX = startX + (endX - startX) * 0.5;
+                const dx = endX - startX;
+                const pathD = Math.abs(dx) > 20
+                  ? `M ${startX} ${startY} C ${midX} ${startY}, ${midX} ${endY}, ${endX} ${endY}`
+                  : `M ${startX} ${startY} L ${startX + 10} ${startY} L ${startX + 10} ${endY} L ${endX} ${endY}`;
+                return (
+                  <g key={key}>
+                    <path d={pathD} fill="none" stroke={color} strokeWidth="1.5" strokeDasharray="5 2" opacity="0.65" markerEnd={`url(#arrow-${type})`} />
+                  </g>
+                );
+              })}
+            </svg>
+
+            {/* Task bars */}
+            {flatTasks.map((task, i) => {
+              const bar = getBar(task);
+              if (!bar) return null;
+              const isSummary = task.is_summary || task.level === 0 || task.level === 1;
+              const color = levelColors[task.level || 0] || 'bg-muted-foreground';
+              const percentComplete = task.percent_complete || 0;
+
+              if (isSummary) {
+                return (
+                  <div
+                    key={task.id}
+                    className={cn("absolute flex items-center", color)}
+                    style={{ left: bar.left, width: bar.width, top: i * ROW_H + 6, height: ROW_H - 12, borderRadius: 2 }}
+                    title={`${task.name} (${task.duration || 0}d) — Summary`}
+                  >
+                    <div className="absolute inset-0 bg-black/20 rounded" style={{ width: `${percentComplete}%` }} />
+                    {bar.width > 50 && (
+                      <span className="absolute left-2 text-[9px] text-white font-semibold truncate" style={{ maxWidth: bar.width - 16 }}>
+                        {task.name}
+                      </span>
+                    )}
+                  </div>
+                );
+              }
+
               return (
                 <div
                   key={task.id}
-                  className={cn("absolute flex items-center", color)}
-                  style={{ left: bar.left, width: bar.width, top: i * ROW_H + 6, height: 28, borderRadius: 2 }}
-                  title={`${task.name} (${task.duration || 0}d) — Summary`}
+                  className={cn("absolute rounded transition-all hover:opacity-80 hover:shadow-md cursor-pointer group", color)}
+                  style={{ left: bar.left, width: bar.width, top: i * ROW_H + 4, height: ROW_H - 8 }}
+                  title={`${task.name}\n${task.start_date} → ${task.end_date}\n${task.duration || 0}d | ${percentComplete}%`}
                 >
-                  <div className="absolute inset-0 bg-black/20 rounded" style={{ width: `${percentComplete}%` }} />
+                  {percentComplete > 0 && (
+                    <div className="absolute inset-0 bg-white/30 rounded" style={{ width: `${percentComplete}%` }} />
+                  )}
                   {bar.width > 50 && (
-                    <span className="absolute left-2 text-[9px] text-white font-semibold truncate" style={{ maxWidth: bar.width - 16 }}>
+                    <span className="absolute left-2 text-[10px] text-white font-medium truncate leading-tight pointer-events-none" style={{ maxWidth: bar.width - 16, top: '50%', transform: 'translateY(-50%)' }}>
                       {task.name}
                     </span>
                   )}
+                  <span className="absolute right-1 text-[9px] text-white/80 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" style={{ top: '50%', transform: 'translateY(-50%)' }}>
+                    {percentComplete}%
+                  </span>
                 </div>
               );
-            }
-
-            return (
-              <div
-                key={task.id}
-                className={cn(
-                  "absolute rounded transition-all hover:opacity-80 hover:shadow-md cursor-pointer group",
-                  color,
-                )}
-                style={{ left: bar.left, width: bar.width, top: i * ROW_H + 3, height: 34 }}
-                title={`${task.name}\n${task.start_date} → ${task.end_date}\n${task.duration || 0}d | ${percentComplete}%`}
-              >
-                {/* Progress overlay */}
-                {percentComplete > 0 && (
-                  <div
-                    className="absolute inset-0 bg-white/30 rounded"
-                    style={{ width: `${percentComplete}%` }}
-                  />
-                )}
-                {/* Label */}
-                {bar.width > 50 && (
-                  <span className="absolute left-2 text-[10px] text-white font-medium truncate leading-tight pointer-events-none" style={{ maxWidth: bar.width - 16, top: '50%', transform: 'translateY(-50%)' }}>
-                    {task.name}
-                  </span>
-                )}
-                {/* Percent label on hover */}
-                <span className="absolute right-1 text-[9px] text-white/80 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" style={{ top: '50%', transform: 'translateY(-50%)' }}>
-                  {percentComplete}%
-                </span>
-              </div>
-            );
-          })}
+            })}
+          </div>
         </div>
       </div>
     </div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
@@ -37,6 +37,16 @@ export default function Programme() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const queryClient = useQueryClient();
+  const taskScrollRef = useRef(null);
+  const ganttScrollRef = useRef(null);
+  const isSyncing = useRef(false);
+
+  const syncScroll = useCallback((source, target) => {
+    if (isSyncing.current) return;
+    isSyncing.current = true;
+    target.scrollTop = source.scrollTop;
+    isSyncing.current = false;
+  }, []);
 
   const { data: allProjectsRaw = [] } = useQuery({
     queryKey: ['projects'],
@@ -215,12 +225,19 @@ export default function Programme() {
               onTaskClick={setSelectedTask}
               collapsed={false}
               canEdit={isAdmin || user?.role === 'internal'}
+              scrollRef={taskScrollRef}
+              onScroll={() => ganttScrollRef.current && syncScroll(taskScrollRef.current, ganttScrollRef.current)}
             />
           </div>
         )}
 
         {/* Gantt chart */}
-        <GanttChart tasks={tasks} zoom={zoom} />
+        <GanttChart
+          tasks={tasks}
+          zoom={zoom}
+          scrollRef={ganttScrollRef}
+          onScroll={() => taskScrollRef.current && syncScroll(ganttScrollRef.current, taskScrollRef.current)}
+        />
       </div>
 
       {/* Task edit panel */}

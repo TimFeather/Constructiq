@@ -26,7 +26,7 @@ const DEP_TYPE_BADGE = {
   SF: 'bg-purple-100 text-purple-700',
 };
 
-export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, canEdit = false }) {
+export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, canEdit = false, scrollRef, onScroll }) {
   const [expandedIds, setExpandedIds] = useState(new Set(tasks.filter(t => t.level === 0).map(t => t.id)));
   const [editingId, setEditingId] = useState(null);
   const [editValues, setEditValues] = useState({});
@@ -285,7 +285,7 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
       </div>
 
       {/* Task rows with fixed height for alignment with Gantt */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto" ref={scrollRef} onScroll={onScroll}>
         {flatTasksArray.map(task => (
           <div key={task.id} style={{ height: ROW_HEIGHT }} className="w-full">
             {renderTask(task, (task.level || 0))}
