@@ -20,6 +20,7 @@ export default function RFIs() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState('all');
+  const [projectFilter, setProjectFilter] = useState('all');
   const [showForm, setShowForm] = useState(false);
 
   const { data: allRfis = [], isLoading } = useQuery({
@@ -40,12 +41,26 @@ export default function RFIs() {
   const rfis = allRfis.filter(r => projectIds.has(r.project_id));
   const projectMap = Object.fromEntries(projects.map(p => [p.id, p.name]));
 
+  // Build per-project RFI numbers: sort each project's RFIs by created_date ascending
+  const rfisByProject = {};
+  rfis.forEach(r => {
+    if (!rfisByProject[r.project_id]) rfisByProject[r.project_id] = [];
+    rfisByProject[r.project_id].push(r);
+  });
+  Object.values(rfisByProject).forEach(list => list.sort((a, b) => new Date(a.created_date) - new Date(b.created_date)));
+  const projectRfiNumber = {};
+  Object.values(rfisByProject).forEach(list => {
+    list.forEach((r, i) => { projectRfiNumber[r.id] = i + 1; });
+  });
+
   const filtered = rfis.filter(r => {
+    const projectNum = projectRfiNumber[r.id] || r.number;
     const matchSearch = r.title?.toLowerCase().includes(search.toLowerCase()) ||
-      String(r.number).includes(search);
+      String(projectNum).includes(search);
     const matchStatus = statusFilter === 'all' || r.status === statusFilter;
     const matchPriority = priorityFilter === 'all' || r.priority === priorityFilter;
-    return matchSearch && matchStatus && matchPriority;
+    const matchProject = projectFilter === 'all' || r.project_id === projectFilter;
+    return matchSearch && matchStatus && matchPriority && matchProject;
   });
 
   return (
@@ -84,6 +99,13 @@ export default function RFIs() {
             <SelectItem value="Critical">Critical</SelectItem>
           </SelectContent>
         </Select>
+        <Select value={projectFilter} onValueChange={setProjectFilter}>
+          <SelectTrigger className="w-full sm:w-44"><SelectValue placeholder="All Projects" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Projects</SelectItem>
+            {projects.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
       </div>
 
       {isLoading ? (
@@ -101,7 +123,7 @@ export default function RFIs() {
                   <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs font-mono font-semibold text-primary">RFI-{String(rfi.number).padStart(3, '0')}</span>
+                        <span className="text-xs font-mono font-semibold text-primary">RFI-{String(projectRfiNumber[rfi.id] || rfi.number).padStart(3, '0')}</span>
                         <StatusBadge status={rfi.priority} />
                         <StatusBadge status={rfi.status} />
                       </div>

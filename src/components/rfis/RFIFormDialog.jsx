@@ -26,8 +26,9 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [] }) {
 
   const createMutation = useMutation({
     mutationFn: async (data) => {
-      const existing = await base44.entities.RFI.list('-number', 1);
-      const nextNumber = existing.length > 0 ? (existing[0].number || 0) + 1 : 1;
+      // Number RFIs per project
+      const projectRfis = await base44.entities.RFI.filter({ project_id: data.project_id }, '-number', 1);
+      const nextNumber = projectRfis.length > 0 ? (projectRfis[0].number || 0) + 1 : 1;
       const rfi = await base44.entities.RFI.create({
         ...data,
         number: nextNumber,
