@@ -78,14 +78,14 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed }) {
           </div>
 
           <div className="flex items-center gap-3 flex-shrink-0 text-xs text-muted-foreground">
-            <span className="hidden lg:block w-16 text-right">{task.duration || 0}d</span>
-            <div className="hidden md:flex items-center gap-1 w-16">
+            <span className="w-14 text-right">{task.duration || 0}d</span>
+            <div className="flex items-center gap-1 w-20">
               <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
                 <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${percentComplete}%` }} />
               </div>
-              <span className="text-[10px]">{percentComplete}%</span>
+              <span className="text-[10px] w-7 flex-shrink-0">{percentComplete}%</span>
             </div>
-            <span className="hidden xl:block w-20 truncate">{task.assignee_name || '—'}</span>
+            <span className="w-24 truncate">{task.assignee_name || '—'}</span>
           </div>
         </div>
 
@@ -111,9 +111,9 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed }) {
           <span className="w-12">WBS</span>
           <span>Name</span>
         </div>
-        <span className="hidden lg:block w-16 text-right">Duration</span>
-        <span className="hidden md:block w-16">Progress</span>
-        <span className="hidden xl:block w-20">Assignee</span>
+        <span className="w-14 text-right">Duration</span>
+        <span className="w-20">Progress</span>
+        <span className="w-24">Assignee</span>
       </div>
 
       {/* Task rows */}

@@ -118,7 +118,7 @@ export default function Programme() {
 
         {/* Task list pane */}
         {!taskListCollapsed && (
-          <div className="w-[320px] lg:w-[400px] flex-shrink-0 overflow-hidden">
+          <div className="w-[520px] xl:w-[600px] flex-shrink-0 overflow-hidden">
             <TaskList
               tasks={tasks}
               onTaskClick={setSelectedTask}
