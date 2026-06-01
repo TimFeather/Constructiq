@@ -12,10 +12,10 @@ const levelColors = [
 ];
 
 const DEP_COLORS = {
-  FS: 'hsl(210 85% 55%)',
-  SS: 'hsl(168 60% 42%)',
-  FF: 'hsl(35 92% 55%)',
-  SF: 'hsl(280 55% 55%)',
+  FS: '#3b82f6',
+  SS: '#10b981',
+  FF: '#f59e0b',
+  SF: '#a855f7',
 };
 
 import { ROW_HEIGHT } from './TaskList';
@@ -94,10 +94,11 @@ export default function GanttChart({ tasks, zoom = 'week', scrollRef, onScroll }
     return { left, width };
   };
 
-  // Build dependency arrows with type-aware anchor points
+  // Build dependency arrows with MS-Project-style right-angle elbow routing
   const arrows = useMemo(() => {
     const result = [];
     const taskIndexMap = new Map(flatTasks.map((t, i) => [t.id, i]));
+    const ELBOW = 8; // horizontal stub length before/after bar
 
     flatTasks.forEach((task) => {
       const taskIdx = taskIndexMap.get(task.id);
@@ -119,41 +120,53 @@ export default function GanttChart({ tasks, zoom = 'week', scrollRef, onScroll }
         const predCy = predIdx * ROW_H + ROW_H / 2;
         const taskCy = taskIdx * ROW_H + ROW_H / 2;
 
-        let startX, startY, endX, endY;
-
+        // Anchor points by dependency type
+        let ox, oy, tx, ty;
         switch (type) {
-          case 'FS':
-            startX = predBar.left + predBar.width; // pred finish
-            startY = predCy;
-            endX = taskBar.left;                    // succ start
-            endY = taskCy;
-            break;
           case 'SS':
-            startX = predBar.left;                  // pred start
-            startY = predCy;
-            endX = taskBar.left;                    // succ start
-            endY = taskCy;
+            ox = predBar.left;
+            oy = predCy;
+            tx = taskBar.left;
+            ty = taskCy;
             break;
           case 'FF':
-            startX = predBar.left + predBar.width;  // pred finish
-            startY = predCy;
-            endX = taskBar.left + taskBar.width;    // succ finish
-            endY = taskCy;
+            ox = predBar.left + predBar.width;
+            oy = predCy;
+            tx = taskBar.left + taskBar.width;
+            ty = taskCy;
             break;
           case 'SF':
-            startX = predBar.left;                  // pred start
-            startY = predCy;
-            endX = taskBar.left + taskBar.width;    // succ finish
-            endY = taskCy;
+            ox = predBar.left;
+            oy = predCy;
+            tx = taskBar.left + taskBar.width;
+            ty = taskCy;
             break;
-          default:
-            startX = predBar.left + predBar.width;
-            startY = predCy;
-            endX = taskBar.left;
-            endY = taskCy;
+          default: // FS
+            ox = predBar.left + predBar.width;
+            oy = predCy;
+            tx = taskBar.left;
+            ty = taskCy;
         }
 
-        result.push({ startX, startY, endX, endY, color, type, key: `${pid}-${task.id}-${type}` });
+        // MS-Project-style elbow path:
+        // Horizontal stub → vertical drop → horizontal approach → arrowhead
+        let pathD;
+        const goRight = type === 'FS' || type === 'FF';
+        const arriveRight = type === 'FF' || type === 'SF';
+
+        const stubOx = goRight ? ox + ELBOW : ox - ELBOW;
+        const stubTx = arriveRight ? tx + ELBOW : tx - ELBOW;
+        const midY = (oy + ty) / 2;
+
+        if (oy === ty) {
+          // Same row — simple horizontal line
+          pathD = `M ${ox} ${oy} L ${tx} ${ty}`;
+        } else {
+          // Standard elbow: out → mid-vertical → in
+          pathD = `M ${ox} ${oy} L ${stubOx} ${oy} L ${stubOx} ${midY} L ${stubTx} ${midY} L ${stubTx} ${ty} L ${tx} ${ty}`;
+        }
+
+        result.push({ pathD, color, type, key: `${pid}-${task.id}-${type}` });
       });
     });
 
@@ -251,23 +264,27 @@ export default function GanttChart({ tasks, zoom = 'week', scrollRef, onScroll }
             <svg className="absolute inset-0 pointer-events-none overflow-visible" width={chartWidth} height={chartHeight}>
               <defs>
                 {Object.entries(DEP_COLORS).map(([type, color]) => (
-                  <marker key={type} id={`arrow-${type}`} markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-                    <path d="M0,0 L6,3 L0,6 Z" fill={color} opacity="0.7" />
+                  <marker key={type} id={`arrow-${type}`} markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+                    <path d="M0,0 L8,4 L0,8 Z" fill={color} />
                   </marker>
                 ))}
               </defs>
-              {arrows.map(({ startX, startY, endX, endY, color, type, key }) => {
-                const midX = startX + (endX - startX) * 0.5;
-                const dx = endX - startX;
-                const pathD = Math.abs(dx) > 20
-                  ? `M ${startX} ${startY} C ${midX} ${startY}, ${midX} ${endY}, ${endX} ${endY}`
-                  : `M ${startX} ${startY} L ${startX + 10} ${startY} L ${startX + 10} ${endY} L ${endX} ${endY}`;
-                return (
-                  <g key={key}>
-                    <path d={pathD} fill="none" stroke={color} strokeWidth="1.5" strokeDasharray="5 2" opacity="0.65" markerEnd={`url(#arrow-${type})`} />
-                  </g>
-                );
-              })}
+              {arrows.map(({ pathD, color, type, key }) => (
+                <g key={key}>
+                  {/* Wider transparent hit area for hover (future use) */}
+                  <path d={pathD} fill="none" stroke="transparent" strokeWidth="6" />
+                  {/* Visible dotted line */}
+                  <path
+                    d={pathD}
+                    fill="none"
+                    stroke={color}
+                    strokeWidth="1.5"
+                    strokeDasharray="5 3"
+                    opacity="0.8"
+                    markerEnd={`url(#arrow-${type})`}
+                  />
+                </g>
+              ))}
             </svg>
 
             {/* Task bars */}
