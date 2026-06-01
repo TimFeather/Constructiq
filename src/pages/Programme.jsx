@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
@@ -41,6 +41,14 @@ export default function Programme() {
     queryKey: ['tasks'],
     queryFn: () => base44.entities.Task.list('-created_date', 500),
   });
+
+  // Real-time subscription: invalidate tasks query whenever any task is created/updated/deleted
+  useEffect(() => {
+    const unsubscribe = base44.entities.Task.subscribe(() => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    });
+    return unsubscribe;
+  }, [queryClient]);
 
   const accessibleTasks = allTasks.filter(t => projectIds.has(t.project_id));
   const tasks = selectedProjectId === 'all'
