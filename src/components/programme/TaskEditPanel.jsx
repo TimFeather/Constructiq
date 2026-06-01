@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
+import { cascadeTaskDates } from '@/lib/cascadeTaskDates';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,7 +19,12 @@ export default function TaskEditPanel({ task, tasks = [], open, onOpenChange }) 
   }, [task]);
 
   const updateMutation = useMutation({
-    mutationFn: (data) => base44.entities.Task.update(task.id, data),
+    mutationFn: async (data) => {
+      await base44.entities.Task.update(task.id, data);
+      if (data.end_date) {
+        await cascadeTaskDates(task.id, data.end_date, tasks, (id, d) => base44.entities.Task.update(id, d));
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       onOpenChange(false);

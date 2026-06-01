@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { addDays, differenceInCalendarDays, format } from 'date-fns';
+import { cascadeTaskDates } from '@/lib/cascadeTaskDates';
 
 const levelColors = [
   'border-l-primary',
@@ -47,16 +48,19 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
     });
   };
 
-  const commitEdit = (taskId) => {
+  const commitEdit = async (taskId) => {
     const v = editValues;
-    // Recalculate end_date or duration for consistency
     let finalData = { ...v };
     if (v.start_date && v.duration) {
       finalData.end_date = format(addDays(new Date(v.start_date), parseInt(v.duration) - 1), 'yyyy-MM-dd');
     } else if (v.start_date && v.end_date) {
       finalData.duration = differenceInCalendarDays(new Date(v.end_date), new Date(v.start_date)) + 1;
     }
-    updateMutation.mutate({ id: taskId, data: finalData });
+    await base44.entities.Task.update(taskId, finalData);
+    if (finalData.end_date) {
+      await cascadeTaskDates(taskId, finalData.end_date, tasks, (id, data) => base44.entities.Task.update(id, data));
+    }
+    queryClient.invalidateQueries({ queryKey: ['tasks'] });
     setEditingId(null);
   };
 
