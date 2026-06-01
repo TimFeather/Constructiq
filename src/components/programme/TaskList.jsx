@@ -143,17 +143,17 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
       <React.Fragment key={task.id}>
         <div
           className={cn(
-            "flex items-start gap-1 hover:bg-muted/50 transition-colors border-l-3 group",
+            "grid items-center hover:bg-muted/50 transition-colors border-l-3 group",
             levelColors[task.level || 0] || 'border-l-muted',
             isEditing ? 'bg-primary/5' : 'cursor-pointer',
             hasPendingUpdate && !isEditing && 'bg-amber-50/50 dark:bg-amber-950/20',
           )}
-          style={{ paddingLeft: `${8 + depth * 16}px` }}
+          style={{ gridTemplateColumns: 'auto 24px 1fr 56px 70px 70px 56px 80px', paddingLeft: `${8 + depth * 16}px` }}
           onClick={isEditing ? undefined : () => onTaskClick(task)}
           onDoubleClick={(e) => canEdit && startEdit(task, e)}
         >
           {/* Expand toggle */}
-          <div className="w-5 flex-shrink-0 mt-2">
+          <div className="w-5 flex-shrink-0 flex items-center justify-center">
             {hasChildren ? (
               <button
                 className="w-5 h-5 flex items-center justify-center hover:bg-muted rounded"
@@ -163,101 +163,96 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
               </button>
             ) : <div className="w-5" />}
           </div>
+          
+          {/* Spacer for duration control column in non-edit mode */}
+          <div className="w-5" />
 
           {isEditing ? (
-            <div className="flex items-center gap-1 flex-1 py-1">
+            <>
+              <div />
               <Input
                 autoFocus
                 value={editValues.name}
                 onChange={e => handleFieldChange('name', e.target.value)}
-                className="h-7 text-xs flex-1 min-w-0"
+                className="h-7 text-xs min-w-0"
                 onClick={e => e.stopPropagation()}
                 onKeyDown={e => { if (e.key === 'Enter') commitEdit(task.id); if (e.key === 'Escape') setEditingId(null); }}
               />
-              <Input type="date" value={editValues.start_date}
-                onChange={e => handleFieldChange('start_date', e.target.value)}
-                className="h-7 text-xs w-32 flex-shrink-0" onClick={e => e.stopPropagation()} />
+              <Input type="text" value={task.wbs || ''}
+                disabled
+                className="h-7 text-xs text-center text-[10px] bg-muted/30"
+                onClick={e => e.stopPropagation()} />
               <Input type="number" min="1" value={editValues.duration}
                 onChange={e => handleFieldChange('duration', e.target.value)}
-                className="h-7 text-xs w-14 flex-shrink-0 text-center" onClick={e => e.stopPropagation()} />
+                className="h-7 text-xs text-center" onClick={e => e.stopPropagation()} />
+              <Input type="date" value={editValues.start_date}
+                onChange={e => handleFieldChange('start_date', e.target.value)}
+                className="h-7 text-xs" onClick={e => e.stopPropagation()} />
               <Input type="date" value={editValues.end_date}
                 onChange={e => handleFieldChange('end_date', e.target.value)}
-                className="h-7 text-xs w-32 flex-shrink-0" onClick={e => e.stopPropagation()} />
-              <button className="px-2 py-1 text-xs bg-primary text-primary-foreground rounded flex-shrink-0"
-                onClick={e => { e.stopPropagation(); commitEdit(task.id); }}>✓</button>
-              <button className="px-2 py-1 text-xs text-muted-foreground rounded flex-shrink-0"
-                onClick={e => { e.stopPropagation(); setEditingId(null); }}>✕</button>
-            </div>
-          ) : (
-            <div className="flex-1 min-w-0 py-1.5 flex items-start justify-between gap-2">
-              {/* Left: WBS + Name + Dates + Predecessor badges */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] font-mono text-muted-foreground w-8 flex-shrink-0">{task.wbs || '—'}</span>
-                  <span className={cn(
-                    "text-xs truncate",
-                    task.level === 0 && "font-bold text-foreground",
-                    task.level === 1 && "font-semibold",
-                    isSummary && "italic",
-                  )}>
-                    {task.name}
-                    {isSummary && <span className="ml-1 text-[9px] text-muted-foreground font-normal not-italic">(summary)</span>}
-                  </span>
-                  {hasPendingUpdate && (
-                    <AlertCircle className="w-3 h-3 text-amber-500 flex-shrink-0" title="Engine date differs from stored — save to apply" />
-                  )}
-                </div>
-
-                {/* Engine-resolved dates */}
-                <div className="flex items-center gap-1.5 mt-0.5 pl-9">
-                  <span className="text-[10px] text-muted-foreground font-mono">{resolved.start}</span>
-                  <span className="text-[10px] text-muted-foreground">→</span>
-                  <span className="text-[10px] text-muted-foreground font-mono">{resolved.end}</span>
-                  <span className="text-[10px] text-muted-foreground/60">({resolved.duration}d)</span>
-                </div>
-
-                {/* Predecessor dependency badges */}
-                {predTypes.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-0.5 pl-9">
-                    {predTypes.map((p, i) => (
-                      <span key={i} className={cn("text-[9px] px-1.5 py-0.5 rounded font-mono", DEP_TYPE_BADGE[p.type] || 'bg-muted text-muted-foreground')}>
-                        {p.name} {p.type}{p.lag !== 0 ? ` ${p.lag > 0 ? '+' : ''}${p.lag}h` : ''}
-                      </span>
-                    ))}
-                  </div>
-                )}
+                className="h-7 text-xs" onClick={e => e.stopPropagation()} />
+              <div className="flex items-center justify-center gap-1">
+                <button className="px-1.5 py-1 text-xs bg-primary text-primary-foreground rounded"
+                  onClick={e => { e.stopPropagation(); commitEdit(task.id); }}>✓</button>
+                <button className="px-1.5 py-1 text-xs text-muted-foreground rounded"
+                  onClick={e => { e.stopPropagation(); setEditingId(null); }}>✕</button>
               </div>
-
-              {/* Right: Duration controls + progress */}
-              <div className="flex items-center gap-1.5 flex-shrink-0 pr-2 pt-0.5">
+            </>
+          ) : (
+            <>
+              {/* Name column */}
+              <span className={cn(
+                "text-xs truncate",
+                task.level === 0 && "font-bold text-foreground",
+                task.level === 1 && "font-semibold",
+                isSummary && "italic",
+              )}>
+                {task.name}
+              </span>
+              
+              {/* WBS column */}
+              <span className="text-[10px] font-mono text-muted-foreground text-center">{task.wbs || '—'}</span>
+              
+              {/* Duration column */}
+              <div className="flex items-center justify-center gap-1">
                 {canEdit && !isSummary && (
                   <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
-                      className="w-5 h-5 flex items-center justify-center rounded border border-border hover:bg-muted text-muted-foreground disabled:opacity-40"
+                      className="w-4 h-4 flex items-center justify-center rounded border border-border hover:bg-muted text-muted-foreground disabled:opacity-40"
                       onClick={e => { e.stopPropagation(); adjustDays(task, -1); }}
                       disabled={adjustingId === task.id}
                       title="Remove 1 day"
                     >
-                      <Minus className="w-2.5 h-2.5" />
+                      <Minus className="w-2 h-2" />
                     </button>
+                    <span className="text-[10px] font-mono w-6 text-center">{resolved.duration}</span>
                     <button
-                      className="w-5 h-5 flex items-center justify-center rounded border border-border hover:bg-muted text-muted-foreground disabled:opacity-40"
+                      className="w-4 h-4 flex items-center justify-center rounded border border-border hover:bg-muted text-muted-foreground disabled:opacity-40"
                       onClick={e => { e.stopPropagation(); adjustDays(task, 1); }}
                       disabled={adjustingId === task.id}
                       title="Add 1 day"
                     >
-                      <Plus className="w-2.5 h-2.5" />
+                      <Plus className="w-2 h-2" />
                     </button>
                   </div>
                 )}
-                <div className="flex items-center gap-1 w-14">
-                  <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
-                    <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${percentComplete}%` }} />
-                  </div>
-                  <span className="text-[10px] w-7 flex-shrink-0 text-right">{percentComplete}%</span>
-                </div>
+                {(!canEdit || isSummary) && <span className="text-[10px] font-mono">{resolved.duration}d</span>}
               </div>
-            </div>
+              
+              {/* Start date column */}
+              <span className="text-[10px] font-mono text-muted-foreground text-center">{resolved.start}</span>
+              
+              {/* End date column */}
+              <span className="text-[10px] font-mono text-muted-foreground text-center">{resolved.end}</span>
+              
+              {/* Completion column */}
+              <div className="flex items-center justify-center gap-1 px-1">
+                <div className="w-8 h-1.5 bg-muted rounded-full overflow-hidden flex-shrink-0">
+                  <div className="h-full bg-primary rounded-full" style={{ width: `${percentComplete}%` }} />
+                </div>
+                <span className="text-[10px] text-right flex-shrink-0">{percentComplete}%</span>
+              </div>
+            </>
           )}
         </div>
 
@@ -278,12 +273,15 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
       </div>
 
       {/* Column headers */}
-      <div className="flex items-center gap-1 px-2 py-1.5 border-b text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+      <div className="grid items-center border-b text-[10px] font-medium text-muted-foreground uppercase tracking-wider bg-muted/30 px-2 py-1.5" style={{ gridTemplateColumns: 'auto 24px 1fr 56px 70px 70px 56px 80px' }}>
         <div className="w-5" />
-        <div className="flex-1">
-          <span>WBS / Name / Dates / Dependencies</span>
-        </div>
-        <span className="w-20 pr-2 text-right">Progress</span>
+        <div className="w-5" />
+        <span className="truncate">Name</span>
+        <span className="text-center">WBS</span>
+        <span className="text-center">Duration</span>
+        <span className="text-center">Start</span>
+        <span className="text-center">End</span>
+        <span className="text-center">Completion</span>
       </div>
 
       {/* Task rows with fixed height for alignment with Gantt */}
