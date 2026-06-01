@@ -23,7 +23,7 @@ export default function Programme() {
   const [zoom, setZoom] = useState('week');
   const [selectedTask, setSelectedTask] = useState(null);
   const [showAddTask, setShowAddTask] = useState(false);
-  const [newTask, setNewTask] = useState({ name: '', project_id: '', level: 2, start_date: '', end_date: '', duration: 5 });
+  const [newTask, setNewTask] = useState({ name: '', project_id: '', level: 2, start_date: '', end_date: '', duration: 5, parent_id: '', predecessors: [] });
   const queryClient = useQueryClient();
 
   const { data: allProjectsRaw = [] } = useQuery({
@@ -169,7 +169,7 @@ export default function Programme() {
 
       {/* Add task dialog */}
       <Dialog open={showAddTask} onOpenChange={setShowAddTask}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Add Task</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div>
@@ -185,31 +185,122 @@ export default function Programme() {
                 </SelectContent>
               </Select>
             </div>
-            <div>
-              <Label>Level</Label>
-              <Select value={String(newTask.level)} onValueChange={v => setNewTask({...newTask, level: parseInt(v)})}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="0">Phase</SelectItem>
-                  <SelectItem value="1">Summary Task</SelectItem>
-                  <SelectItem value="2">Task</SelectItem>
-                  <SelectItem value="3">Subtask</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
+                <Label>Level</Label>
+                <Select value={String(newTask.level)} onValueChange={v => setNewTask({...newTask, level: parseInt(v)})}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="0">Phase</SelectItem>
+                    <SelectItem value="1">Summary Task</SelectItem>
+                    <SelectItem value="2">Task</SelectItem>
+                    <SelectItem value="3">Subtask</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Parent Task</Label>
+                <Select value={newTask.parent_id || '__none__'} onValueChange={v => setNewTask({...newTask, parent_id: v === '__none__' ? '' : v})}>
+                  <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">None</SelectItem>
+                    {tasks.filter(t => t.project_id === newTask.project_id && t.level < newTask.level).map(t => (
+                      <SelectItem key={t.id} value={t.id}>{t.wbs ? `${t.wbs} ` : ''}{t.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
                 <Label>Start Date</Label>
-                <Input type="date" value={newTask.start_date} onChange={e => setNewTask({...newTask, start_date: e.target.value})} />
+                <Input type="date" value={newTask.start_date} onChange={e => {
+                  const start = e.target.value;
+                  const dur = newTask.duration || 1;
+                  const end = new Date(start);
+                  end.setDate(end.getDate() + dur - 1);
+                  setNewTask({...newTask, start_date: start, end_date: end.toISOString().split('T')[0]});
+                }} />
+              </div>
+              <div>
+                <Label>Duration (days)</Label>
+                <Input type="number" min="1" value={newTask.duration} onChange={e => {
+                  const dur = parseInt(e.target.value) || 1;
+                  const start = newTask.start_date;
+                  let end_date = newTask.end_date;
+                  if (start) {
+                    const end = new Date(start);
+                    end.setDate(end.getDate() + dur - 1);
+                    end_date = end.toISOString().split('T')[0];
+                  }
+                  setNewTask({...newTask, duration: dur, end_date});
+                }} />
               </div>
               <div>
                 <Label>End Date</Label>
-                <Input type="date" value={newTask.end_date} onChange={e => setNewTask({...newTask, end_date: e.target.value})} />
+                <Input type="date" value={newTask.end_date} onChange={e => {
+                  const end = e.target.value;
+                  const start = newTask.start_date;
+                  let duration = newTask.duration;
+                  if (start && end) {
+                    duration = Math.max(1, Math.round((new Date(end) - new Date(start)) / 86400000) + 1);
+                  }
+                  setNewTask({...newTask, end_date: end, duration});
+                }} />
               </div>
             </div>
+
+            {/* Predecessors */}
             <div>
-              <Label>Duration (days)</Label>
-              <Input type="number" min="1" value={newTask.duration} onChange={e => setNewTask({...newTask, duration: parseInt(e.target.value) || 1})} />
+              <div className="flex items-center justify-between mb-1">
+                <Label>Predecessors</Label>
+                <button
+                  type="button"
+                  className="text-xs text-primary hover:underline"
+                  onClick={() => setNewTask({...newTask, predecessors: [...(newTask.predecessors || []), { task_id: '', lag_days: 0 }]})}
+                >+ Add predecessor</button>
+              </div>
+              {(newTask.predecessors || []).length === 0 && (
+                <p className="text-xs text-muted-foreground">No predecessors</p>
+              )}
+              {(newTask.predecessors || []).map((pred, idx) => (
+                <div key={idx} className="flex items-center gap-2 mt-1">
+                  <Select value={pred.task_id} onValueChange={v => {
+                    const preds = [...newTask.predecessors];
+                    preds[idx] = {...preds[idx], task_id: v};
+                    setNewTask({...newTask, predecessors: preds});
+                  }}>
+                    <SelectTrigger className="flex-1 h-8 text-xs"><SelectValue placeholder="Select task" /></SelectTrigger>
+                    <SelectContent>
+                      {tasks.filter(t => t.project_id === newTask.project_id).map(t => (
+                        <SelectItem key={t.id} value={t.id}>{t.wbs ? `${t.wbs} ` : ''}{t.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <span className="text-xs text-muted-foreground">Lag</span>
+                    <Input
+                      type="number"
+                      className="w-16 h-8 text-xs text-center"
+                      value={pred.lag_days}
+                      onChange={e => {
+                        const preds = [...newTask.predecessors];
+                        preds[idx] = {...preds[idx], lag_days: parseInt(e.target.value) || 0};
+                        setNewTask({...newTask, predecessors: preds});
+                      }}
+                    />
+                    <span className="text-xs text-muted-foreground">d</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="text-xs text-destructive hover:underline flex-shrink-0"
+                    onClick={() => {
+                      const preds = newTask.predecessors.filter((_, i) => i !== idx);
+                      setNewTask({...newTask, predecessors: preds});
+                    }}
+                  >✕</button>
+                </div>
+              ))}
             </div>
           </div>
           <DialogFooter>
