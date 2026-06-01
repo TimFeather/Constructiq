@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
@@ -9,9 +9,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import StatusBadge from '@/components/shared/StatusBadge';
-import { Plus, MessageSquare, ChevronDown, ChevronUp, Calendar, Send } from 'lucide-react';
+import { Plus, MessageSquare, ChevronDown, ChevronUp, Calendar, Send, Paperclip, ExternalLink, X, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 
 const PRIORITY_COLORS = {
@@ -21,45 +20,62 @@ const PRIORITY_COLORS = {
   Critical: 'bg-red-100 text-red-700',
 };
 
-function RFICard({ rfi, project, onUpdate }) {
+function RFICard({ rfi, project }) {
   const [expanded, setExpanded] = useState(false);
   const [replyText, setReplyText] = useState('');
+  const [attachments, setAttachments] = useState([]); // [{name, file}]
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef(null);
   const { user } = useAuth();
   const queryClient = useQueryClient();
-
-  const respondMutation = useMutation({
-    mutationFn: async (content) => {
-      const newResponse = {
-        author_email: user?.email || '',
-        author_name: user?.full_name || user?.email || 'Unknown',
-        content,
-        timestamp: new Date().toISOString(),
-        attachments: [],
-      };
-      const updatedResponses = [...(rfi.responses || []), newResponse];
-      const newStatus = rfi.status === 'Open' ? 'Answered' : rfi.status;
-      await base44.entities.RFI.update(rfi.id, { responses: updatedResponses, status: newStatus });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['rfis', project.id] });
-      setReplyText('');
-    },
-  });
 
   const statusMutation = useMutation({
     mutationFn: (status) => base44.entities.RFI.update(rfi.id, { status }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['rfis', project.id] }),
   });
 
-  const handleSendReply = () => {
-    if (!replyText.trim()) return;
-    respondMutation.mutate(replyText.trim());
+  const handleFileSelect = (e) => {
+    const files = Array.from(e.target.files);
+    setAttachments(prev => [...prev, ...files.map(f => ({ name: f.name, file: f }))]);
+    e.target.value = '';
+  };
+
+  const removeAttachment = (idx) => setAttachments(prev => prev.filter((_, i) => i !== idx));
+
+  const handleSendReply = async () => {
+    if (!replyText.trim() && attachments.length === 0) return;
+    setUploading(true);
+
+    // Upload all attachments
+    const uploadedAttachments = await Promise.all(
+      attachments.map(async (a) => {
+        const { file_url } = await base44.integrations.Core.UploadFile({ file: a.file });
+        return { name: a.name, url: file_url };
+      })
+    );
+
+    const newResponse = {
+      author_email: user?.email || '',
+      author_name: user?.full_name || user?.email || 'Unknown',
+      content: replyText.trim(),
+      timestamp: new Date().toISOString(),
+      attachments: uploadedAttachments,
+    };
+
+    const updatedResponses = [...(rfi.responses || []), newResponse];
+    const newStatus = rfi.status === 'Open' ? 'Answered' : rfi.status;
+    await base44.entities.RFI.update(rfi.id, { responses: updatedResponses, status: newStatus });
+
+    queryClient.invalidateQueries({ queryKey: ['rfis', project.id] });
+    setReplyText('');
+    setAttachments([]);
+    setUploading(false);
   };
 
   return (
     <Card className="overflow-hidden">
       <CardContent className="p-0">
-        {/* RFI Header Row */}
+        {/* Header row */}
         <div
           className="flex items-start gap-3 p-4 cursor-pointer hover:bg-muted/30 transition-colors"
           onClick={() => setExpanded(!expanded)}
@@ -67,7 +83,7 @@ function RFICard({ rfi, project, onUpdate }) {
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs font-mono text-muted-foreground">#{String(rfi.number).padStart(3, '0')}</span>
-              <span className="text-sm font-semibold truncate">{rfi.title}</span>
+              <span className="text-sm font-semibold">{rfi.title}</span>
               <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${PRIORITY_COLORS[rfi.priority] || ''}`}>
                 {rfi.priority}
               </span>
@@ -92,7 +108,7 @@ function RFICard({ rfi, project, onUpdate }) {
           </div>
         </div>
 
-        {/* Expanded content */}
+        {/* Expanded body */}
         {expanded && (
           <div className="border-t px-4 pb-4 space-y-4">
             {rfi.description && (
@@ -102,19 +118,44 @@ function RFICard({ rfi, project, onUpdate }) {
               </div>
             )}
 
+            {/* RFI-level attachments */}
+            {(rfi.attachments || []).length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-1">Attachments</p>
+                <div className="flex flex-wrap gap-2">
+                  {rfi.attachments.map((att, i) => (
+                    <a key={i} href={att.url} target="_blank" rel="noopener noreferrer"
+                      className="flex items-center gap-1 text-xs text-primary bg-primary/10 px-2 py-1 rounded hover:bg-primary/20 transition-colors">
+                      <Paperclip className="w-3 h-3" />{att.name}
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Response thread */}
             {(rfi.responses || []).length > 0 && (
               <div className="space-y-2">
                 <p className="text-xs font-medium text-muted-foreground">Responses</p>
-                {(rfi.responses || []).map((resp, i) => (
-                  <div key={i} className="bg-muted/40 rounded-lg p-3">
-                    <div className="flex items-center justify-between mb-1">
+                {rfi.responses.map((resp, i) => (
+                  <div key={i} className="bg-muted/40 rounded-lg p-3 space-y-2">
+                    <div className="flex items-center justify-between">
                       <span className="text-xs font-semibold">{resp.author_name}</span>
                       <span className="text-[10px] text-muted-foreground">
                         {resp.timestamp ? format(new Date(resp.timestamp), 'MMM d, HH:mm') : ''}
                       </span>
                     </div>
-                    <p className="text-sm">{resp.content}</p>
+                    {resp.content && <p className="text-sm">{resp.content}</p>}
+                    {(resp.attachments || []).length > 0 && (
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {resp.attachments.map((att, j) => (
+                          <a key={j} href={att.url} target="_blank" rel="noopener noreferrer"
+                            className="flex items-center gap-1 text-xs text-primary bg-primary/10 px-2 py-1 rounded hover:bg-primary/20 transition-colors">
+                            <ExternalLink className="w-3 h-3" />{att.name}
+                          </a>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -131,34 +172,47 @@ function RFICard({ rfi, project, onUpdate }) {
                   rows={3}
                   className="text-sm resize-none"
                 />
+
+                {/* Staged attachments */}
+                {attachments.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {attachments.map((a, i) => (
+                      <div key={i} className="flex items-center gap-1 text-xs bg-muted px-2 py-1 rounded">
+                        <Paperclip className="w-3 h-3 text-muted-foreground" />
+                        <span>{a.name}</span>
+                        <button onClick={() => removeAttachment(i)} className="ml-1 hover:text-destructive">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between gap-2">
-                  <div className="flex gap-2">
-                    {rfi.status === 'Answered' && (
-                      <Button
-                        size="sm" variant="outline" className="text-xs h-8"
-                        onClick={() => statusMutation.mutate('Closed')}
-                        disabled={statusMutation.isPending}
-                      >
-                        Close RFI
-                      </Button>
-                    )}
-                    {rfi.status === 'Open' && (
-                      <Button
-                        size="sm" variant="outline" className="text-xs h-8"
-                        onClick={() => statusMutation.mutate('Closed')}
-                        disabled={statusMutation.isPending}
-                      >
-                        Close RFI
-                      </Button>
-                    )}
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm" variant="outline" className="h-8 text-xs gap-1.5"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploading}
+                    >
+                      <Paperclip className="w-3 h-3" /> Attach
+                    </Button>
+                    <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileSelect} />
+                    <Button
+                      size="sm" variant="outline" className="text-xs h-8"
+                      onClick={() => statusMutation.mutate('Closed')}
+                      disabled={statusMutation.isPending || uploading}
+                    >
+                      Close RFI
+                    </Button>
                   </div>
                   <Button
                     size="sm" className="gap-1.5 h-8 text-xs"
                     onClick={handleSendReply}
-                    disabled={!replyText.trim() || respondMutation.isPending}
+                    disabled={(!replyText.trim() && attachments.length === 0) || uploading}
                   >
-                    <Send className="w-3 h-3" />
-                    {respondMutation.isPending ? 'Sending...' : 'Send Response'}
+                    {uploading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+                    {uploading ? 'Sending...' : 'Send Response'}
                   </Button>
                 </div>
               </div>
@@ -185,36 +239,11 @@ function RFICard({ rfi, project, onUpdate }) {
 export default function ProjectRFIPanel({ project, rfis = [] }) {
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ title: '', description: '', priority: 'Medium', due_date: '', assigned_to_email: '', assigned_to_name: '' });
+  const [attachments, setAttachments] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef(null);
   const queryClient = useQueryClient();
   const teamMembers = project?.team || [];
-
-  const createMutation = useMutation({
-    mutationFn: async (data) => {
-      const existing = await base44.entities.RFI.list('-number', 1);
-      const nextNumber = existing.length > 0 ? (existing[0].number || 0) + 1 : 1;
-      const rfi = await base44.entities.RFI.create({
-        ...data,
-        project_id: project.id,
-        number: nextNumber,
-        status: 'Open',
-        responses: [],
-        attachments: [],
-      });
-      if (data.assigned_to_email) {
-        base44.integrations.Core.SendEmail({
-          to: data.assigned_to_email,
-          subject: `New RFI Assigned: ${data.title}`,
-          body: `You have been assigned RFI-${String(nextNumber).padStart(3, '0')}: ${data.title}\n\nDescription: ${data.description || 'No description'}\n\nPlease log in to respond.`,
-        });
-      }
-      return rfi;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['rfis', project.id] });
-      setShowCreate(false);
-      setForm({ title: '', description: '', priority: 'Medium', due_date: '', assigned_to_email: '', assigned_to_name: '' });
-    },
-  });
 
   const handleAssigneeChange = (value) => {
     if (value === 'unassigned') {
@@ -223,6 +252,52 @@ export default function ProjectRFIPanel({ project, rfis = [] }) {
     }
     const member = teamMembers.find(m => m.user_email === value);
     if (member) setForm(f => ({ ...f, assigned_to_email: member.user_email, assigned_to_name: member.full_name }));
+  };
+
+  const handleCreate = async () => {
+    if (!form.title) return;
+    setUploading(true);
+
+    // Per-project numbering: count existing RFIs for this project
+    const projectRFIs = await base44.entities.RFI.filter({ project_id: project.id }, '-number', 1);
+    const nextNumber = projectRFIs.length > 0 ? (projectRFIs[0].number || 0) + 1 : 1;
+
+    // Upload attachments
+    const uploadedAttachments = await Promise.all(
+      attachments.map(async (a) => {
+        const { file_url } = await base44.integrations.Core.UploadFile({ file: a.file });
+        return { name: a.name, url: file_url };
+      })
+    );
+
+    const rfi = await base44.entities.RFI.create({
+      ...form,
+      project_id: project.id,
+      number: nextNumber,
+      status: 'Open',
+      responses: [],
+      attachments: uploadedAttachments,
+    });
+
+    if (form.assigned_to_email) {
+      base44.integrations.Core.SendEmail({
+        to: form.assigned_to_email,
+        subject: `New RFI Assigned: ${form.title}`,
+        body: `You have been assigned RFI-${String(nextNumber).padStart(3, '0')}: ${form.title}\n\nDescription: ${form.description || 'No description'}\n\nPlease log in to respond.`,
+      });
+    }
+
+    queryClient.invalidateQueries({ queryKey: ['rfis', project.id] });
+    setShowCreate(false);
+    setForm({ title: '', description: '', priority: 'Medium', due_date: '', assigned_to_email: '', assigned_to_name: '' });
+    setAttachments([]);
+    setUploading(false);
+  };
+
+  const handleFileSelect = (e) => {
+    const files = Array.from(e.target.files);
+    setAttachments(prev => [...prev, ...files.map(f => ({ name: f.name, file: f }))]);
+    e.target.value = '';
   };
 
   return (
@@ -244,7 +319,7 @@ export default function ProjectRFIPanel({ project, rfis = [] }) {
         <RFICard key={rfi.id} rfi={rfi} project={project} />
       ))}
 
-      {/* Create RFI Dialog */}
+      {/* Create Dialog */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -296,14 +371,33 @@ export default function ProjectRFIPanel({ project, rfis = [] }) {
                 </div>
               )}
             </div>
+            <div>
+              <Label>Attachments</Label>
+              <div className="space-y-2">
+                {attachments.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {attachments.map((a, i) => (
+                      <div key={i} className="flex items-center gap-1 text-xs bg-muted px-2 py-1 rounded">
+                        <Paperclip className="w-3 h-3 text-muted-foreground" />
+                        <span>{a.name}</span>
+                        <button onClick={() => setAttachments(prev => prev.filter((_, j) => j !== i))} className="ml-1 hover:text-destructive">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <Button type="button" size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={() => fileInputRef.current?.click()}>
+                  <Paperclip className="w-3 h-3" /> Add Files
+                </Button>
+                <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileSelect} />
+              </div>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
-            <Button
-              onClick={() => createMutation.mutate(form)}
-              disabled={!form.title || createMutation.isPending}
-            >
-              {createMutation.isPending ? 'Creating...' : 'Create RFI'}
+            <Button onClick={handleCreate} disabled={!form.title || uploading}>
+              {uploading ? <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />Creating...</> : 'Create RFI'}
             </Button>
           </DialogFooter>
         </DialogContent>
