@@ -100,7 +100,19 @@ export default function Programme() {
             <Button variant="outline" size="icon" onClick={handlePrint} title="Print">
               <Printer className="w-4 h-4" />
             </Button>
-            <Button onClick={() => setShowAddTask(true)} className="gap-2">
+            <Button onClick={() => {
+              const today = new Date().toISOString().split('T')[0];
+              const endDate = new Date(); endDate.setDate(endDate.getDate() + 4);
+              setNewTask({
+                name: '',
+                project_id: selectedProjectId !== 'all' ? selectedProjectId : (projects[0]?.id || ''),
+                level: 2,
+                start_date: today,
+                end_date: endDate.toISOString().split('T')[0],
+                duration: 5,
+              });
+              setShowAddTask(true);
+            }} className="gap-2">
               <Plus className="w-4 h-4" /> Add Task
             </Button>
           </div>
@@ -124,7 +136,19 @@ export default function Programme() {
             <TaskList
               tasks={tasks}
               onTaskClick={setSelectedTask}
-              onAddTask={() => setShowAddTask(true)}
+              onAddTask={() => {
+                const today = new Date().toISOString().split('T')[0];
+                const endDate = new Date(); endDate.setDate(endDate.getDate() + 4);
+                setNewTask({
+                  name: '',
+                  project_id: selectedProjectId !== 'all' ? selectedProjectId : (projects[0]?.id || ''),
+                  level: 2,
+                  start_date: today,
+                  end_date: endDate.toISOString().split('T')[0],
+                  duration: 5,
+                });
+                setShowAddTask(true);
+              }}
               collapsed={false}
               canEdit={isAdmin || user?.role === 'internal'}
             />
