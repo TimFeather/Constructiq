@@ -61,9 +61,8 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
       ? format(addDays(new Date(task.start_date), newDuration - 1), 'yyyy-MM-dd')
       : task.end_date;
     setAdjustingId(task.id);
+    // Only update this task — the scheduling engine resolves dependent dates visually
     await base44.entities.Task.update(task.id, { duration: newDuration, end_date: newEnd });
-    const mergedTasks = tasks.map(t => t.id === task.id ? { ...t, duration: newDuration, end_date: newEnd } : t);
-    await cascadeTaskDates(task.id, mergedTasks, (id, data) => base44.entities.Task.update(id, data));
     queryClient.invalidateQueries({ queryKey: ['tasks'] });
     setAdjustingId(null);
   };
