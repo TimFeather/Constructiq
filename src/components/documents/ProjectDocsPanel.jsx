@@ -142,20 +142,24 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
           <span className="text-xs text-muted-foreground hidden lg:block flex-shrink-0">
             {format(new Date(doc.created_date), 'MMM d, yyyy')}
           </span>
-          <Select
-            value={doc.status}
-            onValueChange={v => statusMutation.mutate({ id: doc.id, status: v, ownerEmail: doc.uploaded_by_email })}
-          >
-            <SelectTrigger className="h-6 text-xs w-24 flex-shrink-0">
-              <StatusBadge status={doc.status} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="Draft">Draft</SelectItem>
-              <SelectItem value="In Review">In Review</SelectItem>
-              <SelectItem value="Approved">Approved</SelectItem>
-              <SelectItem value="Superseded">Superseded</SelectItem>
-            </SelectContent>
-          </Select>
+          {isInternal ? (
+            <Select
+              value={doc.status}
+              onValueChange={v => statusMutation.mutate({ id: doc.id, status: v, ownerEmail: doc.uploaded_by_email })}
+            >
+              <SelectTrigger className="h-6 text-xs w-24 flex-shrink-0">
+                <StatusBadge status={doc.status} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Draft">Draft</SelectItem>
+                <SelectItem value="In Review">In Review</SelectItem>
+                <SelectItem value="Approved">Approved</SelectItem>
+                <SelectItem value="Superseded">Superseded</SelectItem>
+              </SelectContent>
+            </Select>
+          ) : (
+            <span className="flex-shrink-0"><StatusBadge status={doc.status} /></span>
+          )}
           <a href={doc.file_url} target="_blank" rel="noopener noreferrer" className="flex-shrink-0">
             <ExternalLink className="w-3.5 h-3.5 text-muted-foreground hover:text-primary" />
           </a>
