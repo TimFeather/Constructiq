@@ -77,62 +77,81 @@ export default function Programme() {
     ? accessibleTasks
     : accessibleTasks.filter(t => t.project_id === selectedProjectId);
 
+  const parseMPPXml = (xmlText, projectId) => {
+    const parser = new DOMParser();
+    const xml = parser.parseFromString(xmlText, 'text/xml');
+
+    // Microsoft Project XML uses <Tasks><Task>...</Task></Tasks>
+    const taskNodes = Array.from(xml.querySelectorAll('Tasks > Task'));
+
+    const formatDate = (str) => {
+      if (!str) return null;
+      // MS Project dates: "2025-06-01T08:00:00" → "2025-06-01"
+      return str.split('T')[0];
+    };
+
+    const tasks = taskNodes
+      .map(node => {
+        const get = (tag) => node.querySelector(tag)?.textContent?.trim() || '';
+        const uid = get('UID');
+        const name = get('Name');
+        const wbs = get('WBS');
+        const outlineLevel = parseInt(get('OutlineLevel')) || 0;
+        const start = formatDate(get('Start'));
+        const finish = formatDate(get('Finish'));
+        const durationStr = get('Duration'); // PT8H0M0S or similar
+        // Parse ISO 8601 duration: e.g. P5DT0H0M0S → 5 days
+        const durationDays = (() => {
+          const match = durationStr.match(/P(\d+)DT/);
+          if (match) return parseInt(match[1]);
+          // Fallback: PT8H = 1 day
+          const hoursMatch = durationStr.match(/PT(\d+)H/);
+          if (hoursMatch) return Math.max(1, Math.round(parseInt(hoursMatch[1]) / 8));
+          return 1;
+        })();
+        const percentComplete = parseInt(get('PercentComplete')) || 0;
+        const isSummary = get('Summary') === '1';
+        const sortOrder = parseInt(get('ID')) || 0;
+
+        if (!name || uid === '0') return null; // skip project summary row
+
+        return {
+          uid,
+          name,
+          wbs,
+          level: Math.min(outlineLevel, 3),
+          start_date: start,
+          end_date: finish,
+          duration: durationDays,
+          percent_complete: percentComplete,
+          is_summary: isSummary,
+          sort_order: sortOrder,
+          project_id: projectId,
+          predecessors: [],
+        };
+      })
+      .filter(Boolean);
+
+    return tasks;
+  };
+
   const handleMPPUpload = async () => {
     if (!mppFile || !selectedProjectId || selectedProjectId === 'all') return;
     setUploading(true);
-    
+
     try {
-      // Use LLM to extract task data from MPP file
-      const { file_url } = await base44.integrations.Core.UploadFile({ file: mppFile });
-      
-      const result = await base44.integrations.Core.InvokeLLM({
-        prompt: `Extract task information from this Microsoft Project (.mpp) file. Return a JSON array of tasks with: name, level (0-3), start_date (YYYY-MM-DD), end_date (YYYY-MM-DD), duration (days), wbs (string).`,
-        file_urls: [file_url],
-        response_json_schema: {
-          type: 'object',
-          properties: {
-            tasks: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  name: { type: 'string' },
-                  level: { type: 'number' },
-                  start_date: { type: 'string' },
-                  end_date: { type: 'string' },
-                  duration: { type: 'number' },
-                  wbs: { type: 'string' }
-                }
-              }
-            }
-          }
-        }
-      });
-      
-      if (result?.tasks?.length > 0) {
-        const projectId = selectedProjectId;
-        
-        for (const task of result.tasks) {
-          await base44.entities.Task.create({
-            name: task.name || 'Task',
-            project_id: projectId,
-            wbs: task.wbs || '',
-            level: task.level ?? 2,
-            start_date: task.start_date,
-            end_date: task.end_date,
-            duration: task.duration || 1,
-            percent_complete: 0,
-            predecessors: [],
-          });
-        }
-        
+      const text = await mppFile.text();
+      const tasks = parseMPPXml(text, selectedProjectId);
+
+      if (tasks.length > 0) {
+        await base44.entities.Task.bulkCreate(tasks);
         queryClient.invalidateQueries({ queryKey: ['tasks'] });
       }
-      
+
       setShowUploadMPP(false);
       setMppFile(null);
     } catch (error) {
-      console.error('Error uploading MPP file:', error);
+      console.error('Error parsing MPP XML file:', error);
     } finally {
       setUploading(false);
     }
@@ -271,8 +290,17 @@ export default function Programme() {
       {/* Upload MPP file dialog */}
       <Dialog open={showUploadMPP} onOpenChange={setShowUploadMPP}>
         <DialogContent className="sm:max-w-md">
-          <DialogHeader><DialogTitle>Upload Microsoft Project File</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Import Microsoft Project Schedule</DialogTitle></DialogHeader>
           <div className="space-y-4">
+            <div className="rounded-md bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800">
+              <p className="font-semibold mb-1">How to export from MS Project:</p>
+              <ol className="list-decimal list-inside space-y-0.5">
+                <li>Open your .mpp file in Microsoft Project</li>
+                <li>Go to <strong>File → Save As</strong></li>
+                <li>Choose <strong>XML Format (*.xml)</strong> as the file type</li>
+                <li>Upload that .xml file here</li>
+              </ol>
+            </div>
             <div>
               <Label>Select Project *</Label>
               <Select value={selectedProjectId !== 'all' ? selectedProjectId : (projects[0]?.id || '')} onValueChange={setSelectedProjectId}>
@@ -283,10 +311,10 @@ export default function Programme() {
               </Select>
             </div>
             <div>
-              <Label>.MPP File *</Label>
+              <Label>MS Project XML File (.xml) *</Label>
               <Input
                 type="file"
-                accept=".mpp"
+                accept=".xml"
                 onChange={e => setMppFile(e.target.files?.[0] || null)}
               />
               {mppFile && <p className="text-xs text-muted-foreground mt-1">Selected: {mppFile.name}</p>}
@@ -295,7 +323,7 @@ export default function Programme() {
           <DialogFooter>
             <Button variant="outline" onClick={() => { setShowUploadMPP(false); setMppFile(null); }}>Cancel</Button>
             <Button onClick={handleMPPUpload} disabled={!mppFile || uploading}>
-              {uploading ? 'Uploading...' : 'Upload'}
+              {uploading ? 'Importing...' : 'Import'}
             </Button>
           </DialogFooter>
         </DialogContent>
