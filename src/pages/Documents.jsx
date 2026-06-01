@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
-import { Plus, Search, FileText, Upload, ExternalLink, Folder } from 'lucide-react';
+import { Search, FileText, Upload, ExternalLink, Folder } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
 import EmptyState from '@/components/shared/EmptyState';
+import ProjectDocsPanel from '@/components/documents/ProjectDocsPanel';
 import { format } from 'date-fns';
 
 function getFileType(name) {
@@ -105,6 +106,8 @@ export default function Documents() {
   });
 
   const projectMap = Object.fromEntries(projects.map(p => [p.id, p.name]));
+  const selectedProject = projectFilter !== 'all' ? projects.find(p => p.id === projectFilter) : null;
+  const selectedProjectDocs = selectedProject ? documents.filter(d => d.project_id === selectedProject.id) : [];
 
   return (
     <div>
@@ -112,19 +115,17 @@ export default function Documents() {
         title="Documents"
         description="Upload and manage project documents"
         actions={
-          <Button onClick={() => setShowUpload(true)} className="gap-2">
-            <Upload className="w-4 h-4" /> Upload Document
-          </Button>
+          !selectedProject && (
+            <Button onClick={() => setShowUpload(true)} className="gap-2">
+              <Upload className="w-4 h-4" /> Upload Document
+            </Button>
+          )
         }
       />
 
       <div className="flex flex-col sm:flex-row gap-3 mb-6">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Search documents..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
-        </div>
         {projects.length > 1 && (
-          <Select value={projectFilter} onValueChange={setProjectFilter}>
+          <Select value={projectFilter} onValueChange={v => { setProjectFilter(v); setFolderFilter('all'); }}>
             <SelectTrigger className="w-full sm:w-48">
               <SelectValue placeholder="All Projects" />
             </SelectTrigger>
@@ -134,33 +135,44 @@ export default function Documents() {
             </SelectContent>
           </Select>
         )}
-        {allFolders.length > 0 && (
-          <Select value={folderFilter} onValueChange={setFolderFilter}>
-            <SelectTrigger className="w-full sm:w-44">
-              <SelectValue placeholder="All Folders" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Folders</SelectItem>
-              <SelectItem value="__none__">No Folder</SelectItem>
-              {allFolders.map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}
-            </SelectContent>
-          </Select>
+        {!selectedProject && (
+          <>
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input placeholder="Search documents..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
+            </div>
+            {allFolders.length > 0 && (
+              <Select value={folderFilter} onValueChange={setFolderFilter}>
+                <SelectTrigger className="w-full sm:w-44">
+                  <SelectValue placeholder="All Folders" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Folders</SelectItem>
+                  <SelectItem value="__none__">No Folder</SelectItem>
+                  {allFolders.map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            )}
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-full sm:w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="Draft">Draft</SelectItem>
+                <SelectItem value="In Review">In Review</SelectItem>
+                <SelectItem value="Approved">Approved</SelectItem>
+                <SelectItem value="Superseded">Superseded</SelectItem>
+              </SelectContent>
+            </Select>
+          </>
         )}
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-full sm:w-40">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="Draft">Draft</SelectItem>
-            <SelectItem value="In Review">In Review</SelectItem>
-            <SelectItem value="Approved">Approved</SelectItem>
-            <SelectItem value="Superseded">Superseded</SelectItem>
-          </SelectContent>
-        </Select>
       </div>
 
-      {isLoading ? (
+      {/* Folder view when a project is selected */}
+      {selectedProject ? (
+        <ProjectDocsPanel project={selectedProject} docs={selectedProjectDocs} />
+      ) : isLoading ? (
         <div className="space-y-3">
           {[1,2,3].map(i => <div key={i} className="h-16 bg-muted rounded-lg animate-pulse" />)}
         </div>
