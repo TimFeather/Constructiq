@@ -263,7 +263,7 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
 
   return (
     <div className="border-r bg-card h-full flex flex-col">
-      <div className="flex items-center justify-between px-3 py-2 border-b bg-muted/30">
+      <div className="flex items-center justify-between px-3 border-b bg-muted/30 h-10">
         <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Task List</span>
         {canEdit && (
           <Button size="sm" variant="ghost" className="h-7 gap-1 text-xs" onClick={onAddTask}>
@@ -273,7 +273,7 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
       </div>
 
       {/* Column headers */}
-      <div className="grid items-center border-b text-[10px] font-medium text-muted-foreground uppercase tracking-wider bg-muted/30 px-2 py-1.5 gap-0" style={{ gridTemplateColumns: 'auto 24px 1fr 56px 70px 70px 56px 80px' }}>
+      <div className="grid items-center border-b text-[10px] font-medium text-muted-foreground uppercase tracking-wider bg-muted/30 px-2 h-10 gap-0" style={{ gridTemplateColumns: 'auto 24px 1fr 56px 70px 70px 56px 80px' }}>
         <div className="w-5" />
         <div className="w-5" />
         <span className="truncate px-1">Name</span>

@@ -167,8 +167,8 @@ export default function GanttChart({ tasks, zoom = 'week' }) {
   return (
     <div className="flex-1 overflow-auto bg-card">
       <div style={{ minWidth: chartWidth }} className="relative">
-        {/* Header spacer (matches TaskList header height) */}
-        <div className="h-[40px]" />
+        {/* Header spacer (matches TaskList header height: toolbar 40px + columns 40px) */}
+        <div className="h-[80px]" />
         
         {/* Timeline header */}
         <div className="sticky top-0 z-10 bg-muted/80 backdrop-blur-sm border-b">
