@@ -16,7 +16,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { PanelLeftClose, PanelLeftOpen, Upload, Printer, ZoomIn, ZoomOut, Trash2 } from 'lucide-react';
+import { PanelLeftClose, PanelLeftOpen, Upload, Printer, ZoomIn, ZoomOut, Trash2, Undo2, Redo2 } from 'lucide-react';
 import PageHeader from '@/components/shared/PageHeader';
 import TaskList from '@/components/programme/TaskList';
 import GanttChart from '@/components/programme/GanttChart';
@@ -38,7 +38,42 @@ export default function Programme() {
   const [uploading, setUploading] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // Undo/redo history: each entry is { undo: [{id, data}], redo: [{id, data}] }
+  const [history, setHistory] = useState([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
   const queryClient = useQueryClient();
+
+  const canUndo = historyIndex >= 0;
+  const canRedo = historyIndex < history.length - 1;
+
+  // Call this before making changes to record a snapshot for undo
+  const pushHistory = useCallback((undoOps, redoOps) => {
+    setHistory(prev => {
+      const trimmed = prev.slice(0, historyIndex + 1);
+      return [...trimmed, { undo: undoOps, redo: redoOps }];
+    });
+    setHistoryIndex(prev => prev + 1);
+  }, [historyIndex]);
+
+  const handleUndo = async () => {
+    if (!canUndo) return;
+    const entry = history[historyIndex];
+    for (const op of entry.undo) {
+      await base44.entities.Task.update(op.id, op.data);
+    }
+    setHistoryIndex(prev => prev - 1);
+    queryClient.invalidateQueries({ queryKey: ['tasks'] });
+  };
+
+  const handleRedo = async () => {
+    if (!canRedo) return;
+    const entry = history[historyIndex + 1];
+    for (const op of entry.redo) {
+      await base44.entities.Task.update(op.id, op.data);
+    }
+    setHistoryIndex(prev => prev + 1);
+    queryClient.invalidateQueries({ queryKey: ['tasks'] });
+  };
   const taskScrollRef = useRef(null);
   const ganttScrollRef = useRef(null);
   const isSyncing = useRef(false);
@@ -237,6 +272,12 @@ export default function Programme() {
                 {projects.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
               </SelectContent>
             </Select>
+            <Button variant="outline" size="icon" onClick={handleUndo} disabled={!canUndo} title="Undo">
+              <Undo2 className="w-4 h-4" />
+            </Button>
+            <Button variant="outline" size="icon" onClick={handleRedo} disabled={!canRedo} title="Redo">
+              <Redo2 className="w-4 h-4" />
+            </Button>
             <Button variant="outline" size="icon" onClick={() => cycleZoom('out')} title="Zoom out">
               <ZoomOut className="w-4 h-4" />
             </Button>
@@ -283,6 +324,7 @@ export default function Programme() {
               canEdit={isAdmin || user?.role === 'internal'}
               scrollRef={taskScrollRef}
               onScroll={() => ganttScrollRef.current && syncScroll(taskScrollRef.current, ganttScrollRef.current)}
+              onPushHistory={pushHistory}
             />
           </div>
         )}
@@ -302,6 +344,7 @@ export default function Programme() {
         tasks={accessibleTasks}
         open={!!selectedTask}
         onOpenChange={(open) => { if (!open) setSelectedTask(null); }}
+        onPushHistory={pushHistory}
       />
 
       {/* Delete all tasks confirmation */}

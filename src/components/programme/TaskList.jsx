@@ -26,7 +26,7 @@ const DEP_TYPE_BADGE = {
   SF: 'bg-purple-100 text-purple-700',
 };
 
-export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, canEdit = false, scrollRef, onScroll }) {
+export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, canEdit = false, scrollRef, onScroll, onPushHistory }) {
   const [expandedIds, setExpandedIds] = useState(new Set(tasks.filter(t => t.level === 0).map(t => t.id)));
   const [editingId, setEditingId] = useState(null);
   const [editValues, setEditValues] = useState({});
@@ -61,7 +61,10 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
       ? format(addDays(new Date(task.start_date), newDuration - 1), 'yyyy-MM-dd')
       : task.end_date;
     setAdjustingId(task.id);
-    // Only update this task — the scheduling engine resolves dependent dates visually
+    onPushHistory?.(
+      [{ id: task.id, data: { duration: task.duration, end_date: task.end_date } }],
+      [{ id: task.id, data: { duration: newDuration, end_date: newEnd } }],
+    );
     await base44.entities.Task.update(task.id, { duration: newDuration, end_date: newEnd });
     queryClient.invalidateQueries({ queryKey: ['tasks'] });
     setAdjustingId(null);
@@ -96,6 +99,14 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
       finalData.end_date = format(addDays(new Date(v.start_date), parseInt(v.duration) - 1), 'yyyy-MM-dd');
     } else if (v.start_date && v.end_date) {
       finalData.duration = differenceInCalendarDays(new Date(v.end_date), new Date(v.start_date)) + 1;
+    }
+    const originalTask = tasks.find(t => t.id === taskId);
+    if (originalTask && onPushHistory) {
+      const { name, start_date, end_date, duration } = originalTask;
+      onPushHistory(
+        [{ id: taskId, data: { name, start_date, end_date, duration } }],
+        [{ id: taskId, data: finalData }],
+      );
     }
     await base44.entities.Task.update(taskId, finalData);
     const mergedTasks = tasks.map(t => t.id === taskId ? { ...t, ...finalData } : t);

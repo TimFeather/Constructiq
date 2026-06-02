@@ -26,7 +26,7 @@ const CONSTRAINT_TYPES = [
   { value: 'FNLT', label: 'FNLT — Finish No Later Than' },
 ];
 
-export default function TaskEditPanel({ task, tasks = [], open, onOpenChange }) {
+export default function TaskEditPanel({ task, tasks = [], open, onOpenChange, onPushHistory }) {
   const [form, setForm] = useState({});
   const [cycleError, setCycleError] = useState(null);
   const queryClient = useQueryClient();
@@ -86,6 +86,14 @@ export default function TaskEditPanel({ task, tasks = [], open, onOpenChange }) 
       lag_days: Math.round((p.lag_hours || 0) / 8),
       is_elapsed: p.is_elapsed || false,
     }));
+    // Record undo snapshot: revert to original task state
+    if (onPushHistory && task) {
+      const { id: _id, created_date: _cd, updated_date: _ud, created_by: _cb, ...originalData } = task;
+      onPushHistory(
+        [{ id: task.id, data: originalData }],  // undo: restore original
+        [{ id: task.id, data }],                  // redo: re-apply new data
+      );
+    }
     updateMutation.mutate(data);
   };
 
