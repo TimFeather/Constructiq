@@ -165,7 +165,10 @@ export default function Programme() {
           const predecessors = pt._predecessorLinks
             .map(link => {
               const predDbId = uidToDbId.get(link._predUid);
-              if (!predDbId) return null;
+              if (!predDbId) {
+                console.warn(`Predecessor UID ${link._predUid} not found for task ${pt.wbs} (${pt.name})`);
+                return null;
+              }
               return {
                 predecessor_id: predDbId,
                 task_id: predDbId,
@@ -176,13 +179,21 @@ export default function Programme() {
               };
             })
             .filter(Boolean);
-          if (predecessors.length > 0) updatePayload.predecessors = predecessors;
+          if (predecessors.length > 0) {
+            updatePayload.predecessors = predecessors;
+            console.log(`Task ${pt.wbs} (${pt.name}): writing ${predecessors.length} predecessor(s)`);
+          }
+        } else if (pt._predecessorLinks) {
+          console.log(`Task ${pt.wbs} (${pt.name}): has ${pt._predecessorLinks.length} pred links in XML but filtering removed them all`);
         }
 
         // Resolve parent_id from _parentUid
         if (pt._parentUid != null) {
           const parentDbId = uidToDbId.get(pt._parentUid);
-          if (parentDbId) updatePayload.parent_id = parentDbId;
+          if (parentDbId) {
+            updatePayload.parent_id = parentDbId;
+            console.log(`Task ${pt.wbs} (${pt.name}): parent_id = ${parentDbId}`);
+          }
         }
 
         if (Object.keys(updatePayload).length > 0) {

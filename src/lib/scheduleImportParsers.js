@@ -57,7 +57,7 @@ export const parseXML = (text, projectId) => {
       };
     }).filter(Boolean);
 
-    return {
+    const task = {
       _mspUid: parseInt(uid),
       _outlineLevel: parseInt(get('OutlineLevel')) || 0,
       name,
@@ -73,6 +73,12 @@ export const parseXML = (text, projectId) => {
       predecessors: [],
       _predecessorLinks: predLinks,
     };
+
+    if (predLinks.length > 0) {
+      console.log(`XML Parser: Task ${task.wbs} (${name}, UID ${uid}): found ${predLinks.length} predecessor link(s)`);
+    }
+
+    return task;
   }).filter(Boolean);
 
   // Second pass: derive parent_id by tracking the ancestor stack per outline level
