@@ -1,0 +1,24 @@
+{
+  "name": "InvitedUser",
+  "type": "object",
+  "properties": {
+    "email": {
+      "type": "string"
+    },
+    "app_role": {
+      "type": "string"
+    },
+    "invited_by_email": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "project_name": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "email"
+  ]
+}

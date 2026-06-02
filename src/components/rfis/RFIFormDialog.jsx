@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useAuth } from '@/lib/AuthContext';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -11,10 +12,16 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { X } from 'lucide-react';
 
-export default function RFIFormDialog({ open, onOpenChange, projects = [] }) {
+export default function RFIFormDialog({ open, onOpenChange, projects = [], defaultProjectId = '' }) {
+  const { user } = useAuth();
   const [form, setForm] = useState({
-    title: '', description: '', project_id: '', due_date: '', priority: 'Medium',
+    title: '', description: '', project_id: defaultProjectId || '', due_date: '', priority: 'Medium',
   });
+
+  // Reset form when dialog opens
+  React.useEffect(() => {
+    if (open) setForm(f => ({ ...f, project_id: defaultProjectId || f.project_id }));
+  }, [open, defaultProjectId]);
   const [selectedEmails, setSelectedEmails] = useState([]);
   const queryClient = useQueryClient();
 
@@ -46,14 +53,16 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [] }) {
       // keep legacy single-assignee fields populated with first assignee for backwards compat
       const firstAssignee = selectedEmails[0];
       const rfi = await base44.entities.RFI.create({
-        ...data,
-        number: nextNumber,
-        status: 'Open',
-        responses: [],
-        attachments: [],
-        assignees: selectedEmails,
-        assigned_to_email: firstAssignee?.email || '',
-        assigned_to_name: firstAssignee?.name || '',
+      ...data,
+      number: nextNumber,
+      status: 'Open',
+      responses: [],
+      attachments: [],
+      assignees: selectedEmails,
+      assigned_to_email: firstAssignee?.email || '',
+      assigned_to_name: firstAssignee?.name || '',
+      created_by_email: user?.email || '',
+      created_by_name: user?.full_name || '',
       });
       // send email to all assignees
       const rfiUrl = `${window.location.origin}/rfis/${rfi.id}`;

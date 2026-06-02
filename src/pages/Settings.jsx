@@ -6,23 +6,33 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Save, UserPlus, Shield, Bell } from 'lucide-react';
+import { Save, UserPlus, Shield, Bell, Mail, Clock, RefreshCw } from 'lucide-react';
 import PageHeader from '@/components/shared/PageHeader';
+import { DEFAULT_TEMPLATES } from '@/lib/emailTemplates';
+
+const ROLES = [
+  'Architect', 'Client', 'External Project Manager',
+  'Internal Project Manager', 'Site Manager', 'Quantity Surveyor', 'Subcontractor'
+];
 
 export default function Settings() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
   const [profile, setProfile] = useState({
-    phone: '', business_name: '', notify_rfis: true, notify_documents: true,
+    first_name: '', last_name: '', phone: '', business_name: '',
+    construction_role: '', notify_rfis: true, notify_documents: true,
   });
 
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('external');
+  const [editingTemplate, setEditingTemplate] = useState(null);
+  const [templateForm, setTemplateForm] = useState({ subject: '', body: '' });
 
   const { data: users = [] } = useQuery({
     queryKey: ['users'],
@@ -30,11 +40,26 @@ export default function Settings() {
     enabled: user?.role === 'admin',
   });
 
+  const { data: invitedUsers = [] } = useQuery({
+    queryKey: ['invitedUsers'],
+    queryFn: () => base44.entities.InvitedUser.list('-created_date', 100),
+    enabled: user?.role === 'admin',
+  });
+
+  const { data: emailTemplates = [] } = useQuery({
+    queryKey: ['emailTemplates'],
+    queryFn: () => base44.entities.EmailTemplate.list(),
+    enabled: user?.role === 'admin',
+  });
+
   useEffect(() => {
     if (user) {
       setProfile({
+        first_name: user.first_name || '',
+        last_name: user.last_name || '',
         phone: user.phone || '',
         business_name: user.business_name || '',
+        construction_role: user.construction_role || '',
         notify_rfis: user.notify_rfis !== false,
         notify_documents: user.notify_documents !== false,
       });
@@ -61,21 +86,64 @@ export default function Settings() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['users'] }),
   });
 
+  const saveTemplateMutation = useMutation({
+    mutationFn: async ({ key, subject, body }) => {
+      const existing = emailTemplates.find(t => t.template_key === key);
+      if (existing) {
+        return base44.entities.EmailTemplate.update(existing.id, { subject, body });
+      } else {
+        return base44.entities.EmailTemplate.create({
+          template_key: key,
+          name: DEFAULT_TEMPLATES[key]?.name || key,
+          subject,
+          body,
+        });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['emailTemplates'] });
+      setEditingTemplate(null);
+    }
+  });
+
   const isAdmin = user?.role === 'admin';
+  const displayName = [profile.first_name, profile.last_name].filter(Boolean).join(' ') || user?.full_name || '';
+
+  const openEditTemplate = (key) => {
+    const saved = emailTemplates.find(t => t.template_key === key);
+    const def = DEFAULT_TEMPLATES[key];
+    setTemplateForm({
+      subject: saved?.subject || def?.subject || '',
+      body: saved?.body || def?.body || '',
+    });
+    setEditingTemplate(key);
+  };
+
+  const TEMPLATE_KEYS = [
+    { key: 'rfi_assigned', label: 'RFI Assigned', vars: '{rfi_ref}, {title}, {assignee_name}, {priority}, {due_date}, {description}, {url}' },
+    { key: 'rfi_response', label: 'RFI Response', vars: '{rfi_ref}, {title}, {responder_name}, {response_text}, {url}' },
+    { key: 'team_added', label: 'Added to Project', vars: '{name}, {project_name}, {role}' },
+    { key: 'team_invited', label: 'Project Invitation', vars: '{project_name}, {role}' },
+  ];
 
   return (
     <div>
       <PageHeader title="Settings" description="Manage your profile and preferences" />
 
       <Tabs defaultValue="profile" className="space-y-6">
-        <TabsList>
+        <TabsList className="flex-wrap">
           <TabsTrigger value="profile">Profile</TabsTrigger>
           <TabsTrigger value="notifications">
             <Bell className="w-3.5 h-3.5 mr-1" /> Notifications
           </TabsTrigger>
           {isAdmin && (
             <TabsTrigger value="users">
-              <Shield className="w-3.5 h-3.5 mr-1" /> User Management
+              <Shield className="w-3.5 h-3.5 mr-1" /> Users
+            </TabsTrigger>
+          )}
+          {isAdmin && (
+            <TabsTrigger value="emails">
+              <Mail className="w-3.5 h-3.5 mr-1" /> Email Templates
             </TabsTrigger>
           )}
         </TabsList>
@@ -90,9 +158,12 @@ export default function Settings() {
             <CardContent className="space-y-4">
               <div className="grid sm:grid-cols-2 gap-4">
                 <div>
-                  <Label>Full Name</Label>
-                  <Input value={user?.full_name || ''} disabled className="bg-muted" />
-                  <p className="text-xs text-muted-foreground mt-1">Name cannot be changed here</p>
+                  <Label>First Name</Label>
+                  <Input value={profile.first_name} onChange={e => setProfile({...profile, first_name: e.target.value})} placeholder="First name" />
+                </div>
+                <div>
+                  <Label>Last Name</Label>
+                  <Input value={profile.last_name} onChange={e => setProfile({...profile, last_name: e.target.value})} placeholder="Last name" />
                 </div>
                 <div>
                   <Label>Email</Label>
@@ -100,26 +171,25 @@ export default function Settings() {
                 </div>
                 <div>
                   <Label>Phone</Label>
-                  <Input
-                    value={profile.phone}
-                    onChange={e => setProfile({...profile, phone: e.target.value})}
-                    placeholder="Phone number"
-                  />
+                  <Input value={profile.phone} onChange={e => setProfile({...profile, phone: e.target.value})} placeholder="Phone number" />
                 </div>
                 <div>
-                  <Label>Business Name</Label>
-                  <Input
-                    value={profile.business_name}
-                    onChange={e => setProfile({...profile, business_name: e.target.value})}
-                    placeholder="Your company"
-                  />
+                  <Label>Organisation</Label>
+                  <Input value={profile.business_name} onChange={e => setProfile({...profile, business_name: e.target.value})} placeholder="Your company" />
+                </div>
+                <div>
+                  <Label>Role</Label>
+                  <Select value={profile.construction_role} onValueChange={v => setProfile({...profile, construction_role: v})}>
+                    <SelectTrigger><SelectValue placeholder="Select your role" /></SelectTrigger>
+                    <SelectContent>
+                      {ROLES.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
               <div>
-                <Label>Role</Label>
-                <div className="mt-1">
-                  <Badge variant="outline">{user?.role || 'user'}</Badge>
-                </div>
+                <Label>Platform Role</Label>
+                <div className="mt-1"><Badge variant="outline">{user?.role || 'external'}</Badge></div>
               </div>
               <Button onClick={() => profileMutation.mutate(profile)} disabled={profileMutation.isPending} className="gap-2">
                 <Save className="w-4 h-4" />
@@ -142,20 +212,14 @@ export default function Settings() {
                   <p className="text-sm font-medium">RFI Notifications</p>
                   <p className="text-xs text-muted-foreground">Emails when RFIs are assigned or responses added</p>
                 </div>
-                <Switch
-                  checked={profile.notify_rfis}
-                  onCheckedChange={v => setProfile({...profile, notify_rfis: v})}
-                />
+                <Switch checked={profile.notify_rfis} onCheckedChange={v => setProfile({...profile, notify_rfis: v})} />
               </div>
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium">Document Notifications</p>
                   <p className="text-xs text-muted-foreground">Emails when document status changes</p>
                 </div>
-                <Switch
-                  checked={profile.notify_documents}
-                  onCheckedChange={v => setProfile({...profile, notify_documents: v})}
-                />
+                <Switch checked={profile.notify_documents} onCheckedChange={v => setProfile({...profile, notify_documents: v})} />
               </div>
               <Button onClick={() => profileMutation.mutate(profile)} disabled={profileMutation.isPending} className="gap-2">
                 <Save className="w-4 h-4" /> Save Preferences
@@ -176,13 +240,7 @@ export default function Settings() {
                 </CardHeader>
                 <CardContent>
                   <div className="flex flex-col sm:flex-row gap-3">
-                    <Input
-                      type="email"
-                      placeholder="Email address"
-                      value={inviteEmail}
-                      onChange={e => setInviteEmail(e.target.value)}
-                      className="flex-1"
-                    />
+                    <Input type="email" placeholder="Email address" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} className="flex-1" />
                     <Select value={inviteRole} onValueChange={setInviteRole}>
                       <SelectTrigger className="w-full sm:w-36"><SelectValue /></SelectTrigger>
                       <SelectContent>
@@ -191,11 +249,7 @@ export default function Settings() {
                         <SelectItem value="admin">Admin</SelectItem>
                       </SelectContent>
                     </Select>
-                    <Button
-                      onClick={() => inviteMutation.mutate({ email: inviteEmail, role: inviteRole })}
-                      disabled={!inviteEmail || inviteMutation.isPending}
-                      className="gap-2"
-                    >
+                    <Button onClick={() => inviteMutation.mutate({ email: inviteEmail, role: inviteRole })} disabled={!inviteEmail || inviteMutation.isPending} className="gap-2">
                       <UserPlus className="w-4 h-4" />
                       {inviteMutation.isPending ? 'Inviting...' : 'Invite'}
                     </Button>
@@ -203,10 +257,37 @@ export default function Settings() {
                 </CardContent>
               </Card>
 
-              {/* User list */}
+              {/* Pending invites */}
+              {invitedUsers.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-amber-500" /> Pending Invitations ({invitedUsers.length})
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {invitedUsers.map(inv => (
+                        <div key={inv.id} className="flex items-center justify-between p-3 bg-amber-50 dark:bg-amber-950/20 rounded-lg border border-amber-200 dark:border-amber-800">
+                          <div>
+                            <p className="text-sm font-medium">{inv.email}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {inv.project_name ? `Invited to: ${inv.project_name}` : 'Direct invite'}
+                              {inv.invited_by_email ? ` · by ${inv.invited_by_email}` : ''}
+                            </p>
+                          </div>
+                          <Badge variant="outline" className="text-amber-600 border-amber-400">Pending</Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Registered user list */}
               <Card>
                 <CardHeader>
-                  <CardTitle>All Users ({users.length})</CardTitle>
+                  <CardTitle>Registered Users ({users.length})</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-2">
@@ -216,13 +297,8 @@ export default function Settings() {
                           <p className="text-sm font-medium">{u.full_name || u.email}</p>
                           <p className="text-xs text-muted-foreground">{u.email}</p>
                         </div>
-                        <Select
-                          value={u.role || 'external'}
-                          onValueChange={v => roleMutation.mutate({ userId: u.id, role: v })}
-                        >
-                          <SelectTrigger className="w-28 h-8 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
+                        <Select value={u.role || 'external'} onValueChange={v => roleMutation.mutate({ userId: u.id, role: v })}>
+                          <SelectTrigger className="w-28 h-8 text-xs"><SelectValue /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="admin">Admin</SelectItem>
                             <SelectItem value="internal">Internal</SelectItem>
@@ -231,12 +307,71 @@ export default function Settings() {
                         </Select>
                       </div>
                     ))}
-                    {users.length === 0 && (
-                      <p className="text-sm text-muted-foreground text-center py-4">No users found</p>
-                    )}
+                    {users.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">No users found</p>}
                   </div>
                 </CardContent>
               </Card>
+            </div>
+          </TabsContent>
+        )}
+
+        {/* Email Templates (Admin only) */}
+        {isAdmin && (
+          <TabsContent value="emails">
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">Customise the emails sent by the system. Use the variable names shown in each template to insert dynamic content.</p>
+              {TEMPLATE_KEYS.map(({ key, label, vars }) => {
+                const saved = emailTemplates.find(t => t.template_key === key);
+                const isEditing = editingTemplate === key;
+                const def = DEFAULT_TEMPLATES[key];
+                return (
+                  <Card key={key}>
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-sm">{label}</CardTitle>
+                        <div className="flex gap-2">
+                          {saved && (
+                            <Button size="sm" variant="ghost" className="h-7 text-xs gap-1" onClick={() => {
+                              base44.entities.EmailTemplate.delete(saved.id).then(() => {
+                                queryClient.invalidateQueries({ queryKey: ['emailTemplates'] });
+                                if (editingTemplate === key) setEditingTemplate(null);
+                              });
+                            }}>
+                              <RefreshCw className="w-3 h-3" /> Reset to default
+                            </Button>
+                          )}
+                          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => isEditing ? setEditingTemplate(null) : openEditTemplate(key)}>
+                            {isEditing ? 'Cancel' : 'Edit'}
+                          </Button>
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">Variables: <code className="bg-muted px-1 rounded text-[10px]">{vars}</code></p>
+                    </CardHeader>
+                    {isEditing ? (
+                      <CardContent className="space-y-3">
+                        <div>
+                          <Label className="text-xs">Subject</Label>
+                          <Input value={templateForm.subject} onChange={e => setTemplateForm(f => ({...f, subject: e.target.value}))} />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Body</Label>
+                          <Textarea value={templateForm.body} onChange={e => setTemplateForm(f => ({...f, body: e.target.value}))} rows={8} className="font-mono text-xs" />
+                        </div>
+                        <Button size="sm" className="gap-1.5" onClick={() => saveTemplateMutation.mutate({ key, ...templateForm })} disabled={saveTemplateMutation.isPending}>
+                          <Save className="w-3 h-3" /> {saveTemplateMutation.isPending ? 'Saving...' : 'Save Template'}
+                        </Button>
+                      </CardContent>
+                    ) : (
+                      <CardContent className="pt-0">
+                        <div className="bg-muted/40 rounded p-3 text-xs font-mono whitespace-pre-wrap text-muted-foreground max-h-24 overflow-hidden relative">
+                          {(saved?.body || def?.body || '').substring(0, 200)}
+                          {(saved?.body || def?.body || '').length > 200 && <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-muted/40 to-transparent" />}
+                        </div>
+                      </CardContent>
+                    )}
+                  </Card>
+                );
+              })}
             </div>
           </TabsContent>
         )}

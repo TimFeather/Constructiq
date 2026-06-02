@@ -14,13 +14,13 @@ import ResetPassword from '@/pages/ResetPassword';
 
 import AppLayout from '@/components/layout/AppLayout';
 import Dashboard from '@/pages/Dashboard';
-import Projects from '@/pages/Projects';
+import Projects from '@/pages/Projects.jsx';
 import ProjectDetail from '@/pages/ProjectDetail';
 import Documents from '@/pages/Documents';
 import RFIs from '@/pages/RFIs';
-import RFIDetail from '@/pages/RFIDetail';
+import RFIDetail from '@/pages/RFIDetail.jsx';
 import Programme from '@/pages/Programme';
-import Settings from '@/pages/Settings';
+import Settings from '@/pages/Settings.jsx';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();

@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { Link } from 'react-router-dom';
-import { Plus, Search, Calendar } from 'lucide-react';
+import { Plus, Search, Calendar, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
 import EmptyState from '@/components/shared/EmptyState';
@@ -18,9 +19,13 @@ import { FolderKanban } from 'lucide-react';
 export default function Projects() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
+  const isInternal = user?.role === 'internal';
+  const canDelete = isAdmin || isInternal;
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [showForm, setShowForm] = useState(false);
+  const [deleteProjectId, setDeleteProjectId] = useState(null);
+  const queryClient = useQueryClient();
 
   const { data: allProjects = [], isLoading } = useQuery({
     queryKey: ['projects'],
@@ -37,33 +42,37 @@ export default function Projects() {
     return matchSearch && matchStatus;
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: (id) => base44.entities.Project.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      setDeleteProjectId(null);
+    },
+  });
+
+  const projectToDelete = allProjects.find(p => p.id === deleteProjectId);
+
   return (
     <div>
       <PageHeader
         title="Projects"
         description="Manage your construction projects"
         actions={
-          <Button onClick={() => setShowForm(true)} className="gap-2">
-            <Plus className="w-4 h-4" /> New Project
-          </Button>
+          (isAdmin || isInternal) && (
+            <Button onClick={() => setShowForm(true)} className="gap-2">
+              <Plus className="w-4 h-4" /> New Project
+            </Button>
+          )
         }
       />
 
-      {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3 mb-6">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Search projects..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="pl-9"
-          />
+          <Input placeholder="Search projects..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
         </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-full sm:w-40">
-            <SelectValue />
-          </SelectTrigger>
+          <SelectTrigger className="w-full sm:w-40"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Status</SelectItem>
             <SelectItem value="Active">Active</SelectItem>
@@ -73,7 +82,6 @@ export default function Projects() {
         </Select>
       </div>
 
-      {/* Project cards */}
       {isLoading ? (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1,2,3].map(i => (
@@ -91,39 +99,69 @@ export default function Projects() {
           icon={FolderKanban}
           title="No projects found"
           description={search || statusFilter !== 'all' ? 'Try adjusting your filters' : 'Create your first project to get started'}
-          actionLabel={!search && statusFilter === 'all' ? 'New Project' : undefined}
-          onAction={!search && statusFilter === 'all' ? () => setShowForm(true) : undefined}
+          actionLabel={!search && statusFilter === 'all' && (isAdmin || isInternal) ? 'New Project' : undefined}
+          onAction={!search && statusFilter === 'all' && (isAdmin || isInternal) ? () => setShowForm(true) : undefined}
         />
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map(project => (
-            <Link key={project.id} to={`/projects/${project.id}`}>
-              <Card className="hover:shadow-lg transition-all duration-300 hover:-translate-y-0.5 cursor-pointer h-full">
-                <CardContent className="p-5">
-                  <div className="flex items-start justify-between mb-3">
-                    <h3 className="font-semibold text-foreground truncate pr-2">{project.name}</h3>
-                    <StatusBadge status={project.status} />
-                  </div>
-                  {project.description && (
-                    <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{project.description}</p>
-                  )}
-                  <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                    {project.start_date && (
-                      <span className="flex items-center gap-1">
-                        <Calendar className="w-3 h-3" />
-                        {format(new Date(project.start_date), 'MMM d, yyyy')}
-                      </span>
+            <div key={project.id} className="relative group">
+              <Link to={`/projects/${project.id}`}>
+                <Card className="hover:shadow-lg transition-all duration-300 hover:-translate-y-0.5 cursor-pointer h-full">
+                  <CardContent className="p-5">
+                    <div className="flex items-start justify-between mb-3">
+                      <h3 className="font-semibold text-foreground truncate pr-2">{project.name}</h3>
+                      <StatusBadge status={project.status} />
+                    </div>
+                    {project.description && (
+                      <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{project.description}</p>
                     )}
-                    <span>{project.team?.length || 0} members</span>
-                  </div>
-                </CardContent>
-              </Card>
-            </Link>
+                    <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                      {project.start_date && (
+                        <span className="flex items-center gap-1">
+                          <Calendar className="w-3 h-3" />
+                          {format(new Date(project.start_date), 'MMM d, yyyy')}
+                        </span>
+                      )}
+                      <span>{project.team?.length || 0} members</span>
+                    </div>
+                  </CardContent>
+                </Card>
+              </Link>
+              {canDelete && (
+                <button
+                  className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md bg-card border shadow-sm hover:bg-destructive hover:text-destructive-foreground hover:border-destructive"
+                  onClick={e => { e.preventDefault(); setDeleteProjectId(project.id); }}
+                  title="Delete project"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
           ))}
         </div>
       )}
 
       <ProjectFormDialog open={showForm} onOpenChange={setShowForm} />
+
+      <AlertDialog open={!!deleteProjectId} onOpenChange={open => !open && setDeleteProjectId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete project?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete "{projectToDelete?.name}"? This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogAction
+            onClick={() => deleteMutation.mutate(deleteProjectId)}
+            disabled={deleteMutation.isPending}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          >
+            {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
+          </AlertDialogAction>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

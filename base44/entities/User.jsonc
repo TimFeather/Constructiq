@@ -9,31 +9,39 @@
         "internal",
         "external"
       ],
-      "default": "external",
-      "description": "Global role: admin (full control), internal (read/write), external (view only)"
+      "default": "external"
+    },
+    "first_name": {
+      "type": "string"
+    },
+    "last_name": {
+      "type": "string"
     },
     "phone": {
-      "type": "string",
-      "description": "Phone number"
+      "type": "string"
     },
     "business_name": {
-      "type": "string",
-      "description": "Company or business name"
+      "type": "string"
     },
-    "avatar_url": {
+    "construction_role": {
       "type": "string",
-      "description": "Profile photo URL"
+      "enum": [
+        "Architect",
+        "Client",
+        "External Project Manager",
+        "Internal Project Manager",
+        "Site Manager",
+        "Quantity Surveyor",
+        "Subcontractor"
+      ]
     },
     "notify_rfis": {
       "type": "boolean",
-      "default": true,
-      "description": "Receive email notifications for RFIs"
+      "default": true
     },
     "notify_documents": {
       "type": "boolean",
-      "default": true,
-      "description": "Receive email notifications for document changes"
+      "default": true
     }
-  },
-  "required": []
+  }
 }

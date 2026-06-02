@@ -1,0 +1,25 @@
+{
+  "name": "EmailTemplate",
+  "type": "object",
+  "properties": {
+    "template_key": {
+      "type": "string",
+      "description": "Unique key: rfi_assigned, rfi_response, team_added, team_invited"
+    },
+    "name": {
+      "type": "string"
+    },
+    "subject": {
+      "type": "string",
+      "description": "Email subject. Use {variable_name} for placeholders."
+    },
+    "body": {
+      "type": "string",
+      "description": "Email body text. Available variables depend on template type."
+    }
+  },
+  "required": [
+    "template_key",
+    "name"
+  ]
+}

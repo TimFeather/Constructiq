@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -10,8 +10,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Card, CardContent } from '@/components/ui/card';
 import StatusBadge from '@/components/shared/StatusBadge';
-import { Plus, MessageSquare, ChevronDown, ChevronUp, Calendar, Send, Paperclip, ExternalLink, X, Loader2 } from 'lucide-react';
+import { Plus, MessageSquare, ChevronDown, ChevronUp, Calendar, Send, Paperclip, ExternalLink, X, Loader2, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
+import { resolveTemplate, applyTemplate } from '@/lib/emailTemplates';
 
 const PRIORITY_COLORS = {
   Low: 'bg-blue-100 text-blue-700',
@@ -20,17 +21,26 @@ const PRIORITY_COLORS = {
   Critical: 'bg-red-100 text-red-700',
 };
 
-function RFICard({ rfi, project }) {
+function RFICard({ rfi, project, emailTemplates = [] }) {
   const [expanded, setExpanded] = useState(false);
   const [replyText, setReplyText] = useState('');
-  const [attachments, setAttachments] = useState([]); // [{name, file}]
+  const [attachments, setAttachments] = useState([]);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
+  const isAdminOrInternal = user?.role === 'admin' || user?.role === 'internal';
+  const isOwner = rfi.created_by_email === user?.email || (!rfi.created_by_email && isAdminOrInternal);
+  const isAssignee = rfi.assignees?.some(a => a.email === user?.email) || rfi.assigned_to_email === user?.email;
+
   const statusMutation = useMutation({
     mutationFn: (status) => base44.entities.RFI.update(rfi.id, { status }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['rfis', project.id] }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => base44.entities.RFI.delete(rfi.id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['rfis', project.id] }),
   });
 
@@ -46,7 +56,6 @@ function RFICard({ rfi, project }) {
     if (!replyText.trim() && attachments.length === 0) return;
     setUploading(true);
 
-    // Upload all attachments
     const uploadedAttachments = await Promise.all(
       attachments.map(async (a) => {
         const { file_url } = await base44.integrations.Core.UploadFile({ file: a.file });
@@ -63,8 +72,30 @@ function RFICard({ rfi, project }) {
     };
 
     const updatedResponses = [...(rfi.responses || []), newResponse];
+    // Auto-mark as Answered when a response is sent
     const newStatus = rfi.status === 'Open' ? 'Answered' : rfi.status;
     await base44.entities.RFI.update(rfi.id, { responses: updatedResponses, status: newStatus });
+
+    // Notify the RFI owner/creator
+    const rfiRef = `RFI-${String(rfi.number).padStart(3, '0')}`;
+    const rfiUrl = `${window.location.origin}/rfis/${rfi.id}`;
+    const tpl = resolveTemplate(emailTemplates, 'rfi_response');
+    const { subject, body } = applyTemplate(tpl, {
+      rfi_ref: rfiRef,
+      title: rfi.title,
+      responder_name: user?.full_name || 'A team member',
+      response_text: replyText.trim(),
+      url: rfiUrl,
+    });
+
+    const notifyEmails = new Set();
+    if (rfi.created_by_email && rfi.created_by_email !== user?.email) notifyEmails.add(rfi.created_by_email);
+    (rfi.assignees || []).forEach(a => { if (a.email && a.email !== user?.email) notifyEmails.add(a.email); });
+    if (rfi.assigned_to_email && rfi.assigned_to_email !== user?.email) notifyEmails.add(rfi.assigned_to_email);
+
+    notifyEmails.forEach(email => {
+      base44.integrations.Core.SendEmail({ to: email, subject, body });
+    });
 
     queryClient.invalidateQueries({ queryKey: ['rfis', project.id] });
     setReplyText('');
@@ -72,10 +103,16 @@ function RFICard({ rfi, project }) {
     setUploading(false);
   };
 
+  // Status options based on role
+  const statusOptions = isOwner
+    ? ['Open', 'Answered', 'Closed']
+    : isAssignee
+    ? ['Open', 'Answered']
+    : null;
+
   return (
     <Card className="overflow-hidden">
       <CardContent className="p-0">
-        {/* Header row */}
         <div
           className="flex items-start gap-3 p-4 cursor-pointer hover:bg-muted/30 transition-colors"
           onClick={() => setExpanded(!expanded)}
@@ -104,11 +141,19 @@ function RFICard({ rfi, project }) {
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             <StatusBadge status={rfi.status} />
+            {isAdminOrInternal && (
+              <button
+                className="text-muted-foreground hover:text-destructive transition-colors p-1"
+                onClick={e => { e.stopPropagation(); deleteMutation.mutate(); }}
+                title="Delete RFI"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
             {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
           </div>
         </div>
 
-        {/* Expanded body */}
         {expanded && (
           <div className="border-t px-4 pb-4 space-y-4">
             {rfi.description && (
@@ -118,7 +163,6 @@ function RFICard({ rfi, project }) {
               </div>
             )}
 
-            {/* RFI-level attachments */}
             {(rfi.attachments || []).length > 0 && (
               <div>
                 <p className="text-xs font-medium text-muted-foreground mb-1">Attachments</p>
@@ -133,7 +177,6 @@ function RFICard({ rfi, project }) {
               </div>
             )}
 
-            {/* Response thread */}
             {(rfi.responses || []).length > 0 && (
               <div className="space-y-2">
                 <p className="text-xs font-medium text-muted-foreground">Responses</p>
@@ -161,6 +204,19 @@ function RFICard({ rfi, project }) {
               </div>
             )}
 
+            {/* Status change for assignees */}
+            {statusOptions && rfi.status !== 'Closed' && (
+              <div className="flex items-center gap-2">
+                <p className="text-xs text-muted-foreground">Change status:</p>
+                {statusOptions.filter(s => s !== rfi.status).map(s => (
+                  <Button key={s} size="sm" variant="outline" className="h-7 text-xs"
+                    onClick={() => statusMutation.mutate(s)} disabled={statusMutation.isPending}>
+                    {s}
+                  </Button>
+                ))}
+              </div>
+            )}
+
             {/* Reply box */}
             {rfi.status !== 'Closed' && (
               <div className="space-y-2 pt-1">
@@ -172,8 +228,6 @@ function RFICard({ rfi, project }) {
                   rows={3}
                   className="text-sm resize-none"
                 />
-
-                {/* Staged attachments */}
                 {attachments.length > 0 && (
                   <div className="flex flex-wrap gap-2">
                     {attachments.map((a, i) => (
@@ -187,30 +241,23 @@ function RFICard({ rfi, project }) {
                     ))}
                   </div>
                 )}
-
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
-                    <Button
-                      size="sm" variant="outline" className="h-8 text-xs gap-1.5"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={uploading}
-                    >
+                    <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
                       <Paperclip className="w-3 h-3" /> Attach
                     </Button>
                     <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileSelect} />
-                    <Button
-                      size="sm" variant="outline" className="text-xs h-8"
-                      onClick={() => statusMutation.mutate('Closed')}
-                      disabled={statusMutation.isPending || uploading}
-                    >
-                      Close RFI
-                    </Button>
+                    {/* Only owner can close */}
+                    {isOwner && (
+                      <Button size="sm" variant="outline" className="text-xs h-8"
+                        onClick={() => statusMutation.mutate('Closed')} disabled={statusMutation.isPending || uploading}>
+                        Close RFI
+                      </Button>
+                    )}
                   </div>
-                  <Button
-                    size="sm" className="gap-1.5 h-8 text-xs"
+                  <Button size="sm" className="gap-1.5 h-8 text-xs"
                     onClick={handleSendReply}
-                    disabled={(!replyText.trim() && attachments.length === 0) || uploading}
-                  >
+                    disabled={(!replyText.trim() && attachments.length === 0) || uploading}>
                     {uploading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
                     {uploading ? 'Sending...' : 'Send Response'}
                   </Button>
@@ -218,13 +265,10 @@ function RFICard({ rfi, project }) {
               </div>
             )}
 
-            {rfi.status === 'Closed' && (
+            {rfi.status === 'Closed' && isOwner && (
               <div className="flex justify-end">
-                <Button
-                  size="sm" variant="outline" className="text-xs h-8"
-                  onClick={() => statusMutation.mutate('Open')}
-                  disabled={statusMutation.isPending}
-                >
+                <Button size="sm" variant="outline" className="text-xs h-8"
+                  onClick={() => statusMutation.mutate('Open')} disabled={statusMutation.isPending}>
                   Re-open RFI
                 </Button>
               </div>
@@ -237,6 +281,8 @@ function RFICard({ rfi, project }) {
 }
 
 export default function ProjectRFIPanel({ project, rfis = [] }) {
+  const { user } = useAuth();
+  const isAdminOrInternal = user?.role === 'admin' || user?.role === 'internal';
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ title: '', description: '', priority: 'Medium', due_date: '', assigned_to_email: '', assigned_to_name: '' });
   const [attachments, setAttachments] = useState([]);
@@ -244,6 +290,11 @@ export default function ProjectRFIPanel({ project, rfis = [] }) {
   const fileInputRef = useRef(null);
   const queryClient = useQueryClient();
   const teamMembers = project?.team || [];
+
+  const { data: emailTemplates = [] } = useQuery({
+    queryKey: ['emailTemplates'],
+    queryFn: () => base44.entities.EmailTemplate.list(),
+  });
 
   const handleAssigneeChange = (value) => {
     if (value === 'unassigned') {
@@ -258,11 +309,9 @@ export default function ProjectRFIPanel({ project, rfis = [] }) {
     if (!form.title) return;
     setUploading(true);
 
-    // Per-project numbering: count existing RFIs for this project
     const projectRFIs = await base44.entities.RFI.filter({ project_id: project.id }, '-number', 1);
     const nextNumber = projectRFIs.length > 0 ? (projectRFIs[0].number || 0) + 1 : 1;
 
-    // Upload attachments
     const uploadedAttachments = await Promise.all(
       attachments.map(async (a) => {
         const { file_url } = await base44.integrations.Core.UploadFile({ file: a.file });
@@ -277,6 +326,8 @@ export default function ProjectRFIPanel({ project, rfis = [] }) {
       status: 'Open',
       responses: [],
       attachments: uploadedAttachments,
+      created_by_email: user?.email || '',
+      created_by_name: user?.full_name || '',
     });
 
     if (form.assigned_to_email) {
@@ -304,9 +355,11 @@ export default function ProjectRFIPanel({ project, rfis = [] }) {
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">{rfis.length} RFI{rfis.length !== 1 ? 's' : ''}</p>
-        <Button size="sm" className="gap-1.5 h-8 text-xs" onClick={() => setShowCreate(true)}>
-          <Plus className="w-3 h-3" /> New RFI
-        </Button>
+        {isAdminOrInternal && (
+          <Button size="sm" className="gap-1.5 h-8 text-xs" onClick={() => setShowCreate(true)}>
+            <Plus className="w-3 h-3" /> New RFI
+          </Button>
+        )}
       </div>
 
       {rfis.length === 0 && (
@@ -316,10 +369,9 @@ export default function ProjectRFIPanel({ project, rfis = [] }) {
       )}
 
       {rfis.map(rfi => (
-        <RFICard key={rfi.id} rfi={rfi} project={project} />
+        <RFICard key={rfi.id} rfi={rfi} project={project} emailTemplates={emailTemplates} />
       ))}
 
-      {/* Create Dialog */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>

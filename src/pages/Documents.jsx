@@ -118,7 +118,7 @@ export default function Documents() {
             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setProjectFilter('all')}>
               <ArrowLeft className="w-4 h-4" />
             </Button>
-            <span className="text-sm text-muted-foreground cursor-pointer hover:text-foreground" onClick={() => setProjectFilter('all')}>Documents</span>
+            <span className="text-sm font-semibold text-foreground cursor-pointer hover:text-primary hover:underline" onClick={() => setProjectFilter('all')}>Documents</span>
             <span className="text-sm text-muted-foreground">/</span>
             <span className="text-sm font-medium">{selectedProject.name}</span>
           </div>

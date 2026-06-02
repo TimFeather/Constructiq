@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { base44 } from '@/api/base44Client';
@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import StatusBadge from '@/components/shared/StatusBadge';
-import { Upload, ExternalLink, FileText, Folder, FolderOpen, Plus, GripVertical, ChevronDown, ChevronRight, FolderPlus } from 'lucide-react';
+import { Upload, ExternalLink, FileText, Folder, FolderOpen, Plus, GripVertical, ChevronDown, ChevronRight, FolderPlus, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 
 function getFileType(name) {
@@ -41,16 +41,23 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
   const [newFolderName, setNewFolderName] = useState('');
   const [collapsedFolders, setCollapsedFolders] = useState({});
   const [extraFolders, setExtraFolders] = useState([]);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const dropZoneRef = useRef(null);
   const queryClient = useQueryClient();
 
-  // Internal = admin or internal role tag; External = external role tag
   const isInternal = user?.role === 'admin' || user?.role === 'internal';
-  // External users can only upload to Sub Contractor Uploads
-  const allowedFolders = isInternal ? null : [SUBCONTRACTOR_FOLDER]; // null = all folders
+  const isExternal = !isInternal;
+  const allowedFolders = isInternal ? null : [SUBCONTRACTOR_FOLDER];
 
-  // Derive folder list: default folders + any from docs + any locally created extras
+  // Folders that have docs (for filtering external view)
+  const foldersWithDocs = new Set(docs.map(d => d.folder).filter(Boolean));
+
   const docFolders = docs.map(d => d.folder).filter(Boolean);
-  const folders = [...new Set([...DEFAULT_FOLDERS, ...docFolders, ...extraFolders])];
+  const allFolders = [...new Set([...DEFAULT_FOLDERS, ...docFolders, ...extraFolders])];
+  // For external users, only show folders that have docs
+  const folders = isExternal
+    ? allFolders.filter(f => foldersWithDocs.has(f))
+    : allFolders;
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['documents', project.id] });
@@ -77,16 +84,23 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
     onSuccess: invalidate,
   });
 
-  const handleUpload = async () => {
-    if (!uploadForm.file || !uploadForm.name) return;
+  const deleteMutation = useMutation({
+    mutationFn: (id) => base44.entities.Document.delete(id),
+    onSuccess: invalidate,
+  });
+
+  const handleUpload = async (file, folder) => {
+    const f = file || uploadForm.file;
+    const docName = f?.name?.replace(/\.[^/.]+$/, '') || uploadForm.name;
+    if (!f || !docName) return;
     setUploading(true);
-    const { file_url } = await base44.integrations.Core.UploadFile({ file: uploadForm.file });
+    const { file_url } = await base44.integrations.Core.UploadFile({ file: f });
     await base44.entities.Document.create({
-      name: uploadForm.name,
+      name: docName,
       project_id: project.id,
-      folder: uploadForm.folder || undefined,
+      folder: folder || uploadForm.folder || undefined,
       file_url,
-      file_type: getFileType(uploadForm.file.name),
+      file_type: getFileType(f.name),
       status: 'Draft',
       uploaded_by_name: user?.full_name || 'Unknown',
       uploaded_by_email: user?.email || '',
@@ -95,6 +109,21 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
     setShowUpload(false);
     setUploadForm({ name: '', file: null, folder: '' });
     setUploading(false);
+  };
+
+  // Drag-and-drop onto the panel (file from desktop)
+  const handleDragOverPanel = (e) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  };
+  const handleDragLeavePanel = () => setIsDragOver(false);
+  const handleDropPanel = async (e) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const files = Array.from(e.dataTransfer.files);
+    for (const file of files) {
+      await handleUpload(file, allowedFolders ? allowedFolders[0] : '');
+    }
   };
 
   const handleDragEnd = (result) => {
@@ -111,12 +140,11 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
 
   const toggleFolder = (f) => setCollapsedFolders(prev => ({ ...prev, [f]: !prev[f] }));
 
-  // Group docs
   const grouped = {};
   folders.forEach(f => { grouped[f] = []; });
   grouped[UNFILED] = [];
   docs.forEach(d => {
-    const key = d.folder && folders.includes(d.folder) ? d.folder : UNFILED;
+    const key = d.folder && allFolders.includes(d.folder) ? d.folder : UNFILED;
     grouped[key].push(d);
   });
 
@@ -161,6 +189,15 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
           <a href={doc.file_url} target="_blank" rel="noopener noreferrer" className="flex-shrink-0">
             <ExternalLink className="w-3.5 h-3.5 text-muted-foreground hover:text-primary" />
           </a>
+          {isInternal && (
+            <button
+              className="flex-shrink-0 text-muted-foreground hover:text-destructive transition-colors"
+              onClick={() => deleteMutation.mutate(doc.id)}
+              title="Delete document"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       )}
     </Draggable>
@@ -171,7 +208,6 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
     const isCollapsed = collapsedFolders[key];
     return (
       <div key={key} className="border rounded-lg overflow-hidden">
-        {/* Folder header */}
         <div
           className={`flex items-center gap-2 px-3 py-2 text-sm font-medium cursor-pointer select-none ${isFolder ? 'bg-muted/50 hover:bg-muted/70' : 'bg-background hover:bg-muted/20'}`}
           onClick={() => toggleFolder(key)}
@@ -185,8 +221,6 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
           <span>{label}</span>
           <span className="ml-auto text-xs text-muted-foreground font-normal">{items.length} file{items.length !== 1 ? 's' : ''}</span>
         </div>
-
-        {/* Droppable area */}
         {!isCollapsed && (
           <Droppable droppableId={key}>
             {(provided, snapshot) => (
@@ -197,7 +231,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
               >
                 {items.length === 0 && (
                   <div className="text-center py-4 text-xs text-muted-foreground/60">
-                    Drop documents here
+                    {isInternal ? 'Drop documents here' : 'No documents'}
                   </div>
                 )}
                 {items.map((doc, i) => renderDoc(doc, i))}
@@ -211,7 +245,22 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
   };
 
   return (
-    <div className="space-y-3">
+    <div
+      className={`space-y-3 relative ${isDragOver ? 'ring-2 ring-primary ring-offset-2 rounded-lg' : ''}`}
+      onDragOver={handleDragOverPanel}
+      onDragLeave={handleDragLeavePanel}
+      onDrop={handleDropPanel}
+    >
+      {/* Drop overlay */}
+      {isDragOver && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-primary/5 border-2 border-dashed border-primary rounded-lg pointer-events-none">
+          <div className="text-center">
+            <Upload className="w-8 h-8 text-primary mx-auto mb-2" />
+            <p className="text-sm font-medium text-primary">Drop files to upload</p>
+          </div>
+        </div>
+      )}
+
       {/* Toolbar */}
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">{docs.length} document{docs.length !== 1 ? 's' : ''}</p>
@@ -229,6 +278,10 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
           </Button>
         </div>
       </div>
+
+      <p className="text-xs text-muted-foreground flex items-center gap-1">
+        <Upload className="w-3 h-3" /> You can also drag & drop files directly onto this area
+      </p>
 
       {/* New Folder inline input */}
       {showNewFolder && (
@@ -250,9 +303,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
             }}
           />
           <Button size="sm" className="h-7 text-xs" onClick={() => {
-            if (newFolderName.trim()) {
-              setExtraFolders(prev => [...new Set([...prev, newFolderName.trim()])]);
-            }
+            if (newFolderName.trim()) setExtraFolders(prev => [...new Set([...prev, newFolderName.trim()])]);
             setShowNewFolder(false);
             setNewFolderName('');
           }}>Create</Button>
@@ -263,15 +314,14 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
       {docs.length === 0 && folders.length === 0 ? (
         <div className="text-center py-10 text-sm text-muted-foreground border rounded-lg flex flex-col items-center gap-2">
           <FileText className="w-8 h-8 text-muted-foreground/40" />
-          No documents yet. Upload one or create a folder.
+          No documents yet. Upload one or drag & drop files here.
         </div>
       ) : (
         <DragDropContext onDragEnd={handleDragEnd}>
           <div className="space-y-2">
-            {/* Named folders */}
             {folders.map(f => renderDroppable(f, f, true))}
-            {/* Unfiled */}
-            {renderDroppable(UNFILED, 'Unfiled', false)}
+            {/* Show unfiled only for internal */}
+            {isInternal && renderDroppable(UNFILED, 'Unfiled', false)}
           </div>
         </DragDropContext>
       )}
@@ -291,18 +341,18 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
                 <SelectTrigger><SelectValue placeholder="No folder (Unfiled)" /></SelectTrigger>
                 <SelectContent>
                   {isInternal && <SelectItem value="__none__">No folder (Unfiled)</SelectItem>}
-                  {(allowedFolders || folders).map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+                  {(allowedFolders || allFolders).map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
             <div>
               <Label>File *</Label>
-              <Input type="file" onChange={e => setUploadForm({ ...uploadForm, file: e.target.files[0] })} />
+              <Input type="file" onChange={e => setUploadForm({ ...uploadForm, file: e.target.files[0], name: uploadForm.name || e.target.files[0]?.name?.replace(/\.[^/.]+$/, '') })} />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowUpload(false)}>Cancel</Button>
-            <Button onClick={handleUpload} disabled={uploading || !uploadForm.file || !uploadForm.name}>
+            <Button onClick={() => handleUpload()} disabled={uploading || !uploadForm.file || !uploadForm.name}>
               {uploading ? 'Uploading...' : 'Upload'}
             </Button>
           </DialogFooter>

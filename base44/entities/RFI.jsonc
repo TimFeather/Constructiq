@@ -44,6 +44,14 @@
       "default": "Medium",
       "description": "Priority level"
     },
+    "created_by_email": {
+      "type": "string",
+      "description": "Email of the RFI creator/owner"
+    },
+    "created_by_name": {
+      "type": "string",
+      "description": "Name of the RFI creator/owner"
+    },
     "assigned_to_email": {
       "type": "string",
       "description": "Email of assigned user (legacy single)"

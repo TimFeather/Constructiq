@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
@@ -7,18 +7,22 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ArrowLeft, Send, Clock, User, Paperclip, Upload } from 'lucide-react';
+import { ArrowLeft, Send, Clock, User, Paperclip, Trash2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
 import { format } from 'date-fns';
+import { resolveTemplate, applyTemplate } from '@/lib/emailTemplates';
 
 export default function RFIDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const [response, setResponse] = useState('');
   const [responseFile, setResponseFile] = useState(null);
   const queryClient = useQueryClient();
+
+  const isAdminOrInternal = user?.role === 'admin' || user?.role === 'internal';
 
   const { data: rfi, isLoading } = useQuery({
     queryKey: ['rfi', id],
@@ -30,9 +34,22 @@ export default function RFIDetail() {
     queryFn: () => base44.entities.Project.list('-created_date', 100),
   });
 
+  const { data: emailTemplates = [] } = useQuery({
+    queryKey: ['emailTemplates'],
+    queryFn: () => base44.entities.EmailTemplate.list(),
+  });
+
+  const isOwner = rfi?.created_by_email === user?.email || (!rfi?.created_by_email && isAdminOrInternal);
+  const isAssignee = rfi?.assignees?.some(a => a.email === user?.email) || rfi?.assigned_to_email === user?.email;
+
   const statusMutation = useMutation({
     mutationFn: (status) => base44.entities.RFI.update(id, { status }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['rfi', id] }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => base44.entities.RFI.delete(id),
+    onSuccess: () => navigate(-1),
   });
 
   const respondMutation = useMutation({
@@ -50,23 +67,31 @@ export default function RFIDetail() {
         attachments,
       };
       const existing = rfi?.responses || [];
-      await base44.entities.RFI.update(id, { responses: [...existing, newResponse] });
-      // Notify all assignees and creator about the new response
-      const rfiUrl = `${window.location.origin}/rfis/${id}`;
+      // Mark as Answered when response is sent
+      await base44.entities.RFI.update(id, {
+        responses: [...existing, newResponse],
+        status: rfi?.status === 'Open' ? 'Answered' : rfi?.status,
+      });
+
+      // Notify the RFI owner/creator
       const rfiRef = `RFI-${String(rfi.number).padStart(3, '0')}: ${rfi.title}`;
-      const emailBody = `Hi,\n\n${user?.full_name || 'A team member'} has posted a new response on ${rfiRef}.\n\nResponse:\n"${response}"\n\nView the full thread here:\n${rfiUrl}\n\nThank you.`;
+      const rfiUrl = `${window.location.origin}/rfis/${id}`;
+      const tpl = resolveTemplate(emailTemplates, 'rfi_response');
+      const { subject, body } = applyTemplate(tpl, {
+        rfi_ref: `RFI-${String(rfi.number).padStart(3, '0')}`,
+        title: rfi.title,
+        responder_name: user?.full_name || 'A team member',
+        response_text: response,
+        url: rfiUrl,
+      });
 
       const notifyEmails = new Set();
-      (rfi?.assignees || []).forEach(a => { if (a.email && a.email !== user?.email) notifyEmails.add(a.email); });
       if (rfi?.created_by_email && rfi.created_by_email !== user?.email) notifyEmails.add(rfi.created_by_email);
+      (rfi?.assignees || []).forEach(a => { if (a.email && a.email !== user?.email) notifyEmails.add(a.email); });
       if (rfi?.assigned_to_email && rfi.assigned_to_email !== user?.email) notifyEmails.add(rfi.assigned_to_email);
 
       notifyEmails.forEach(email => {
-        base44.integrations.Core.SendEmail({
-          to: email,
-          subject: `New response on ${rfiRef}`,
-          body: emailBody,
-        });
+        base44.integrations.Core.SendEmail({ to: email, subject, body });
       });
     },
     onSuccess: () => {
@@ -86,13 +111,29 @@ export default function RFIDetail() {
 
   const projectName = projects.find(p => p.id === rfi.project_id)?.name || '';
 
+  // Back navigation: go back to the project view if we came from a project
+  const handleBack = () => navigate(-1);
+
+  // Status options based on role
+  const statusOptions = isOwner
+    ? ['Open', 'Answered', 'Closed']
+    : isAssignee
+    ? ['Open', 'Answered']
+    : [];
+
   return (
     <div>
       <div className="flex items-center gap-2 mb-4">
-        <Link to="/rfis">
-          <Button variant="ghost" size="icon" className="h-8 w-8"><ArrowLeft className="w-4 h-4" /></Button>
-        </Link>
-        <span className="text-sm text-muted-foreground">RFIs</span>
+        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleBack}>
+          <ArrowLeft className="w-4 h-4" />
+        </Button>
+        <span className="text-sm text-muted-foreground cursor-pointer hover:text-foreground" onClick={handleBack}>RFIs</span>
+        {projectName && (
+          <>
+            <span className="text-sm text-muted-foreground">/</span>
+            <span className="text-sm text-muted-foreground">{projectName}</span>
+          </>
+        )}
       </div>
 
       <PageHeader
@@ -103,23 +144,28 @@ export default function RFIDetail() {
           </div>
         }
         actions={
-          <Select value={rfi.status} onValueChange={v => statusMutation.mutate(v)}>
-            <SelectTrigger className="w-36"><StatusBadge status={rfi.status} /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="Open">Open</SelectItem>
-              <SelectItem value="Answered">Answered</SelectItem>
-              <SelectItem value="Closed">Closed</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="flex items-center gap-2">
+            {statusOptions.length > 0 && (
+              <Select value={rfi.status} onValueChange={v => statusMutation.mutate(v)}>
+                <SelectTrigger className="w-36"><StatusBadge status={rfi.status} /></SelectTrigger>
+                <SelectContent>
+                  {statusOptions.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            )}
+            {!statusOptions.length && <StatusBadge status={rfi.status} />}
+            {isAdminOrInternal && (
+              <Button variant="destructive" size="icon" onClick={() => deleteMutation.mutate()} disabled={deleteMutation.isPending} title="Delete RFI">
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            )}
+          </div>
         }
       />
 
-      {/* RFI Details */}
       <div className="grid lg:grid-cols-3 gap-6 mb-6">
         <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="text-base">Description</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle className="text-base">Description</CardTitle></CardHeader>
           <CardContent>
             <p className="text-sm text-foreground whitespace-pre-wrap">{rfi.description || 'No description provided'}</p>
             {rfi.attachments?.length > 0 && (
@@ -162,6 +208,12 @@ export default function RFIDetail() {
                 </p>
               )}
             </div>
+            {rfi.created_by_name && (
+              <div>
+                <p className="text-xs text-muted-foreground">Created By</p>
+                <p className="text-sm font-medium mt-0.5">{rfi.created_by_name}</p>
+              </div>
+            )}
             <div>
               <p className="text-xs text-muted-foreground">Due Date</p>
               <p className="text-sm font-medium mt-0.5 flex items-center gap-1">
@@ -170,15 +222,12 @@ export default function RFIDetail() {
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Created</p>
-              <p className="text-sm font-medium mt-0.5">
-                {format(new Date(rfi.created_date), 'MMM d, yyyy')}
-              </p>
+              <p className="text-sm font-medium mt-0.5">{format(new Date(rfi.created_date), 'MMM d, yyyy')}</p>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Response Thread */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Responses ({rfi.responses?.length || 0})</CardTitle>
@@ -194,9 +243,7 @@ export default function RFIDetail() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-sm font-semibold">{resp.author_name}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {format(new Date(resp.timestamp), 'MMM d, yyyy h:mm a')}
-                  </span>
+                  <span className="text-xs text-muted-foreground">{format(new Date(resp.timestamp), 'MMM d, yyyy h:mm a')}</span>
                 </div>
                 <p className="text-sm mt-1 whitespace-pre-wrap">{resp.content}</p>
                 {resp.attachments?.length > 0 && (
@@ -212,33 +259,45 @@ export default function RFIDetail() {
             </div>
           ))}
 
-          {/* Reply form */}
-          <div className="border-t pt-4">
-            <Textarea
-              placeholder="Type your response..."
-              value={response}
-              onChange={e => setResponse(e.target.value)}
-              rows={3}
-              className="mb-3"
-            />
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Input
-                  type="file"
-                  className="w-auto text-xs"
-                  onChange={e => setResponseFile(e.target.files[0])}
-                />
+          {/* Reply form — visible if not closed */}
+          {rfi.status !== 'Closed' && (
+            <div className="border-t pt-4">
+              <Textarea
+                placeholder="Type your response..."
+                value={response}
+                onChange={e => setResponse(e.target.value)}
+                rows={3}
+                className="mb-3"
+              />
+              <div className="flex items-center justify-between">
+                <Input type="file" className="w-auto text-xs" onChange={e => setResponseFile(e.target.files[0])} />
+                <Button
+                  onClick={() => respondMutation.mutate()}
+                  disabled={!response.trim() || respondMutation.isPending}
+                  className="gap-2"
+                >
+                  <Send className="w-4 h-4" />
+                  {respondMutation.isPending ? 'Sending...' : 'Send Response'}
+                </Button>
               </div>
-              <Button
-                onClick={() => respondMutation.mutate()}
-                disabled={!response.trim() || respondMutation.isPending}
-                className="gap-2"
-              >
-                <Send className="w-4 h-4" />
-                {respondMutation.isPending ? 'Sending...' : 'Send Response'}
+            </div>
+          )}
+
+          {/* Owner can close/reopen */}
+          {isOwner && rfi.status === 'Answered' && (
+            <div className="flex justify-end pt-2 border-t">
+              <Button size="sm" variant="outline" onClick={() => statusMutation.mutate('Closed')}>
+                Close RFI
               </Button>
             </div>
-          </div>
+          )}
+          {isOwner && rfi.status === 'Closed' && (
+            <div className="flex justify-end pt-2 border-t">
+              <Button size="sm" variant="outline" onClick={() => statusMutation.mutate('Open')}>
+                Re-open RFI
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

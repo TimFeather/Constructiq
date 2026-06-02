@@ -50,6 +50,7 @@ export default function RFIs() {
   const isAdmin = user?.role === 'admin';
   const [selectedProjectId, setSelectedProjectId] = useState(null);
   const [showForm, setShowForm] = useState(false);
+  const [formDefaultProjectId, setFormDefaultProjectId] = useState('');
 
   const { data: allRfis = [], isLoading } = useQuery({
     queryKey: ['rfis'],
@@ -99,13 +100,13 @@ export default function RFIs() {
           </Button>
           <span className="text-sm text-muted-foreground cursor-pointer hover:text-foreground" onClick={() => setSelectedProjectId(null)}>RFIs</span>
           <span className="text-sm text-muted-foreground">/</span>
-          <span className="text-sm font-medium">{selectedProject.name}</span>
+          <span className="text-sm font-medium cursor-default">{selectedProject.name}</span>
         </div>
         <PageHeader
           title={selectedProject.name}
           description={`${projectRfis.length} RFI${projectRfis.length !== 1 ? 's' : ''}`}
           actions={
-            <Button onClick={() => setShowForm(true)} className="gap-2">
+            <Button onClick={() => { setFormDefaultProjectId(selectedProjectId); setShowForm(true); }} className="gap-2">
               <Plus className="w-4 h-4" /> New RFI
             </Button>
           }
@@ -119,7 +120,7 @@ export default function RFIs() {
             ))}
           </div>
         )}
-        <RFIFormDialog open={showForm} onOpenChange={setShowForm} projects={projects} />
+        <RFIFormDialog open={showForm} onOpenChange={setShowForm} projects={projects} defaultProjectId={formDefaultProjectId} />
       </div>
     );
   }
@@ -197,7 +198,7 @@ export default function RFIs() {
         )}
       </section>
 
-      <RFIFormDialog open={showForm} onOpenChange={setShowForm} projects={projects} />
+      <RFIFormDialog open={showForm} onOpenChange={setShowForm} projects={projects} defaultProjectId={formDefaultProjectId} />
     </div>
   );
 }
