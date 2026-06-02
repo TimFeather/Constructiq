@@ -257,16 +257,14 @@ export default function Programme() {
     setDeleting(true);
     
     const projectTasks = [...tasks];
-    for (const task of projectTasks) {
-      try {
-        await base44.entities.Task.delete(task.id);
-      } catch (error) {
-        // Skip 404s (already deleted) but rethrow other errors
-        if (error?.status !== 404) console.error('Error deleting task:', task.id, error);
-      }
-      // Small delay to avoid rate limiting
-      await new Promise(r => setTimeout(r, 150));
-    }
+    await Promise.all(
+      projectTasks.map(task =>
+        base44.entities.Task.delete(task.id).catch(error => {
+          // Skip 404s (already deleted)
+          if (error?.status !== 404) console.error('Error deleting task:', task.id, error);
+        })
+      )
+    );
     queryClient.invalidateQueries({ queryKey: ['tasks'] });
     setShowDeleteConfirm(false);
     setDeleting(false);
