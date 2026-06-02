@@ -139,8 +139,8 @@ export default function Programme() {
       }
 
       // ── Pass 1: create tasks without predecessor links ──────────────────────
-      // Strip temp fields before saving
-      const tasksToCreate = parsedTasks.map(({ _mspUid, _predecessorLinks, ...t }) => t);
+      // Strip temp fields before saving (keep _parentUid for now, we'll resolve it in Pass 2)
+      const tasksToCreate = parsedTasks.map(({ _mspUid, _predecessorLinks, _parentUid, ...t }) => t);
       const created = await base44.entities.Task.bulkCreate(tasksToCreate);
 
       // ── Pass 2: resolve UID → DB ID, write predecessor links + parent_id ──
@@ -149,6 +149,7 @@ export default function Programme() {
       parsedTasks.forEach((pt, i) => {
         if (pt._mspUid != null && created[i]?.id) {
           uidToDbId.set(pt._mspUid, created[i].id);
+          console.log(`UID ${pt._mspUid} -> DB ID ${created[i].id} (${pt.wbs} ${pt.name})`);
         }
       });
 
@@ -192,7 +193,9 @@ export default function Programme() {
           const parentDbId = uidToDbId.get(pt._parentUid);
           if (parentDbId) {
             updatePayload.parent_id = parentDbId;
-            console.log(`Task ${pt.wbs} (${pt.name}): parent_id = ${parentDbId}`);
+            console.log(`Task ${pt.wbs} (${pt.name}): parent_id = ${parentDbId} (parent UID was ${pt._parentUid})`);
+          } else {
+            console.warn(`Task ${pt.wbs} (${pt.name}): parent UID ${pt._parentUid} not found in map!`);
           }
         }
 
