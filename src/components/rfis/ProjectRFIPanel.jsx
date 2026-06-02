@@ -21,7 +21,7 @@ const PRIORITY_COLORS = {
   Critical: 'bg-red-100 text-red-700',
 };
 
-function RFICard({ rfi, project, emailTemplates = [] }) {
+function RFICard({ rfi, project, emailTemplates = [], registeredUsers = [] }) {
   const [expanded, setExpanded] = useState(false);
   const [replyText, setReplyText] = useState('');
   const [attachments, setAttachments] = useState([]);
@@ -94,7 +94,9 @@ function RFICard({ rfi, project, emailTemplates = [] }) {
     if (rfi.assigned_to_email && rfi.assigned_to_email !== user?.email) notifyEmails.add(rfi.assigned_to_email);
 
     notifyEmails.forEach(email => {
-      base44.integrations.Core.SendEmail({ to: email, subject, body });
+      if (registeredUsers.some(u => u.email?.toLowerCase() === email?.toLowerCase())) {
+        base44.integrations.Core.SendEmail({ to: email, subject, body }).catch(() => {});
+      }
     });
 
     queryClient.invalidateQueries({ queryKey: ['rfis', project.id] });
@@ -296,6 +298,13 @@ export default function ProjectRFIPanel({ project, rfis = [] }) {
     queryFn: () => base44.entities.EmailTemplate.list(),
   });
 
+  const { data: registeredUsers = [] } = useQuery({
+    queryKey: ['users'],
+    queryFn: () => base44.entities.User.list(),
+  });
+
+  const isRegistered = (email) => registeredUsers.some(u => u.email?.toLowerCase() === email?.toLowerCase());
+
   const handleAssigneeChange = (value) => {
     if (value === 'unassigned') {
       setForm(f => ({ ...f, assigned_to_email: '', assigned_to_name: '' }));
@@ -330,12 +339,14 @@ export default function ProjectRFIPanel({ project, rfis = [] }) {
       created_by_name: user?.full_name || '',
     });
 
-    if (form.assigned_to_email) {
-      base44.integrations.Core.SendEmail({
-        to: form.assigned_to_email,
-        subject: `New RFI Assigned: ${form.title}`,
-        body: `You have been assigned RFI-${String(nextNumber).padStart(3, '0')}: ${form.title}\n\nDescription: ${form.description || 'No description'}\n\nPlease log in to respond.`,
-      });
+    if (form.assigned_to_email && isRegistered(form.assigned_to_email)) {
+      try {
+        await base44.integrations.Core.SendEmail({
+          to: form.assigned_to_email,
+          subject: `New RFI Assigned: ${form.title}`,
+          body: `You have been assigned RFI-${String(nextNumber).padStart(3, '0')}: ${form.title}\n\nDescription: ${form.description || 'No description'}\n\nPlease log in to respond.`,
+        });
+      } catch (e) { /* non-critical */ }
     }
 
     queryClient.invalidateQueries({ queryKey: ['rfis', project.id] });
@@ -369,7 +380,7 @@ export default function ProjectRFIPanel({ project, rfis = [] }) {
       )}
 
       {rfis.map(rfi => (
-        <RFICard key={rfi.id} rfi={rfi} project={project} emailTemplates={emailTemplates} />
+        <RFICard key={rfi.id} rfi={rfi} project={project} emailTemplates={emailTemplates} registeredUsers={registeredUsers} />
       ))}
 
       <Dialog open={showCreate} onOpenChange={setShowCreate}>

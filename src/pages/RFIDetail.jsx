@@ -39,6 +39,11 @@ export default function RFIDetail() {
     queryFn: () => base44.entities.EmailTemplate.list(),
   });
 
+  const { data: registeredUsers = [] } = useQuery({
+    queryKey: ['users'],
+    queryFn: () => base44.entities.User.list(),
+  });
+
   const isOwner = rfi?.created_by_email === user?.email || (!rfi?.created_by_email && isAdminOrInternal);
   const isAssignee = rfi?.assignees?.some(a => a.email === user?.email) || rfi?.assigned_to_email === user?.email;
 
@@ -91,7 +96,9 @@ export default function RFIDetail() {
       if (rfi?.assigned_to_email && rfi.assigned_to_email !== user?.email) notifyEmails.add(rfi.assigned_to_email);
 
       notifyEmails.forEach(email => {
-        base44.integrations.Core.SendEmail({ to: email, subject, body });
+        if (registeredUsers.some(u => u.email?.toLowerCase() === email?.toLowerCase())) {
+          base44.integrations.Core.SendEmail({ to: email, subject, body }).catch(() => {});
+        }
       });
     },
     onSuccess: () => {

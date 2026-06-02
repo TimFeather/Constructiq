@@ -92,15 +92,19 @@ export default function TeamManager({ project }) {
 
     if (member.user_email) {
       if (existingUser) {
-        // Send notification email
+        // Send notification email only to registered users
         const { subject, body } = applyTemplate(tpl, {
           name: member.full_name,
           project_name: project.name,
           role: member.role,
         });
-        base44.integrations.Core.SendEmail({ to: member.user_email, subject, body });
+        try {
+          await base44.integrations.Core.SendEmail({ to: member.user_email, subject, body });
+        } catch (e) {
+          // Email failed — not critical
+        }
       } else {
-        // Invite them to the platform
+        // Invite unregistered users — platform invite handles the notification email
         try {
           await base44.users.inviteUser(member.user_email, 'user');
           await base44.entities.InvitedUser.create({
@@ -113,11 +117,6 @@ export default function TeamManager({ project }) {
         } catch (e) {
           // Already invited — that's fine
         }
-        const { subject, body } = applyTemplate(tpl, {
-          project_name: project.name,
-          role: member.role,
-        });
-        base44.integrations.Core.SendEmail({ to: member.user_email, subject, body });
       }
     }
 
