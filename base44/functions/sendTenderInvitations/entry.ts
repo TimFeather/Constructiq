@@ -1,4 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
+import { Resend } from 'npm:resend@4.0.0';
 
 Deno.serve(async (req) => {
   try {
@@ -29,6 +30,9 @@ Deno.serve(async (req) => {
 
     const branding = brandings[0] || {};
     const brandColour = branding.brand_colour || '#1a56db';
+    const resend = new Resend(Deno.env.get('RESEND_API_KEY'));
+    const fromName = branding.sender_name || branding.company_name || 'ConstructIQ';
+    const fromEmail = `${fromName} <onboarding@resend.dev>`;
 
     // Resolve invitation template
     const tpl = templates.find(t => t.template_key === 'tender_invitation');
@@ -95,10 +99,12 @@ Deno.serve(async (req) => {
 </body></html>`;
 
       try {
-        await base44.asServiceRole.integrations.Core.SendEmail({
+        await resend.emails.send({
+          from: fromEmail,
           to: inv.email,
           subject,
-          body: htmlBody,
+          html: htmlBody,
+          text: bodyText,
         });
         sent++;
       } catch (e) {
