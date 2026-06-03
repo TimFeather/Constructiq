@@ -2,24 +2,29 @@ import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, FolderKanban, FileText, MessageSquareMore, 
-  GanttChart, Settings, ChevronLeft, ChevronRight, HardHat
+  GanttChart, Settings, ChevronLeft, ChevronRight, HardHat, FileSignature
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/AuthContext';
-
-const navItems = [
-  { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { path: '/projects', icon: FolderKanban, label: 'Projects' },
-  { path: '/documents', icon: FileText, label: 'Documents' },
-  { path: '/rfis', icon: MessageSquareMore, label: 'RFIs' },
-  { path: '/programme', icon: GanttChart, label: 'Programme' },
-  { path: '/settings', icon: Settings, label: 'Settings' },
-];
 
 export default function Sidebar({ collapsed, onToggle }) {
   const location = useLocation();
   const { user } = useAuth();
   const companyLogoUrl = user?.company_logo_url;
+  const role = user?.role || 'external';
+  const isAdmin = role === 'admin';
+  const isPricing = role === 'pricing';
+  const canAccessTenders = isAdmin || role === 'internal' || isPricing;
+
+  const navItems = [
+    { path: '/', icon: LayoutDashboard, label: 'Dashboard', show: true },
+    { path: '/projects', icon: FolderKanban, label: 'Projects', show: true },
+    { path: '/documents', icon: FileText, label: 'Documents', show: true },
+    { path: '/rfis', icon: MessageSquareMore, label: 'RFIs', show: true },
+    { path: '/programme', icon: GanttChart, label: 'Programme', show: true },
+    { path: '/tenders', icon: FileSignature, label: 'Tenders', show: canAccessTenders },
+    { path: '/settings', icon: Settings, label: 'Settings', show: isAdmin },
+  ];
   const companyName = user?.company_name || 'ConstructIQ';
 
   return (
@@ -47,7 +52,7 @@ export default function Sidebar({ collapsed, onToggle }) {
 
       {/* Nav */}
       <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto">
-        {navItems.map(({ path, icon: Icon, label }) => {
+        {navItems.filter(item => item.show).map(({ path, icon: Icon, label }) => {
           const isActive = path === '/' 
             ? location.pathname === '/' 
             : location.pathname.startsWith(path);

@@ -1,0 +1,241 @@
+{
+  "name": "Tender",
+  "type": "object",
+  "properties": {
+    "tender_number": {
+      "type": "string",
+      "description": "Auto-generated e.g. TDR-001"
+    },
+    "title": {
+      "type": "string",
+      "description": "Tender title"
+    },
+    "description": {
+      "type": "string",
+      "description": "Tender scope/overview"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "Draft",
+        "Issued",
+        "Closed",
+        "Awarded",
+        "Unsuccessful",
+        "Converted"
+      ],
+      "default": "Draft"
+    },
+    "issue_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "closing_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "award_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "estimated_value": {
+      "type": "number"
+    },
+    "project_id": {
+      "type": "string",
+      "description": "Optional linked project"
+    },
+    "converted_project_id": {
+      "type": "string",
+      "description": "Set when converted to a project"
+    },
+    "client_name": {
+      "type": "string"
+    },
+    "client_contact": {
+      "type": "string"
+    },
+    "client_email": {
+      "type": "string"
+    },
+    "architect_name": {
+      "type": "string"
+    },
+    "architect_contact": {
+      "type": "string"
+    },
+    "architect_email": {
+      "type": "string"
+    },
+    "project_manager_name": {
+      "type": "string"
+    },
+    "project_manager_contact": {
+      "type": "string"
+    },
+    "project_manager_email": {
+      "type": "string"
+    },
+    "location": {
+      "type": "string"
+    },
+    "trade_packages": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Trade categories being priced"
+    },
+    "documents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "file_url": {
+            "type": "string"
+          },
+          "file_type": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string",
+            "description": "Plans/Specifications/Bill of Quantities/Schedule/Contract/Other"
+          },
+          "uploaded_at": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "invitees": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "full_name": {
+            "type": "string"
+          },
+          "business_name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "trade": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "Invited, Viewed, Submitted, Awarded, Unsuccessful, Withdrawn"
+          },
+          "token": {
+            "type": "string",
+            "description": "UUID for public submission link"
+          },
+          "invited_at": {
+            "type": "string"
+          },
+          "outcome_notified_at": {
+            "type": "string"
+          },
+          "outcome_notes": {
+            "type": "string"
+          },
+          "submission": {
+            "type": "object",
+            "properties": {
+              "submitted_at": {
+                "type": "string"
+              },
+              "lump_sum_price": {
+                "type": "number"
+              },
+              "price_breakdown": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "trade_package": {
+                      "type": "string"
+                    },
+                    "amount": {
+                      "type": "number"
+                    },
+                    "notes": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "uploaded_file_url": {
+                "type": "string"
+              },
+              "uploaded_file_name": {
+                "type": "string"
+              },
+              "notes": {
+                "type": "string"
+              },
+              "scores": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "criterion": {
+                      "type": "string"
+                    },
+                    "score": {
+                      "type": "number"
+                    },
+                    "comment": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "scoring_criteria": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "criterion": {
+            "type": "string"
+          },
+          "weight_percent": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "our_result": {
+      "type": "string",
+      "description": "awarded or unsuccessful"
+    },
+    "our_result_notes": {
+      "type": "string"
+    },
+    "created_by_email": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "title"
+  ]
+}

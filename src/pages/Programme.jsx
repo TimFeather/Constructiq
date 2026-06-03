@@ -29,6 +29,7 @@ import { runScheduleEngine } from '@/lib/schedulingEngine';
 export default function Programme() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
+  const isAllowed = ['admin', 'internal', 'pricing'].includes(user?.role);
   const urlParams = new URLSearchParams(window.location.search);
   const projectFromUrl = urlParams.get('project') || 'all';
   const [selectedProjectId, setSelectedProjectId] = useState(projectFromUrl);
@@ -357,7 +358,7 @@ export default function Programme() {
                 allTasks={accessibleTasks}
                 onTaskClick={setSelectedTask}
                 collapsed={false}
-                canEdit={isAdmin || user?.role === 'internal'}
+                canEdit={isAllowed}
                 scrollRef={taskScrollRef}
                 onScroll={() => ganttScrollRef.current && syncScroll(taskScrollRef.current, ganttScrollRef.current)}
                 onPushHistory={pushHistory}

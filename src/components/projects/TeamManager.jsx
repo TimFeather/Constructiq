@@ -26,7 +26,7 @@ const emptyMember = { user_email: '', full_name: '', business_name: '', phone: '
 
 export default function TeamManager({ project }) {
   const { user } = useAuth();
-  const isAllowed = user?.role === 'admin' || user?.role === 'internal';
+  const isAllowed = ['admin', 'internal', 'pricing'].includes(user?.role);
   const [newMember, setNewMember] = useState(emptyMember);
   const [customRole, setCustomRole] = useState('');
   const [customTrade, setCustomTrade] = useState('');

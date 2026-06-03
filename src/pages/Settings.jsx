@@ -17,6 +17,7 @@ import { DEFAULT_TEMPLATES } from '@/lib/emailTemplates';
 import UserManagement from '@/components/settings/UserManagement';
 import AppearanceSettings from '@/components/settings/AppearanceSettings';
 import RoleManager from '@/components/settings/RoleManager';
+import SubcontractorDirectory from '@/components/settings/SubcontractorDirectory';
 
 const ROLES = [
   'Architect', 'Client', 'External Project Manager',
@@ -111,6 +112,16 @@ export default function Settings() {
   });
 
   const isAdmin = user?.role === 'admin';
+
+  if (!isAdmin && !['internal', 'pricing'].includes(user?.role)) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <h2 className="text-lg font-semibold mb-2">Access Denied</h2>
+        <p className="text-sm text-muted-foreground">Settings are only accessible to administrators.</p>
+      </div>
+    );
+  }
+
   const displayName = [profile.first_name, profile.last_name].filter(Boolean).join(' ') || user?.full_name || '';
 
   const openEditTemplate = (key) => {
@@ -129,6 +140,10 @@ export default function Settings() {
     { key: 'rfi_response', label: 'RFI Response', vars: '{rfi_ref}, {title}, {project_name}, {responder_name}, {response_text}, {url}' },
     { key: 'team_added', label: 'Added to Project', vars: '{name}, {project_name}, {role}' },
     { key: 'team_invited', label: 'Project Invitation', vars: '{project_name}, {role}' },
+    { key: 'tender_invitation', label: 'Tender Invitation', vars: '{tender_number}, {title}, {invitee_name}, {company_name}, {location}, {closing_date}, {trade_packages}, {description}, {client_name}, {architect_name}, {project_manager_name}, {submission_link}, {sender_name}' },
+    { key: 'tender_outcome_unsuccessful', label: 'Tender Outcome — Unsuccessful (We Lost)', vars: '{tender_number}, {title}, {invitee_name}, {sender_name}, {company_name}' },
+    { key: 'tender_sub_awarded', label: 'Sub Awarded', vars: '{tender_number}, {title}, {invitee_name}, {sender_name}, {company_name}' },
+    { key: 'tender_sub_unsuccessful', label: 'Sub Not Selected', vars: '{tender_number}, {title}, {invitee_name}, {sender_name}, {company_name}' },
   ];
 
   return (
@@ -159,6 +174,11 @@ export default function Settings() {
           {isAdmin && (
             <TabsTrigger value="emails">
               <Mail className="w-3.5 h-3.5 mr-1" /> Email Templates
+            </TabsTrigger>
+          )}
+          {isAdmin && (
+            <TabsTrigger value="subcontractors">
+              Subcontractors
             </TabsTrigger>
           )}
         </TabsList>
@@ -335,6 +355,11 @@ export default function Settings() {
                 );
               })}
             </div>
+          </TabsContent>
+        )}
+        {isAdmin && (
+          <TabsContent value="subcontractors">
+            <SubcontractorDirectory />
           </TabsContent>
         )}
       </Tabs>

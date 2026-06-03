@@ -81,9 +81,10 @@ export default function UserManagement() {
             <Select value={inviteRole} onValueChange={setInviteRole}>
               <SelectTrigger className="w-full sm:w-36"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="internal">Internal</SelectItem>
-                <SelectItem value="external">External</SelectItem>
                 <SelectItem value="admin">Admin</SelectItem>
+                <SelectItem value="internal">Internal</SelectItem>
+                <SelectItem value="pricing">Pricing</SelectItem>
+                <SelectItem value="external">External</SelectItem>
               </SelectContent>
             </Select>
             <Button onClick={() => inviteMutation.mutate({ email: inviteEmail, role: inviteRole })}
@@ -134,7 +135,12 @@ export default function UserManagement() {
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium">{u.full_name || u.email}</p>
                   <p className="text-xs text-muted-foreground">{u.email}</p>
-                  <Badge variant="outline" className="text-xs mt-1">{u.role || 'external'}</Badge>
+                  <Badge variant="outline" className={`text-xs mt-1 ${
+                    (u.role || 'external') === 'admin' ? 'bg-purple-100 text-purple-700 border-purple-300' :
+                    (u.role || 'external') === 'internal' ? 'bg-blue-100 text-blue-700 border-blue-300' :
+                    (u.role || 'external') === 'pricing' ? 'bg-amber-100 text-amber-700 border-amber-300' :
+                    'bg-gray-100 text-gray-600'
+                  }`}>{u.role || 'external'}</Badge>
                 </div>
                 {u.id !== user?.id && (
                   <div className="flex items-center gap-2 flex-shrink-0 ml-2">
@@ -168,6 +174,7 @@ export default function UserManagement() {
                 <SelectContent>
                   <SelectItem value="admin">Admin</SelectItem>
                   <SelectItem value="internal">Internal</SelectItem>
+                  <SelectItem value="pricing">Pricing</SelectItem>
                   <SelectItem value="external">External</SelectItem>
                 </SelectContent>
               </Select>
@@ -199,6 +206,7 @@ export default function UserManagement() {
               This will affect what they can see and do in ConstructIQ.
               {pendingRoleChange?.newRole === 'admin' && ' This gives them full admin access including user management.'}
               {pendingRoleChange?.currentRole === 'admin' && ' This removes their admin access.'}
+              {pendingRoleChange?.newRole === 'pricing' && ' This gives them access to Tenders and all internal features except Settings.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogAction

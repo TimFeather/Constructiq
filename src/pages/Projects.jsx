@@ -20,7 +20,8 @@ export default function Projects() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
   const isInternal = user?.role === 'internal';
-  const canDelete = isAdmin || isInternal;
+  const isAllowed = ['admin', 'internal', 'pricing'].includes(user?.role);
+  const canDelete = isAllowed;
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [showForm, setShowForm] = useState(false);
@@ -63,7 +64,7 @@ export default function Projects() {
         title="Projects"
         description="Manage your construction projects"
         actions={
-          (isAdmin || isInternal) && (
+          isAllowed && (
             <Button onClick={() => setShowForm(true)} className="gap-2">
               <Plus className="w-4 h-4" /> New Project
             </Button>
@@ -104,8 +105,8 @@ export default function Projects() {
           icon={FolderKanban}
           title="No projects found"
           description={search || statusFilter !== 'all' ? 'Try adjusting your filters' : 'Create your first project to get started'}
-          actionLabel={!search && statusFilter === 'all' && (isAdmin || isInternal) ? 'New Project' : undefined}
-          onAction={!search && statusFilter === 'all' && (isAdmin || isInternal) ? () => setShowForm(true) : undefined}
+          actionLabel={!search && statusFilter === 'all' && isAllowed ? 'New Project' : undefined}
+          onAction={!search && statusFilter === 'all' && isAllowed ? () => setShowForm(true) : undefined}
         />
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">

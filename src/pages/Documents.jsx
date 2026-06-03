@@ -35,7 +35,7 @@ export default function Documents() {
   const [uploading, setUploading] = useState(false);
   const queryClient = useQueryClient();
 
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = ['admin', 'internal', 'pricing'].includes(user?.role);
 
   const { data: allDocuments = [], isLoading } = useQuery({
     queryKey: ['documents'],

@@ -21,6 +21,9 @@ import RFIs from '@/pages/RFIs';
 import RFIDetail from '@/pages/RFIDetail.jsx';
 import Programme from '@/pages/Programme';
 import Settings from '@/pages/Settings.jsx';
+import Tenders from '@/pages/Tenders';
+import TenderDetail from '@/pages/TenderDetail';
+import TenderSubmit from '@/pages/TenderSubmit';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -61,10 +64,13 @@ const AuthenticatedApp = () => {
           <Route path="/rfis" element={<RFIs />} />
           <Route path="/rfis/:id" element={<RFIDetail />} />
           <Route path="/programme" element={<Programme />} />
+          <Route path="/tenders" element={<Tenders />} />
+          <Route path="/tenders/:id" element={<TenderDetail />} />
           <Route path="/settings" element={<Settings />} />
         </Route>
       </Route>
 
+      <Route path="/tender-submit/:token" element={<TenderSubmit />} />
       <Route path="*" element={<PageNotFound />} />
     </Routes>
   );
