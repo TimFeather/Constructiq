@@ -14,13 +14,16 @@ export async function cascadeTaskDates(changedTaskId, allTasks, updateFn, projec
 
   // Only patch tasks that still exist in the provided task list
   const existingIds = new Set(allTasks.map(t => t.id));
+  const validPatches = patches.filter(p => existingIds.has(p.id));
 
-  for (const patch of patches) {
-    if (!existingIds.has(patch.id)) continue;
-    await updateFn(patch.id, {
+  if (!validPatches.length) return;
+
+  // Fire all updates in parallel to avoid sequential rate-limit hammering
+  await Promise.all(validPatches.map(patch =>
+    updateFn(patch.id, {
       start_date: patch.start_date,
       end_date: patch.end_date,
       duration: patch.duration,
-    });
-  }
+    })
+  ));
 }
