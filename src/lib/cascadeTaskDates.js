@@ -1,4 +1,4 @@
-import { computeCascade } from './schedulingEngine';
+import { computeCascade } from './scheduling/scheduleEngine.js';
 
 /**
  * After a task's dates/duration change, run the scheduling engine

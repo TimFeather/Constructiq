@@ -52,11 +52,6 @@ export default function TenderDetail() {
     },
   });
 
-  // Guard: redirect unauthorized users
-  if (!canAccess(user, 'tenders')) {
-    return <Navigate to="/" replace />;
-  }
-
   // Sync form when tender loads
   useEffect(() => {
     if (tender && !form) setForm(tender);
@@ -114,6 +109,8 @@ export default function TenderDetail() {
     }
     setCustomTrade('');
   };
+
+  if (!canAccess(user, 'tenders')) return <Navigate to="/" replace />;
 
   if (isLoading || !tender || !form) {
     return (

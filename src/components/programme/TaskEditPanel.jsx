@@ -23,10 +23,14 @@ const CONSTRAINT_TYPES = [
   { value: 'ASAP', label: 'ASAP — As Soon As Possible' },
   { value: 'ALAP', label: 'ALAP — As Late As Possible' },
   { value: 'MSO',  label: 'MSO — Must Start On' },
+  { value: 'MFO',  label: 'MFO — Must Finish On' },
+  { value: 'SNET', label: 'SNET — Start No Earlier Than' },
+  { value: 'SNLT', label: 'SNLT — Start No Later Than' },
+  { value: 'FNET', label: 'FNET — Finish No Earlier Than' },
   { value: 'FNLT', label: 'FNLT — Finish No Later Than' },
 ];
 
-export default function TaskEditPanel({ task, tasks = [], open, onOpenChange, onPushHistory }) {
+export default function TaskEditPanel({ task, tasks = [], open, onOpenChange, onPushHistory, projectStart }) {
   const [form, setForm] = useState({});
   const [cycleError, setCycleError] = useState(null);
   const queryClient = useQueryClient();
@@ -223,7 +227,7 @@ export default function TaskEditPanel({ task, tasks = [], open, onOpenChange, on
                   ))}
                 </SelectContent>
               </Select>
-              {['MSO', 'FNLT'].includes((form.constraint || {}).type) && (
+              {['MSO', 'MFO', 'SNET', 'SNLT', 'FNET', 'FNLT'].includes((form.constraint || {}).type) && (
                 <Input
                   type="date"
                   value={(form.constraint || {}).date || ''}

@@ -51,10 +51,6 @@ export default function Tenders() {
   const queryClient = useQueryClient();
   const canManage = canManagePerm(user, 'tenders');
 
-  if (!canAccess(user, 'tenders')) {
-    return <Navigate to="/" replace />;
-  }
-
   const { data: tenders = [], isLoading } = useQuery({
     queryKey: ['tenders'],
     queryFn: () => base44.entities.Tender.list('-created_date', 200),
@@ -86,6 +82,8 @@ export default function Tenders() {
       navigate(`/tenders/${tender.id}`);
     },
   });
+
+  if (!canAccess(user, 'tenders')) return <Navigate to="/" replace />;
 
   const filtered = tenders.filter(t => {
     const matchTab = statusTab === 'All' || t.status === statusTab;

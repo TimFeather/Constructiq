@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
@@ -7,16 +7,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogHeader,
-  AlertDialogTitle,
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { PanelLeftClose, PanelLeftOpen, Upload, Printer, ZoomIn, ZoomOut, Trash2, Undo2, Redo2, Network } from 'lucide-react';
+import {
+  PanelLeftClose, PanelLeftOpen, Upload, Printer, ZoomIn, ZoomOut,
+  Trash2, Undo2, Redo2, Network, Flag, Target, Calendar,
+} from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import PageHeader from '@/components/shared/PageHeader';
 import TaskList from '@/components/programme/TaskList';
@@ -25,13 +24,18 @@ import TaskEditPanel from '@/components/programme/TaskEditPanel';
 import NetworkDiagram from '@/components/programme/NetworkDiagram';
 import { parseXML, parseMPX, parseExcelCSV } from '@/lib/scheduleImportParsers';
 import { runScheduleEngine } from '@/lib/schedulingEngine';
+import { buildBaselineMap } from '@/lib/scheduling/baselineEngine.js';
+
+const ZOOM_LEVELS = ['year', 'quarter', 'month', 'week', 'day'];
 
 export default function Programme() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
   const isAllowed = ['admin', 'internal', 'pricing'].includes(user?.role);
+
   const urlParams = new URLSearchParams(window.location.search);
   const projectFromUrl = urlParams.get('project') || 'all';
+
   const [selectedProjectId, setSelectedProjectId] = useState(projectFromUrl);
   const [taskListCollapsed, setTaskListCollapsed] = useState(false);
   const [zoom, setZoom] = useState('week');
@@ -41,15 +45,21 @@ export default function Programme() {
   const [uploading, setUploading] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  // Undo/redo history: each entry is { undo: [{id, data}], redo: [{id, data}] }
+  const [showCriticalPath, setShowCriticalPath] = useState(true);
+  const [showBaseline, setShowBaseline] = useState(false);
+  const [showBaselineCapture, setShowBaselineCapture] = useState(false);
+
+  // Undo/redo
   const [history, setHistory] = useState([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
-  const queryClient = useQueryClient();
-
   const canUndo = historyIndex >= 0;
   const canRedo = historyIndex < history.length - 1;
 
-  // Call this before making changes to record a snapshot for undo
+  const queryClient = useQueryClient();
+  const taskScrollRef = useRef(null);
+  const ganttScrollRef = useRef(null);
+  const isSyncing = useRef(false);
+
   const pushHistory = useCallback((undoOps, redoOps) => {
     setHistory(prev => {
       const trimmed = prev.slice(0, historyIndex + 1);
@@ -77,9 +87,6 @@ export default function Programme() {
     setHistoryIndex(prev => prev + 1);
     queryClient.invalidateQueries({ queryKey: ['tasks'] });
   };
-  const taskScrollRef = useRef(null);
-  const ganttScrollRef = useRef(null);
-  const isSyncing = useRef(false);
 
   const syncScroll = useCallback((source, target) => {
     if (isSyncing.current) return;
@@ -88,6 +95,7 @@ export default function Programme() {
     isSyncing.current = false;
   }, []);
 
+  // ─── Data fetching ──────────────────────────────────────────────────────────
   const { data: allProjectsRaw = [] } = useQuery({
     queryKey: ['projects'],
     queryFn: () => base44.entities.Project.list('-created_date', 100),
@@ -104,7 +112,7 @@ export default function Programme() {
     queryFn: () => base44.entities.Task.list('-created_date', 500),
   });
 
-  // Real-time subscription: invalidate tasks query whenever any task is created/updated/deleted
+  // Real-time subscription
   useEffect(() => {
     const unsubscribe = base44.entities.Task.subscribe(() => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
@@ -117,10 +125,51 @@ export default function Programme() {
     ? accessibleTasks
     : accessibleTasks.filter(t => t.project_id === selectedProjectId);
 
+  // ─── Schedule Engine — run ONCE here, pass results to children ─────────────
+  const { scheduledMap, projectStart } = useMemo(() => {
+    if (!tasks.length) return { scheduledMap: new Map(), projectStart: null };
+
+    const pStart = tasks.reduce((min, t) => {
+      if (!t.start_date) return min;
+      return !min || t.start_date < min ? t.start_date : min;
+    }, null) || new Date().toISOString().split('T')[0];
+
+    return {
+      scheduledMap: runScheduleEngine(tasks, pStart),
+      projectStart: pStart,
+    };
+  }, [tasks]);
+
+  // ─── Critical path stats ────────────────────────────────────────────────────
+  const criticalTaskCount = useMemo(() => {
+    let count = 0;
+    scheduledMap.forEach(r => { if (r.isCritical) count++; });
+    return count;
+  }, [scheduledMap]);
+
+  // ─── Baseline ───────────────────────────────────────────────────────────────
+  const [baselineRecords, setBaselineRecords] = useState([]);
+  const baselineMap = useMemo(() => buildBaselineMap(baselineRecords), [baselineRecords]);
+
+  const handleCaptureBaseline = () => {
+    const records = tasks.map(task => {
+      const resolved = scheduledMap.get(task.id);
+      return {
+        task_id: task.id,
+        baseline_start: resolved?.startStr || task.start_date,
+        baseline_finish: resolved?.finishStr || task.end_date,
+        baseline_duration: resolved?.durationDays || task.duration,
+      };
+    });
+    setBaselineRecords(records);
+    setShowBaseline(true);
+    setShowBaselineCapture(false);
+  };
+
+  // ─── Import handler ─────────────────────────────────────────────────────────
   const handleMPPUpload = async () => {
     if (!mppFile || !selectedProjectId || selectedProjectId === 'all') return;
     setUploading(true);
-
     try {
       const ext = mppFile.name.split('.').pop().toLowerCase();
       let parsedTasks = [];
@@ -135,115 +184,62 @@ export default function Programme() {
         parsedTasks = await parseExcelCSV(mppFile, selectedProjectId);
       }
 
-      if (parsedTasks.length === 0) {
-        setShowUploadMPP(false);
-        setMppFile(null);
-        return;
-      }
+      if (!parsedTasks.length) { setShowUploadMPP(false); setMppFile(null); return; }
 
-      // ── Pass 1: create tasks without predecessor links ──────────────────────
-      // Strip temp fields before saving (keep _parentUid for now, we'll resolve it in Pass 2)
       const tasksToCreate = parsedTasks.map(({ _mspUid, _predecessorLinks, _parentUid, ...t }) => t);
       const created = await base44.entities.Task.bulkCreate(tasksToCreate);
 
-      // ── Pass 2: resolve UID → DB ID, write predecessor links + parent_id ──
-      // Build map: mspUid → created DB id
       const uidToDbId = new Map();
       parsedTasks.forEach((pt, i) => {
-        if (pt._mspUid != null && created[i]?.id) {
-          uidToDbId.set(pt._mspUid, created[i].id);
-          console.log(`UID ${pt._mspUid} -> DB ID ${created[i].id} (${pt.wbs} ${pt.name})`);
-        }
+        if (pt._mspUid != null && created[i]?.id) uidToDbId.set(pt._mspUid, created[i].id);
       });
 
-      // Find tasks that need predecessor links or parent_id resolved
       const updates = [];
       parsedTasks.forEach((pt, i) => {
         const dbId = created[i]?.id;
         if (!dbId) return;
-
-        const updatePayload = {};
-
-        // Resolve predecessor links
+        const payload = {};
         if (pt._predecessorLinks?.length) {
           const predecessors = pt._predecessorLinks
             .map(link => {
               const predDbId = uidToDbId.get(link._predUid);
-              if (!predDbId) {
-                console.warn(`Predecessor UID ${link._predUid} not found for task ${pt.wbs} (${pt.name})`);
-                return null;
-              }
-              return {
-                predecessor_id: predDbId,
-                task_id: predDbId,
-                type: link.type,
-                lag_hours: link.lag_hours,
-                lag_days: Math.round(link.lag_hours / 8),
-                is_elapsed: link.is_elapsed,
-              };
-            })
-            .filter(Boolean);
-          if (predecessors.length > 0) {
-            updatePayload.predecessors = predecessors;
-            console.log(`Task ${pt.wbs} (${pt.name}): writing ${predecessors.length} predecessor(s)`);
-          }
-        } else if (pt._predecessorLinks) {
-          console.log(`Task ${pt.wbs} (${pt.name}): has ${pt._predecessorLinks.length} pred links in XML but filtering removed them all`);
+              if (!predDbId) return null;
+              return { predecessor_id: predDbId, task_id: predDbId, type: link.type, lag_hours: link.lag_hours, lag_days: Math.round(link.lag_hours / 8), is_elapsed: link.is_elapsed };
+            }).filter(Boolean);
+          if (predecessors.length) payload.predecessors = predecessors;
         }
-
-        // Resolve parent_id from _parentUid
         if (pt._parentUid != null) {
           const parentDbId = uidToDbId.get(pt._parentUid);
-          if (parentDbId) {
-            updatePayload.parent_id = parentDbId;
-            console.log(`Task ${pt.wbs} (${pt.name}): parent_id = ${parentDbId} (parent UID was ${pt._parentUid})`);
-          } else {
-            console.warn(`Task ${pt.wbs} (${pt.name}): parent UID ${pt._parentUid} not found in map!`);
-          }
+          if (parentDbId) payload.parent_id = parentDbId;
         }
-
-        if (Object.keys(updatePayload).length > 0) {
-          updates.push({ id: dbId, ...updatePayload });
-        }
+        if (Object.keys(payload).length) updates.push({ id: dbId, ...payload });
       });
 
-      // Apply updates sequentially
-      for (const update of updates) {
-        const { id, ...payload } = update;
+      for (const { id, ...payload } of updates) {
         await base44.entities.Task.update(id, payload);
       }
 
-      // ── Pass 3: re-schedule all tasks using the engine so dates follow dependencies ──
-      // Build in-memory task list with predecessors + parent_id applied
-      const taskListForEngine = created.map((createdTask, i) => {
-        const update = updates.find(u => u.id === createdTask.id);
-        return {
-          ...createdTask,
-          predecessors: update?.predecessors || createdTask.predecessors || [],
-          parent_id: update?.parent_id || createdTask.parent_id || null,
-        };
+      // Re-schedule after import
+      const taskListForEngine = created.map((ct, i) => {
+        const u = updates.find(u => u.id === ct.id);
+        return { ...ct, predecessors: u?.predecessors || ct.predecessors || [], parent_id: u?.parent_id || ct.parent_id || null };
       });
 
-      // Find earliest start date as project anchor
-      const projectStart = taskListForEngine.reduce((min, t) => {
+      const pStart = taskListForEngine.reduce((min, t) => {
         if (!t.start_date) return min;
         return !min || t.start_date < min ? t.start_date : min;
       }, null) || new Date().toISOString().split('T')[0];
 
-      const scheduled = runScheduleEngine(taskListForEngine, projectStart);
+      const scheduled = runScheduleEngine(taskListForEngine, pStart);
 
-      // Only update tasks whose dates differ from what the engine resolved
       for (const task of taskListForEngine) {
         const resolved = scheduled.get(task.id);
         if (!resolved) continue;
-        const newStart = resolved.startStr;
-        const newEnd = resolved.finishStr;
-        const newDur = resolved.durationDays;
-        if (newStart !== task.start_date || newEnd !== task.end_date || newDur !== task.duration) {
+        if (resolved.startStr !== task.start_date || resolved.finishStr !== task.end_date || resolved.durationDays !== task.duration) {
           await base44.entities.Task.update(task.id, {
-            start_date: newStart,
-            end_date: newEnd,
-            duration: newDur,
+            start_date: resolved.startStr,
+            end_date: resolved.finishStr,
+            duration: resolved.durationDays,
           });
         }
       }
@@ -252,7 +248,7 @@ export default function Programme() {
       setShowUploadMPP(false);
       setMppFile(null);
     } catch (error) {
-      console.error('Error importing schedule file:', error);
+      console.error('Import error:', error);
     } finally {
       setUploading(false);
     }
@@ -261,28 +257,16 @@ export default function Programme() {
   const handleDeleteAllTasks = async () => {
     if (!selectedProjectId || selectedProjectId === 'all') return;
     setDeleting(true);
-    
-    const projectTasks = [...tasks];
-    await Promise.all(
-      projectTasks.map(task =>
-        base44.entities.Task.delete(task.id).catch(error => {
-          // Skip 404s (already deleted)
-          if (error?.status !== 404) console.error('Error deleting task:', task.id, error);
-        })
-      )
-    );
+    await Promise.all(tasks.map(t => base44.entities.Task.delete(t.id).catch(() => {})));
     queryClient.invalidateQueries({ queryKey: ['tasks'] });
     setShowDeleteConfirm(false);
     setDeleting(false);
   };
 
-  const handlePrint = () => window.print();
-
   const cycleZoom = (direction) => {
-    const levels = ['month', 'week', 'day'];
-    const idx = levels.indexOf(zoom);
-    const newIdx = direction === 'in' ? Math.min(idx + 1, 2) : Math.max(idx - 1, 0);
-    setZoom(levels[newIdx]);
+    const idx = ZOOM_LEVELS.indexOf(zoom);
+    const newIdx = direction === 'in' ? Math.min(idx + 1, ZOOM_LEVELS.length - 1) : Math.max(idx - 1, 0);
+    setZoom(ZOOM_LEVELS[newIdx]);
   };
 
   return (
@@ -301,30 +285,55 @@ export default function Programme() {
                 {projects.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
               </SelectContent>
             </Select>
+
+            {/* Critical path indicator */}
+            {criticalTaskCount > 0 && (
+              <Badge
+                variant={showCriticalPath ? 'destructive' : 'outline'}
+                className="cursor-pointer gap-1"
+                onClick={() => setShowCriticalPath(v => !v)}
+              >
+                <Target className="w-3 h-3" />
+                {criticalTaskCount} critical
+              </Badge>
+            )}
+
+            {/* Baseline */}
+            <Button
+              variant={showBaseline && baselineRecords.length > 0 ? 'default' : 'outline'}
+              size="sm"
+              className="gap-1.5 text-xs h-8"
+              onClick={() => baselineRecords.length > 0 ? setShowBaseline(v => !v) : setShowBaselineCapture(true)}
+              title={baselineRecords.length > 0 ? 'Toggle baseline display' : 'Capture baseline'}
+            >
+              <Flag className="w-3.5 h-3.5" />
+              {baselineRecords.length > 0 ? 'Baseline' : 'Set Baseline'}
+            </Button>
+
             <Button variant="outline" size="icon" onClick={handleUndo} disabled={!canUndo} title="Undo">
               <Undo2 className="w-4 h-4" />
             </Button>
             <Button variant="outline" size="icon" onClick={handleRedo} disabled={!canRedo} title="Redo">
               <Redo2 className="w-4 h-4" />
             </Button>
-            <Button variant="outline" size="icon" onClick={() => cycleZoom('out')} title="Zoom out">
+            <Button variant="outline" size="icon" onClick={() => cycleZoom('out')} title={`Zoom out (${zoom})`}>
               <ZoomOut className="w-4 h-4" />
             </Button>
-            <Button variant="outline" size="icon" onClick={() => cycleZoom('in')} title="Zoom in">
+            <Button variant="outline" size="icon" onClick={() => cycleZoom('in')} title={`Zoom in (${zoom})`}>
               <ZoomIn className="w-4 h-4" />
             </Button>
-            <Button variant="outline" size="icon" onClick={handlePrint} title="Print">
+            <Button variant="outline" size="icon" onClick={() => window.print()} title="Print">
               <Printer className="w-4 h-4" />
             </Button>
             <Button onClick={() => setShowUploadMPP(true)} className="gap-2">
-              <Upload className="w-4 h-4" /> Import Schedule
+              <Upload className="w-4 h-4" /> Import
             </Button>
-            <Button 
-              variant="destructive" 
+            <Button
+              variant="destructive"
               size="icon"
               onClick={() => setShowDeleteConfirm(true)}
               disabled={!selectedProjectId || selectedProjectId === 'all' || tasks.length === 0}
-              title="Delete all tasks in this project"
+              title="Delete all tasks"
             >
               <Trash2 className="w-4 h-4" />
             </Button>
@@ -341,13 +350,15 @@ export default function Programme() {
         </TabsList>
 
         <TabsContent value="gantt" className="flex-1 flex border rounded-lg overflow-hidden bg-card mt-2">
-          {/* Toggle button */}
+          {/* Collapse toggle */}
           <button
             onClick={() => setTaskListCollapsed(!taskListCollapsed)}
             className="flex items-center justify-center w-8 bg-muted/30 hover:bg-muted transition-colors border-r flex-shrink-0"
             title={taskListCollapsed ? 'Show task list' : 'Hide task list'}
           >
-            {taskListCollapsed ? <PanelLeftOpen className="w-4 h-4 text-muted-foreground" /> : <PanelLeftClose className="w-4 h-4 text-muted-foreground" />}
+            {taskListCollapsed
+              ? <PanelLeftOpen className="w-4 h-4 text-muted-foreground" />
+              : <PanelLeftClose className="w-4 h-4 text-muted-foreground" />}
           </button>
 
           {/* Task list pane */}
@@ -356,22 +367,27 @@ export default function Programme() {
               <TaskList
                 tasks={tasks}
                 allTasks={accessibleTasks}
+                scheduledMap={scheduledMap}
                 onTaskClick={setSelectedTask}
                 collapsed={false}
                 canEdit={isAllowed}
                 scrollRef={taskScrollRef}
                 onScroll={() => ganttScrollRef.current && syncScroll(taskScrollRef.current, ganttScrollRef.current)}
                 onPushHistory={pushHistory}
+                projectStart={projectStart}
               />
             </div>
           )}
 
-          {/* Gantt chart */}
+          {/* Gantt — receives pre-computed schedule, does no calculations */}
           <GanttChart
             tasks={tasks}
+            scheduledMap={scheduledMap}
             zoom={zoom}
             scrollRef={ganttScrollRef}
             onScroll={() => taskScrollRef.current && syncScroll(ganttScrollRef.current, taskScrollRef.current)}
+            baselineMap={showBaseline && baselineRecords.length > 0 ? baselineMap : null}
+            onTaskClick={setSelectedTask}
           />
         </TabsContent>
 
@@ -387,15 +403,30 @@ export default function Programme() {
         open={!!selectedTask}
         onOpenChange={(open) => { if (!open) setSelectedTask(null); }}
         onPushHistory={pushHistory}
+        projectStart={projectStart}
       />
 
-      {/* Delete all tasks confirmation */}
+      {/* Baseline capture confirm */}
+      <AlertDialog open={showBaselineCapture} onOpenChange={setShowBaselineCapture}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Capture Baseline?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will snapshot the current schedule for {tasks.length} task{tasks.length !== 1 ? 's' : ''} as the baseline. Any existing baseline will be replaced.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogAction onClick={handleCaptureBaseline}>Capture Baseline</AlertDialogAction>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete confirm */}
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete all tasks?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete all {tasks.length} task{tasks.length !== 1 ? 's' : ''} in this project. This cannot be undone.
+              This will permanently delete all {tasks.length} task{tasks.length !== 1 ? 's' : ''} in this project.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogAction
@@ -409,51 +440,42 @@ export default function Programme() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Upload schedule file dialog */}
+      {/* Import dialog */}
       <Dialog open={showUploadMPP} onOpenChange={setShowUploadMPP}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader><DialogTitle>Import Schedule</DialogTitle></DialogHeader>
           <div className="space-y-4">
-            {/* Format cards */}
             <div className="grid grid-cols-3 gap-2 text-xs">
               <div className="rounded-md border p-2.5 space-y-1">
-                <p className="font-semibold text-foreground">XML (recommended)</p>
-                <p className="text-muted-foreground">File → Save As → XML Format (*.xml)</p>
+                <p className="font-semibold">XML (recommended)</p>
+                <p className="text-muted-foreground">File → Save As → XML Format</p>
               </div>
               <div className="rounded-md border p-2.5 space-y-1">
-                <p className="font-semibold text-foreground">Excel / CSV</p>
-                <p className="text-muted-foreground">Columns: Name, Start, End, Duration, WBS, % Complete</p>
+                <p className="font-semibold">Excel / CSV</p>
+                <p className="text-muted-foreground">Name, Start, End, Duration, WBS, %</p>
               </div>
               <div className="rounded-md border p-2.5 space-y-1">
-                <p className="font-semibold text-foreground">MPX</p>
-                <p className="text-muted-foreground">File → Save As → MPX (legacy text format)</p>
+                <p className="font-semibold">MPX</p>
+                <p className="text-muted-foreground">File → Save As → MPX</p>
               </div>
             </div>
-
             <div>
               <Label>Select Project *</Label>
               <Select value={selectedProjectId !== 'all' ? selectedProjectId : (projects[0]?.id || '')} onValueChange={setSelectedProjectId}>
                 <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
-                <SelectContent>
-                  {projects.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
-                </SelectContent>
+                <SelectContent>{projects.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-
             <div>
               <Label>Schedule File *</Label>
-              <Input
-                type="file"
-                accept=".xml,.mpx,.xlsx,.xls,.csv"
-                onChange={e => setMppFile(e.target.files?.[0] || null)}
-              />
+              <Input type="file" accept=".xml,.mpx,.xlsx,.xls,.csv" onChange={e => setMppFile(e.target.files?.[0] || null)} />
               {mppFile && <p className="text-xs text-muted-foreground mt-1">Selected: {mppFile.name}</p>}
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setShowUploadMPP(false); setMppFile(null); }}>Cancel</Button>
             <Button onClick={handleMPPUpload} disabled={!mppFile || uploading || !selectedProjectId || selectedProjectId === 'all'}>
-              {uploading ? 'Importing & linking...' : 'Import'}
+              {uploading ? 'Importing...' : 'Import'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -7,7 +7,6 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { differenceInCalendarDays, format } from 'date-fns';
 import { cascadeTaskDates } from '@/lib/cascadeTaskDates';
-import { runScheduleEngine } from '@/lib/schedulingEngine';
 import { flattenTasks } from '@/lib/flattenTasks';
 
 export const ROW_HEIGHT = 40;
@@ -39,7 +38,7 @@ function calcWorkingEnd(startStr, duration) {
   return date.toISOString().split('T')[0];
 }
 
-export default function TaskList({ tasks, allTasks, onTaskClick, onAddTask, collapsed, canEdit = false, scrollRef, onScroll, onPushHistory }) {
+export default function TaskList({ tasks, allTasks, scheduledMap, onTaskClick, onAddTask, collapsed, canEdit = false, scrollRef, onScroll, onPushHistory, projectStart }) {
   const [expandedIds, setExpandedIds] = useState(new Set(tasks.filter(t => t.level === 0).map(t => t.id)));
   const [editingId, setEditingId] = useState(null);
   const [editValues, setEditValues] = useState({});
@@ -47,22 +46,15 @@ export default function TaskList({ tasks, allTasks, onTaskClick, onAddTask, coll
   const [adjustingCompletionId, setAdjustingCompletionId] = useState(null);
   const queryClient = useQueryClient();
 
-  // Run the scheduling engine to get live-resolved dates for all tasks
-  const scheduledDates = useMemo(() => {
-    if (!tasks.length) return new Map();
-    const projectStart = tasks.reduce((min, t) => {
-      if (!t.start_date) return min;
-      return t.start_date < min ? t.start_date : min;
-    }, tasks.find(t => t.start_date)?.start_date || new Date().toISOString().split('T')[0]);
-    return runScheduleEngine(tasks, projectStart);
-  }, [tasks]);
-
+  // Use pre-computed scheduledMap from parent (no calculation here)
   const getResolvedDates = (task) => {
-    const resolved = scheduledDates.get(task.id);
+    const resolved = scheduledMap?.get(task.id);
     return {
       start: resolved?.startStr || task.start_date || '—',
       end: resolved?.finishStr || task.end_date || '—',
       duration: resolved?.durationDays || task.duration || 0,
+      isCritical: resolved?.isCritical || false,
+      totalFloat: resolved?.totalFloat ?? null,
     };
   };
 
@@ -189,9 +181,11 @@ export default function TaskList({ tasks, allTasks, onTaskClick, onAddTask, coll
     const hasChildren = children.length > 0;
     const isExpanded = expandedIds.has(task.id);
     const isEditing = editingId === task.id;
-    const isSummary = task.is_summary || task.level === 0 || task.level === 1;
+    const isSummary = hasChildren || task.is_summary || task.level === 0 || task.level === 1;
+    const isMilestone = task.is_milestone || task.duration === 0;
     const percentComplete = task.percent_complete || 0;
     const resolved = getResolvedDates(task);
+    const isCritical = resolved.isCritical;
 
     // Show if engine-resolved dates differ from stored (indicating pending cascade)
     const hasPendingUpdate = resolved.start !== (task.start_date || '—') || resolved.end !== (task.end_date || '—');
@@ -211,9 +205,10 @@ export default function TaskList({ tasks, allTasks, onTaskClick, onAddTask, coll
         <div
           className={cn(
             "grid items-center w-full h-full hover:bg-muted/50 transition-colors border-l-3 group px-2",
-            levelColors[task.level || 0] || 'border-l-muted',
+            isCritical ? 'border-l-red-500' : (levelColors[task.level || 0] || 'border-l-muted'),
             isEditing ? 'bg-primary/5' : 'cursor-pointer',
-            hasPendingUpdate && !isEditing && 'bg-amber-50/50 dark:bg-amber-950/20',
+            isCritical && !isEditing && 'bg-red-50/30 dark:bg-red-950/10',
+            hasPendingUpdate && !isEditing && !isCritical && 'bg-amber-50/50 dark:bg-amber-950/20',
           )}
           style={{ gridTemplateColumns: `56px auto 24px 1fr 70px 70px 56px 80px`, paddingLeft: `${8 + depth * 16}px` }}
           onClick={isEditing ? undefined : () => onTaskClick(task)}
