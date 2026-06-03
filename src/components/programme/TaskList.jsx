@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { differenceInCalendarDays, format } from 'date-fns';
-import { cascadeTaskDates } from '@/lib/cascadeTaskDates';
 import { flattenTasks } from '@/lib/flattenTasks';
 
 export const ROW_HEIGHT = 40;
@@ -107,12 +106,6 @@ export default function TaskList({ tasks, allTasks, scheduledMap, onTaskClick, o
       );
 
       await base44.entities.Task.update(task.id, { duration: newDuration, end_date: newEnd });
-
-      const mergedTasks = (allTasks || tasks).map(t =>
-        t.id === task.id ? { ...t, duration: newDuration, end_date: newEnd } : t
-      );
-      await cascadeTaskDates(task.id, mergedTasks, (id, data) => base44.entities.Task.update(id, data));
-
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
     } finally {
       setAdjustingId(null);
@@ -158,8 +151,6 @@ export default function TaskList({ tasks, allTasks, scheduledMap, onTaskClick, o
       );
     }
     await base44.entities.Task.update(taskId, finalData);
-    const mergedTasks = tasks.map(t => t.id === taskId ? { ...t, ...finalData } : t);
-    await cascadeTaskDates(taskId, mergedTasks, (id, data) => base44.entities.Task.update(id, data));
     queryClient.invalidateQueries({ queryKey: ['tasks'] });
     setEditingId(null);
   };
