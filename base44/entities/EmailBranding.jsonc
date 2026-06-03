@@ -1,0 +1,35 @@
+{
+  "name": "EmailBranding",
+  "type": "object",
+  "properties": {
+    "logo_url": {
+      "type": "string",
+      "description": "URL of uploaded company logo image"
+    },
+    "logo_width": {
+      "type": "number",
+      "description": "Logo display width in pixels (default 160)"
+    },
+    "logo_alignment": {
+      "type": "string",
+      "description": "left | center | right (default left)"
+    },
+    "brand_colour": {
+      "type": "string",
+      "description": "Hex colour for header bar and buttons e.g. #1a56db"
+    },
+    "footer_text": {
+      "type": "string",
+      "description": "Plain text footer shown at the bottom of all emails"
+    },
+    "company_name": {
+      "type": "string",
+      "description": "Company name shown in the email wrapper"
+    },
+    "sender_name": {
+      "type": "string",
+      "description": "Default From name used in outgoing emails"
+    }
+  },
+  "required": []
+}

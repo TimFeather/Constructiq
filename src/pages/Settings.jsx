@@ -11,7 +11,7 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Save, UserPlus, Shield, Bell, Mail, Clock, RefreshCw, Palette, Tag } from 'lucide-react';
+import { Save, Shield, Bell, Mail, Palette, Tag, RefreshCw } from 'lucide-react';
 import PageHeader from '@/components/shared/PageHeader';
 import { DEFAULT_TEMPLATES } from '@/lib/emailTemplates';
 import { isAdmin as checkAdmin } from '@/lib/permissions';
@@ -19,6 +19,8 @@ import UserManagement from '@/components/settings/UserManagement';
 import AppearanceSettings from '@/components/settings/AppearanceSettings';
 import RoleManager from '@/components/settings/RoleManager';
 import SubcontractorDirectory from '@/components/settings/SubcontractorDirectory';
+import EmailBrandingPanel from '@/components/settings/EmailBrandingPanel';
+import EmailTemplateEditor from '@/components/settings/EmailTemplateEditor';
 
 const ROLES = [
   'Architect', 'Client', 'External Project Manager',
@@ -37,7 +39,6 @@ export default function Settings() {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('external');
   const [editingTemplate, setEditingTemplate] = useState(null);
-  const [templateForm, setTemplateForm] = useState({ subject: '', body: '', logo_url: '' });
 
   const { data: users = [] } = useQuery({
     queryKey: ['users'],
@@ -91,25 +92,31 @@ export default function Settings() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['users'] }),
   });
 
+  const { data: emailBrandingList = [] } = useQuery({
+    queryKey: ['emailBranding'],
+    queryFn: () => base44.entities.EmailBranding.list(),
+    enabled: user?.role === 'admin',
+  });
+  const emailBranding = emailBrandingList[0] || {};
+
   const saveTemplateMutation = useMutation({
-    mutationFn: async ({ key, subject, body, logo_url }) => {
+    mutationFn: async ({ key, subject, body_html, body_text }) => {
       const existing = emailTemplates.find(t => t.template_key === key);
       if (existing) {
-        return base44.entities.EmailTemplate.update(existing.id, { subject, body, logo_url });
+        return base44.entities.EmailTemplate.update(existing.id, { subject, body_html, body_text });
       } else {
         return base44.entities.EmailTemplate.create({
           template_key: key,
           name: DEFAULT_TEMPLATES[key]?.name || key,
           subject,
-          body,
-          logo_url,
+          body_html,
+          body_text,
         });
       }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['emailTemplates'] });
-      setEditingTemplate(null);
-    }
+    },
   });
 
   const isAdmin = checkAdmin(user);
@@ -125,26 +132,15 @@ export default function Settings() {
 
   const displayName = [profile.first_name, profile.last_name].filter(Boolean).join(' ') || user?.full_name || '';
 
-  const openEditTemplate = (key) => {
-    const saved = emailTemplates.find(t => t.template_key === key);
-    const def = DEFAULT_TEMPLATES[key];
-    setTemplateForm({
-      subject: saved?.subject || def?.subject || '',
-      body: saved?.body || def?.body || '',
-      logo_url: saved?.logo_url || '',
-    });
-    setEditingTemplate(key);
-  };
-
   const TEMPLATE_KEYS = [
-    { key: 'rfi_assigned', label: 'RFI Assigned', vars: '{rfi_ref}, {title}, {project_name}, {assignee_name}, {priority}, {due_date}, {description}, {url}' },
-    { key: 'rfi_response', label: 'RFI Response', vars: '{rfi_ref}, {title}, {project_name}, {responder_name}, {response_text}, {url}' },
-    { key: 'team_added', label: 'Added to Project', vars: '{name}, {project_name}, {role}' },
-    { key: 'team_invited', label: 'Project Invitation', vars: '{project_name}, {role}' },
-    { key: 'tender_invitation', label: 'Tender Invitation', vars: '{tender_number}, {title}, {invitee_name}, {company_name}, {location}, {closing_date}, {trade_packages}, {description}, {client_name}, {architect_name}, {project_manager_name}, {submission_link}, {sender_name}' },
-    { key: 'tender_outcome_unsuccessful', label: 'Tender Outcome — Unsuccessful (We Lost)', vars: '{tender_number}, {title}, {invitee_name}, {sender_name}, {company_name}' },
-    { key: 'tender_sub_awarded', label: 'Sub Awarded', vars: '{tender_number}, {title}, {invitee_name}, {sender_name}, {company_name}' },
-    { key: 'tender_sub_unsuccessful', label: 'Sub Not Selected', vars: '{tender_number}, {title}, {invitee_name}, {sender_name}, {company_name}' },
+    { key: 'rfi_assigned', label: 'RFI Assigned' },
+    { key: 'rfi_response', label: 'RFI Response' },
+    { key: 'team_added', label: 'Added to Project' },
+    { key: 'team_invited', label: 'Project Invitation' },
+    { key: 'tender_invitation', label: 'Tender Invitation' },
+    { key: 'tender_outcome_unsuccessful', label: 'Tender Outcome — Unsuccessful (We Lost)' },
+    { key: 'tender_sub_awarded', label: 'Sub Awarded' },
+    { key: 'tender_sub_unsuccessful', label: 'Sub Not Selected' },
   ];
 
   return (
@@ -289,67 +285,40 @@ export default function Settings() {
         {isAdmin && (
           <TabsContent value="emails">
             <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">Customise the emails sent by the system. Use the variable names shown in each template to insert dynamic content.</p>
-              {TEMPLATE_KEYS.map(({ key, label, vars }) => {
+              <EmailBrandingPanel />
+
+              <p className="text-sm text-muted-foreground pt-2">Customise the emails sent by the system. Click a template to expand the editor.</p>
+              {TEMPLATE_KEYS.map(({ key, label }) => {
                 const saved = emailTemplates.find(t => t.template_key === key);
                 const isEditing = editingTemplate === key;
-                const def = DEFAULT_TEMPLATES[key];
                 return (
                   <Card key={key}>
                     <CardHeader className="pb-2">
                       <div className="flex items-center justify-between">
-                        <CardTitle className="text-sm">{label}</CardTitle>
-                        <div className="flex gap-2">
-                          {saved && (
-                            <Button size="sm" variant="ghost" className="h-7 text-xs gap-1" onClick={() => {
-                              base44.entities.EmailTemplate.delete(saved.id).then(() => {
-                                queryClient.invalidateQueries({ queryKey: ['emailTemplates'] });
-                                if (editingTemplate === key) setEditingTemplate(null);
-                              });
-                            }}>
-                              <RefreshCw className="w-3 h-3" /> Reset to default
-                            </Button>
-                          )}
-                          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => isEditing ? setEditingTemplate(null) : openEditTemplate(key)}>
-                            {isEditing ? 'Cancel' : 'Edit'}
-                          </Button>
-                        </div>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">Variables: <code className="bg-muted px-1 rounded text-[10px]">{vars}</code></p>
-                    </CardHeader>
-                    {isEditing ? (
-                      <CardContent className="space-y-3">
-                        <div>
-                          <Label className="text-xs">Subject</Label>
-                          <Input value={templateForm.subject} onChange={e => setTemplateForm(f => ({...f, subject: e.target.value}))} />
-                        </div>
-                        <div>
-                          <Label className="text-xs">Body</Label>
-                          <Textarea value={templateForm.body} onChange={e => setTemplateForm(f => ({...f, body: e.target.value}))} rows={8} className="font-mono text-xs" />
-                        </div>
-                        <div>
-                          <Label className="text-xs">Logo / Image URL (optional)</Label>
-                          <Input
-                            value={templateForm.logo_url || ''}
-                            onChange={e => setTemplateForm(f => ({...f, logo_url: e.target.value}))}
-                            placeholder="https://... or upload via Appearance settings"
-                            className="text-xs"
-                          />
-                          <p className="text-[10px] text-muted-foreground mt-1">Paste your logo URL to prepend it to the email. Use your company logo from Appearance settings.</p>
-                          {templateForm.logo_url && (
-                            <img src={templateForm.logo_url} alt="Logo preview" className="mt-2 h-10 object-contain rounded border" />
+                        <div className="flex items-center gap-2">
+                          <CardTitle className="text-sm">{label}</CardTitle>
+                          {saved ? (
+                            <Badge variant="outline" className="text-[10px] text-green-700 border-green-300 bg-green-50">Customised</Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-[10px] text-muted-foreground">Using default</Badge>
                           )}
                         </div>
-                        <Button size="sm" className="gap-1.5" onClick={() => saveTemplateMutation.mutate({ key, ...templateForm })} disabled={saveTemplateMutation.isPending}>
-                          <Save className="w-3 h-3" /> {saveTemplateMutation.isPending ? 'Saving...' : 'Save Template'}
+                        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setEditingTemplate(isEditing ? null : key)}>
+                          {isEditing ? 'Close' : 'Edit'}
                         </Button>
-                      </CardContent>
-                    ) : (
-                      <CardContent className="pt-0">
-                        <div className="bg-muted/40 rounded p-3 text-xs font-mono whitespace-pre-wrap text-muted-foreground max-h-24 overflow-hidden relative">
-                          {(saved?.body || def?.body || '').substring(0, 200)}
-                          {(saved?.body || def?.body || '').length > 200 && <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-muted/40 to-transparent" />}
-                        </div>
+                      </div>
+                    </CardHeader>
+                    {isEditing && (
+                      <CardContent>
+                        <EmailTemplateEditor
+                          templateKey={key}
+                          template={saved || null}
+                          branding={emailBranding}
+                          saving={saveTemplateMutation.isPending}
+                          onSave={(subject, body_html, body_text) =>
+                            saveTemplateMutation.mutate({ key, subject, body_html, body_text })
+                          }
+                        />
                       </CardContent>
                     )}
                   </Card>

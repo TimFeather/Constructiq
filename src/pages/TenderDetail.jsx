@@ -10,7 +10,8 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ArrowLeft, Save, X } from 'lucide-react';
+import { ArrowLeft, Save, X, Trash2 } from 'lucide-react';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { useToast } from '@/components/ui/use-toast';
 import TenderDocuments from '@/components/tenders/TenderDocuments';
 import InviteeManager from '@/components/tenders/InviteeManager';
@@ -62,6 +63,14 @@ export default function TenderDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tender', id] });
       queryClient.invalidateQueries({ queryKey: ['tenders'] });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => base44.entities.Tender.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tenders'] });
+      navigate('/tenders');
     },
   });
 
@@ -133,6 +142,35 @@ export default function TenderDetail() {
         <span className={`ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[tender.status] || 'bg-gray-100 text-gray-700'}`}>
           {tender.status}
         </span>
+        {canManage && (
+          <div className="ml-auto">
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="ghost" size="sm" className="gap-1.5 text-destructive hover:text-destructive hover:bg-destructive/10">
+                  <Trash2 className="w-3.5 h-3.5" /> Delete
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete Tender?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will permanently delete <strong>{tender.tender_number} — {tender.title}</strong> and all associated data. This cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    onClick={() => deleteMutation.mutate()}
+                    disabled={deleteMutation.isPending}
+                  >
+                    {deleteMutation.isPending ? 'Deleting...' : 'Delete Tender'}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+        )}
       </div>
 
       <Tabs defaultValue="details" className="space-y-4">
