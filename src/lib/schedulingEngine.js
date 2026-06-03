@@ -306,6 +306,15 @@ export function runScheduleEngine(tasks, projectStartDate) {
       case 'ALAP': // As Late As Possible — use stored date for now
         earlyStart = parseDate(task.start_date) || fallbackStart;
         break;
+      case 'SNET': // Start No Earlier Than — enforce minimum start date
+        earlyStart = parseDate(constraint.date) || parseDate(task.start_date) || fallbackStart;
+        break;
+      case 'SNLT': // Start No Later Than — use stored start as initial
+        earlyStart = parseDate(task.start_date) || fallbackStart;
+        break;
+      case 'FNET': // Finish No Earlier Than
+        earlyStart = parseDate(task.start_date) || fallbackStart;
+        break;
       case 'ASAP':
       default:
         earlyStart = parseDate(task.start_date) || fallbackStart;
@@ -333,6 +342,15 @@ export function runScheduleEngine(tasks, projectStartDate) {
       const msoDate = parseDate(constraint.date);
       if (msoDate > earlyStart) {
         earlyStart = msoDate;
+        earlyFinish = addWorkingHours(earlyStart, Math.max(durationHours - WORK_HOURS_PER_DAY, 0));
+      }
+    }
+
+    // For SNET, enforce minimum start date — predecessors CAN push it later but not earlier
+    if (constraint.type === 'SNET' && constraint.date) {
+      const snetDate = parseDate(constraint.date);
+      if (snetDate > earlyStart) {
+        earlyStart = snetDate;
         earlyFinish = addWorkingHours(earlyStart, Math.max(durationHours - WORK_HOURS_PER_DAY, 0));
       }
     }

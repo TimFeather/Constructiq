@@ -52,8 +52,28 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
     };
   };
 
-  // Use the same flattening logic as GanttChart for alignment
-  const flatTasksArray = useMemo(() => flattenTasks(tasks), [tasks]);
+  // Flatten tasks respecting collapsed state for visible rows
+  const flatTasksArray = useMemo(() => {
+    const result = [];
+    const wbsCompare = (a, b) => {
+      const parse = (w) => (w || '').split('.').map(n => parseInt(n) || 0);
+      const aParts = parse(a.wbs), bParts = parse(b.wbs);
+      for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+        const diff = (aParts[i] || 0) - (bParts[i] || 0);
+        if (diff !== 0) return diff;
+      }
+      return (a.sort_order || 0) - (b.sort_order || 0);
+    };
+    const addTask = (task) => {
+      result.push(task);
+      if (expandedIds.has(task.id)) {
+        const children = tasks.filter(t => t.parent_id === task.id).sort(wbsCompare);
+        children.forEach(addTask);
+      }
+    };
+    tasks.filter(t => !t.parent_id).sort(wbsCompare).forEach(addTask);
+    return result;
+  }, [tasks, expandedIds]);
 
   const adjustCompletion = async (task, delta) => {
     const newPct = Math.min(100, Math.max(0, (task.percent_complete || 0) + delta));

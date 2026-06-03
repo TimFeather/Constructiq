@@ -11,9 +11,9 @@ import { Plus, Trash2, Users, UserCheck } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { resolveTemplate, applyTemplate } from '@/lib/emailTemplates';
 
-const ROLES = [
+const DEFAULT_ROLES = [
   'Architect', 'Client', 'External Project Manager',
-  'Internal Project Manager', 'Site Manager', 'Quantity Surveyor', 'Subcontractor'
+  'Internal Project Manager', 'Site Manager', 'Quantity Surveyor', 'Subcontractor', 'Other'
 ];
 
 const TRADES = [
@@ -28,6 +28,7 @@ export default function TeamManager({ project }) {
   const { user } = useAuth();
   const isAllowed = user?.role === 'admin' || user?.role === 'internal';
   const [newMember, setNewMember] = useState(emptyMember);
+  const [customRole, setCustomRole] = useState('');
   const [customTrade, setCustomTrade] = useState('');
   const [emailInput, setEmailInput] = useState('');
   const [suggestions, setSuggestions] = useState([]);
@@ -38,6 +39,18 @@ export default function TeamManager({ project }) {
     queryFn: () => base44.entities.User.list(),
     enabled: isAllowed,
   });
+
+  const { data: adminUser } = useQuery({
+    queryKey: ['adminUser'],
+    queryFn: async () => {
+      const all = await base44.entities.User.list();
+      return all.find(u => u.role === 'admin') || null;
+    },
+    enabled: isAllowed,
+  });
+
+  const customRoles = adminUser?.custom_roles ? JSON.parse(adminUser.custom_roles) : [];
+  const ROLES = [...DEFAULT_ROLES, ...customRoles];
 
   const { data: emailTemplates = [] } = useQuery({
     queryKey: ['emailTemplates'],
@@ -83,6 +96,9 @@ export default function TeamManager({ project }) {
     if (member.role === 'Subcontractor' && customTrade) {
       member.trade = customTrade;
     }
+    if (member.role === 'Other' && customRole) {
+      member.role = customRole;
+    }
     const team = [...(project.team || []), member];
     await updateMutation.mutateAsync(team);
 
@@ -123,6 +139,7 @@ export default function TeamManager({ project }) {
     setNewMember(emptyMember);
     setEmailInput('');
     setCustomTrade('');
+    setCustomRole('');
     setSuggestions([]);
   };
 
@@ -223,6 +240,14 @@ export default function TeamManager({ project }) {
                   {ROLES.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
                 </SelectContent>
               </Select>
+              {newMember.role === 'Other' && (
+                <Input
+                  className="mt-2"
+                  value={customRole}
+                  onChange={e => setCustomRole(e.target.value)}
+                  placeholder="Enter custom role..."
+                />
+              )}
             </div>
             <div className="relative">
               <Label className="text-xs">Email</Label>

@@ -68,6 +68,21 @@
           }
         }
       }
+    },
+    "constraint": {
+      "type": "object",
+      "description": "Scheduling constraint from MS Project",
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "ASAP, ALAP, MSO, MFO, SNET, SNLT, FNET, FNLT"
+        },
+        "date": {
+          "type": "string",
+          "format": "date",
+          "description": "Constraint date if applicable"
+        }
+      }
     }
   },
   "required": [

@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Card, CardContent } from '@/components/ui/card';
 import StatusBadge from '@/components/shared/StatusBadge';
-import { Plus, MessageSquare, ChevronDown, ChevronUp, Calendar, Send, Paperclip, ExternalLink, X, Loader2, Trash2 } from 'lucide-react';
+import { Plus, MessageSquare, ChevronDown, ChevronUp, Calendar, Send, Paperclip, ExternalLink, X, Loader2, Trash2, FolderInput } from 'lucide-react';
 import { format } from 'date-fns';
 import { resolveTemplate, applyTemplate } from '@/lib/emailTemplates';
 
@@ -26,11 +26,28 @@ function RFICard({ rfi, project, emailTemplates = [], registeredUsers = [] }) {
   const [replyText, setReplyText] = useState('');
   const [attachments, setAttachments] = useState([]);
   const [uploading, setUploading] = useState(false);
+  const [savingDoc, setSavingDoc] = useState(null);
   const fileInputRef = useRef(null);
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
   const isAdminOrInternal = user?.role === 'admin' || user?.role === 'internal';
+
+  const saveAttachmentToDocuments = async (att) => {
+    setSavingDoc(att.url);
+    await base44.entities.Document.create({
+      name: att.name,
+      project_id: project.id,
+      file_url: att.url,
+      file_type: att.name.split('.').pop()?.toUpperCase() || 'File',
+      folder: 'RFI Attachments',
+      status: 'Draft',
+      uploaded_by_name: user?.full_name || '',
+      uploaded_by_email: user?.email || '',
+    });
+    queryClient.invalidateQueries({ queryKey: ['documents', project.id] });
+    setSavingDoc(null);
+  };
   const isOwner = rfi.created_by_email === user?.email || (!rfi.created_by_email && isAdminOrInternal);
   const isAssignee = rfi.assignees?.some(a => a.email === user?.email) || rfi.assigned_to_email === user?.email;
 
@@ -83,6 +100,7 @@ function RFICard({ rfi, project, emailTemplates = [], registeredUsers = [] }) {
     const { subject, body } = applyTemplate(tpl, {
       rfi_ref: rfiRef,
       title: rfi.title,
+      project_name: project.name,
       responder_name: user?.full_name || 'A team member',
       response_text: replyText.trim(),
       url: rfiUrl,
@@ -170,10 +188,23 @@ function RFICard({ rfi, project, emailTemplates = [], registeredUsers = [] }) {
                 <p className="text-xs font-medium text-muted-foreground mb-1">Attachments</p>
                 <div className="flex flex-wrap gap-2">
                   {rfi.attachments.map((att, i) => (
-                    <a key={i} href={att.url} target="_blank" rel="noopener noreferrer"
-                      className="flex items-center gap-1 text-xs text-primary bg-primary/10 px-2 py-1 rounded hover:bg-primary/20 transition-colors">
-                      <Paperclip className="w-3 h-3" />{att.name}
-                    </a>
+                    <div key={i} className="flex items-center gap-1">
+                      <a href={att.url} target="_blank" rel="noopener noreferrer"
+                        className="flex items-center gap-1 text-xs text-primary bg-primary/10 px-2 py-1 rounded hover:bg-primary/20 transition-colors">
+                        <Paperclip className="w-3 h-3" />{att.name}
+                      </a>
+                      {isAdminOrInternal && (
+                        <button
+                          onClick={() => saveAttachmentToDocuments(att)}
+                          disabled={savingDoc === att.url}
+                          title="Save to Project Documents"
+                          className="flex items-center gap-1 text-xs text-accent bg-accent/10 px-2 py-1 rounded hover:bg-accent/20 transition-colors disabled:opacity-50">
+                          {savingDoc === att.url
+                            ? <Loader2 className="w-3 h-3 animate-spin" />
+                            : <FolderInput className="w-3 h-3" />}
+                        </button>
+                      )}
+                    </div>
                   ))}
                 </div>
               </div>
@@ -194,10 +225,23 @@ function RFICard({ rfi, project, emailTemplates = [], registeredUsers = [] }) {
                     {(resp.attachments || []).length > 0 && (
                       <div className="flex flex-wrap gap-2 pt-1">
                         {resp.attachments.map((att, j) => (
-                          <a key={j} href={att.url} target="_blank" rel="noopener noreferrer"
-                            className="flex items-center gap-1 text-xs text-primary bg-primary/10 px-2 py-1 rounded hover:bg-primary/20 transition-colors">
-                            <ExternalLink className="w-3 h-3" />{att.name}
-                          </a>
+                          <div key={j} className="flex items-center gap-1">
+                            <a href={att.url} target="_blank" rel="noopener noreferrer"
+                              className="flex items-center gap-1 text-xs text-primary bg-primary/10 px-2 py-1 rounded hover:bg-primary/20 transition-colors">
+                              <ExternalLink className="w-3 h-3" />{att.name}
+                            </a>
+                            {isAdminOrInternal && (
+                              <button
+                                onClick={() => saveAttachmentToDocuments(att)}
+                                disabled={savingDoc === att.url}
+                                title="Save to Project Documents"
+                                className="flex items-center gap-1 text-xs text-accent bg-accent/10 px-2 py-1 rounded hover:bg-accent/20 transition-colors disabled:opacity-50">
+                                {savingDoc === att.url
+                                  ? <Loader2 className="w-3 h-3 animate-spin" />
+                                  : <FolderInput className="w-3 h-3" />}
+                              </button>
+                            )}
+                          </div>
                         ))}
                       </div>
                     )}
@@ -341,11 +385,18 @@ export default function ProjectRFIPanel({ project, rfis = [] }) {
 
     if (form.assigned_to_email && isRegistered(form.assigned_to_email)) {
       try {
-        await base44.integrations.Core.SendEmail({
-          to: form.assigned_to_email,
-          subject: `New RFI Assigned: ${form.title}`,
-          body: `You have been assigned RFI-${String(nextNumber).padStart(3, '0')}: ${form.title}\n\nDescription: ${form.description || 'No description'}\n\nPlease log in to respond.`,
+        const tpl = resolveTemplate(emailTemplates, 'rfi_assigned');
+        const { subject, body } = applyTemplate(tpl, {
+          rfi_ref: `RFI-${String(nextNumber).padStart(3, '0')}`,
+          title: form.title,
+          project_name: project.name,
+          assignee_name: form.assigned_to_name || form.assigned_to_email,
+          priority: form.priority,
+          due_date: form.due_date || 'Not set',
+          description: form.description || 'No description',
+          url: `${window.location.origin}/rfis/${rfi.id}`,
         });
+        await base44.integrations.Core.SendEmail({ to: form.assigned_to_email, subject, body });
       } catch (e) { /* non-critical */ }
     }
 

@@ -11,9 +11,12 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Save, UserPlus, Shield, Bell, Mail, Clock, RefreshCw } from 'lucide-react';
+import { Save, UserPlus, Shield, Bell, Mail, Clock, RefreshCw, Palette, Tag } from 'lucide-react';
 import PageHeader from '@/components/shared/PageHeader';
 import { DEFAULT_TEMPLATES } from '@/lib/emailTemplates';
+import UserManagement from '@/components/settings/UserManagement';
+import AppearanceSettings from '@/components/settings/AppearanceSettings';
+import RoleManager from '@/components/settings/RoleManager';
 
 const ROLES = [
   'Architect', 'Client', 'External Project Manager',
@@ -32,7 +35,7 @@ export default function Settings() {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('external');
   const [editingTemplate, setEditingTemplate] = useState(null);
-  const [templateForm, setTemplateForm] = useState({ subject: '', body: '' });
+  const [templateForm, setTemplateForm] = useState({ subject: '', body: '', logo_url: '' });
 
   const { data: users = [] } = useQuery({
     queryKey: ['users'],
@@ -87,16 +90,17 @@ export default function Settings() {
   });
 
   const saveTemplateMutation = useMutation({
-    mutationFn: async ({ key, subject, body }) => {
+    mutationFn: async ({ key, subject, body, logo_url }) => {
       const existing = emailTemplates.find(t => t.template_key === key);
       if (existing) {
-        return base44.entities.EmailTemplate.update(existing.id, { subject, body });
+        return base44.entities.EmailTemplate.update(existing.id, { subject, body, logo_url });
       } else {
         return base44.entities.EmailTemplate.create({
           template_key: key,
           name: DEFAULT_TEMPLATES[key]?.name || key,
           subject,
           body,
+          logo_url,
         });
       }
     },
@@ -115,13 +119,14 @@ export default function Settings() {
     setTemplateForm({
       subject: saved?.subject || def?.subject || '',
       body: saved?.body || def?.body || '',
+      logo_url: saved?.logo_url || '',
     });
     setEditingTemplate(key);
   };
 
   const TEMPLATE_KEYS = [
-    { key: 'rfi_assigned', label: 'RFI Assigned', vars: '{rfi_ref}, {title}, {assignee_name}, {priority}, {due_date}, {description}, {url}' },
-    { key: 'rfi_response', label: 'RFI Response', vars: '{rfi_ref}, {title}, {responder_name}, {response_text}, {url}' },
+    { key: 'rfi_assigned', label: 'RFI Assigned', vars: '{rfi_ref}, {title}, {project_name}, {assignee_name}, {priority}, {due_date}, {description}, {url}' },
+    { key: 'rfi_response', label: 'RFI Response', vars: '{rfi_ref}, {title}, {project_name}, {responder_name}, {response_text}, {url}' },
     { key: 'team_added', label: 'Added to Project', vars: '{name}, {project_name}, {role}' },
     { key: 'team_invited', label: 'Project Invitation', vars: '{project_name}, {role}' },
   ];
@@ -139,6 +144,16 @@ export default function Settings() {
           {isAdmin && (
             <TabsTrigger value="users">
               <Shield className="w-3.5 h-3.5 mr-1" /> Users
+            </TabsTrigger>
+          )}
+          {isAdmin && (
+            <TabsTrigger value="roles">
+              <Tag className="w-3.5 h-3.5 mr-1" /> Roles
+            </TabsTrigger>
+          )}
+          {isAdmin && (
+            <TabsTrigger value="appearance">
+              <Palette className="w-3.5 h-3.5 mr-1" /> Appearance
             </TabsTrigger>
           )}
           {isAdmin && (
@@ -231,87 +246,21 @@ export default function Settings() {
         {/* User Management (Admin only) */}
         {isAdmin && (
           <TabsContent value="users">
-            <div className="space-y-6">
-              {/* Invite User */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Invite User</CardTitle>
-                  <CardDescription>Send an invitation to join the platform</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex flex-col sm:flex-row gap-3">
-                    <Input type="email" placeholder="Email address" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} className="flex-1" />
-                    <Select value={inviteRole} onValueChange={setInviteRole}>
-                      <SelectTrigger className="w-full sm:w-36"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="internal">Internal</SelectItem>
-                        <SelectItem value="external">External</SelectItem>
-                        <SelectItem value="admin">Admin</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Button onClick={() => inviteMutation.mutate({ email: inviteEmail, role: inviteRole })} disabled={!inviteEmail || inviteMutation.isPending} className="gap-2">
-                      <UserPlus className="w-4 h-4" />
-                      {inviteMutation.isPending ? 'Inviting...' : 'Invite'}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
+            <UserManagement />
+          </TabsContent>
+        )}
 
-              {/* Pending invites */}
-              {invitedUsers.length > 0 && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Clock className="w-4 h-4 text-amber-500" /> Pending Invitations ({invitedUsers.length})
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2">
-                      {invitedUsers.map(inv => (
-                        <div key={inv.id} className="flex items-center justify-between p-3 bg-amber-50 dark:bg-amber-950/20 rounded-lg border border-amber-200 dark:border-amber-800">
-                          <div>
-                            <p className="text-sm font-medium">{inv.email}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {inv.project_name ? `Invited to: ${inv.project_name}` : 'Direct invite'}
-                              {inv.invited_by_email ? ` · by ${inv.invited_by_email}` : ''}
-                            </p>
-                          </div>
-                          <Badge variant="outline" className="text-amber-600 border-amber-400">Pending</Badge>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
+        {/* Roles (Admin only) */}
+        {isAdmin && (
+          <TabsContent value="roles">
+            <RoleManager />
+          </TabsContent>
+        )}
 
-              {/* Registered user list */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Registered Users ({users.length})</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    {users.map(u => (
-                      <div key={u.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                        <div>
-                          <p className="text-sm font-medium">{u.full_name || u.email}</p>
-                          <p className="text-xs text-muted-foreground">{u.email}</p>
-                        </div>
-                        <Select value={u.role || 'external'} onValueChange={v => roleMutation.mutate({ userId: u.id, role: v })}>
-                          <SelectTrigger className="w-28 h-8 text-xs"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="admin">Admin</SelectItem>
-                            <SelectItem value="internal">Internal</SelectItem>
-                            <SelectItem value="external">External</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    ))}
-                    {users.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">No users found</p>}
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+        {/* Appearance (Admin only) */}
+        {isAdmin && (
+          <TabsContent value="appearance">
+            <AppearanceSettings user={user} />
           </TabsContent>
         )}
 
@@ -356,6 +305,19 @@ export default function Settings() {
                         <div>
                           <Label className="text-xs">Body</Label>
                           <Textarea value={templateForm.body} onChange={e => setTemplateForm(f => ({...f, body: e.target.value}))} rows={8} className="font-mono text-xs" />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Logo / Image URL (optional)</Label>
+                          <Input
+                            value={templateForm.logo_url || ''}
+                            onChange={e => setTemplateForm(f => ({...f, logo_url: e.target.value}))}
+                            placeholder="https://... or upload via Appearance settings"
+                            className="text-xs"
+                          />
+                          <p className="text-[10px] text-muted-foreground mt-1">Paste your logo URL to prepend it to the email. Use your company logo from Appearance settings.</p>
+                          {templateForm.logo_url && (
+                            <img src={templateForm.logo_url} alt="Logo preview" className="mt-2 h-10 object-contain rounded border" />
+                          )}
                         </div>
                         <Button size="sm" className="gap-1.5" onClick={() => saveTemplateMutation.mutate({ key, ...templateForm })} disabled={saveTemplateMutation.isPending}>
                           <Save className="w-3 h-3" /> {saveTemplateMutation.isPending ? 'Saving...' : 'Save Template'}

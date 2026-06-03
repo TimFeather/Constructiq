@@ -16,6 +16,10 @@
     "body": {
       "type": "string",
       "description": "Email body text. Available variables depend on template type."
+    },
+    "logo_url": {
+      "type": "string",
+      "description": "Optional logo/image URL to include at the top of the email"
     }
   },
   "required": [

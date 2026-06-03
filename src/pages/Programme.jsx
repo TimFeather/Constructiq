@@ -16,11 +16,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { PanelLeftClose, PanelLeftOpen, Upload, Printer, ZoomIn, ZoomOut, Trash2, Undo2, Redo2 } from 'lucide-react';
+import { PanelLeftClose, PanelLeftOpen, Upload, Printer, ZoomIn, ZoomOut, Trash2, Undo2, Redo2, Network } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import PageHeader from '@/components/shared/PageHeader';
 import TaskList from '@/components/programme/TaskList';
 import GanttChart from '@/components/programme/GanttChart';
 import TaskEditPanel from '@/components/programme/TaskEditPanel';
+import NetworkDiagram from '@/components/programme/NetworkDiagram';
 import { parseXML, parseMPX, parseExcelCSV } from '@/lib/scheduleImportParsers';
 import { runScheduleEngine } from '@/lib/schedulingEngine';
 
@@ -329,40 +331,52 @@ export default function Programme() {
         }
       />
 
-      {/* Main area */}
-      <div className="flex-1 flex border rounded-lg overflow-hidden bg-card">
-        {/* Toggle button */}
-        <button
-          onClick={() => setTaskListCollapsed(!taskListCollapsed)}
-          className="flex items-center justify-center w-8 bg-muted/30 hover:bg-muted transition-colors border-r flex-shrink-0"
-          title={taskListCollapsed ? 'Show task list' : 'Hide task list'}
-        >
-          {taskListCollapsed ? <PanelLeftOpen className="w-4 h-4 text-muted-foreground" /> : <PanelLeftClose className="w-4 h-4 text-muted-foreground" />}
-        </button>
+      <Tabs defaultValue="gantt" className="flex-1 flex flex-col overflow-hidden">
+        <TabsList className="flex-shrink-0 w-fit">
+          <TabsTrigger value="gantt">Gantt Chart</TabsTrigger>
+          <TabsTrigger value="network" className="gap-1.5">
+            <Network className="w-3.5 h-3.5" /> Network Diagram
+          </TabsTrigger>
+        </TabsList>
 
-        {/* Task list pane */}
-        {!taskListCollapsed && (
-          <div className="w-[520px] xl:w-[600px] flex-shrink-0 overflow-hidden">
-            <TaskList
-              tasks={tasks}
-              onTaskClick={setSelectedTask}
-              collapsed={false}
-              canEdit={isAdmin || user?.role === 'internal'}
-              scrollRef={taskScrollRef}
-              onScroll={() => ganttScrollRef.current && syncScroll(taskScrollRef.current, ganttScrollRef.current)}
-              onPushHistory={pushHistory}
-            />
-          </div>
-        )}
+        <TabsContent value="gantt" className="flex-1 flex border rounded-lg overflow-hidden bg-card mt-2">
+          {/* Toggle button */}
+          <button
+            onClick={() => setTaskListCollapsed(!taskListCollapsed)}
+            className="flex items-center justify-center w-8 bg-muted/30 hover:bg-muted transition-colors border-r flex-shrink-0"
+            title={taskListCollapsed ? 'Show task list' : 'Hide task list'}
+          >
+            {taskListCollapsed ? <PanelLeftOpen className="w-4 h-4 text-muted-foreground" /> : <PanelLeftClose className="w-4 h-4 text-muted-foreground" />}
+          </button>
 
-        {/* Gantt chart */}
-        <GanttChart
-          tasks={tasks}
-          zoom={zoom}
-          scrollRef={ganttScrollRef}
-          onScroll={() => taskScrollRef.current && syncScroll(ganttScrollRef.current, taskScrollRef.current)}
-        />
-      </div>
+          {/* Task list pane */}
+          {!taskListCollapsed && (
+            <div className="w-[520px] xl:w-[600px] flex-shrink-0 overflow-hidden">
+              <TaskList
+                tasks={tasks}
+                onTaskClick={setSelectedTask}
+                collapsed={false}
+                canEdit={isAdmin || user?.role === 'internal'}
+                scrollRef={taskScrollRef}
+                onScroll={() => ganttScrollRef.current && syncScroll(taskScrollRef.current, ganttScrollRef.current)}
+                onPushHistory={pushHistory}
+              />
+            </div>
+          )}
+
+          {/* Gantt chart */}
+          <GanttChart
+            tasks={tasks}
+            zoom={zoom}
+            scrollRef={ganttScrollRef}
+            onScroll={() => taskScrollRef.current && syncScroll(ganttScrollRef.current, taskScrollRef.current)}
+          />
+        </TabsContent>
+
+        <TabsContent value="network" className="flex-1 overflow-auto mt-2 p-1">
+          <NetworkDiagram tasks={tasks} />
+        </TabsContent>
+      </Tabs>
 
       {/* Task edit panel */}
       <TaskEditPanel

@@ -3,12 +3,12 @@ export const DEFAULT_TEMPLATES = {
   rfi_assigned: {
     name: 'RFI Assigned',
     subject: 'New RFI Assigned: {rfi_ref} – {title}',
-    body: 'Hi {assignee_name},\n\nYou have been assigned a new Request for Information.\n\n{rfi_ref}: {title}\n\nPriority: {priority}\nDue Date: {due_date}\n\nDescription:\n{description}\n\nView the full RFI and respond here:\n{url}\n\nThank you.',
+    body: 'Hi {assignee_name},\n\nYou have been assigned a new Request for Information.\n\nProject: {project_name}\n{rfi_ref}: {title}\n\nPriority: {priority}\nDue Date: {due_date}\n\nDescription:\n{description}\n\nView the full RFI and respond here:\n{url}\n\nThank you.',
   },
   rfi_response: {
     name: 'RFI Response Notification',
     subject: 'New response on {rfi_ref}: {title}',
-    body: 'Hi,\n\n{responder_name} has posted a new response on {rfi_ref}: {title}.\n\nResponse:\n"{response_text}"\n\nView the full thread here:\n{url}\n\nThank you.',
+    body: 'Hi,\n\n{responder_name} has posted a new response on {rfi_ref}: {title}.\n\nProject: {project_name}\n\nResponse:\n"{response_text}"\n\nView the full thread here:\n{url}\n\nThank you.',
   },
   team_added: {
     name: 'Added to Project',
@@ -30,6 +30,10 @@ export function applyTemplate(template, vars) {
     subject = subject.replace(re, val ?? '');
     body = body.replace(re, val ?? '');
   });
+  // Prepend logo as HTML image tag if provided
+  if (template.logo_url) {
+    body = `<img src="${template.logo_url}" alt="Logo" style="max-height:60px;margin-bottom:16px;" />\n\n${body}`;
+  }
   return { subject, body };
 }
 

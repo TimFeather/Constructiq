@@ -5,6 +5,7 @@ import {
   GanttChart, Settings, ChevronLeft, ChevronRight, HardHat
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/lib/AuthContext';
 
 const navItems = [
   { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -17,6 +18,9 @@ const navItems = [
 
 export default function Sidebar({ collapsed, onToggle }) {
   const location = useLocation();
+  const { user } = useAuth();
+  const companyLogoUrl = user?.company_logo_url;
+  const companyName = user?.company_name || 'ConstructIQ';
 
   return (
     <aside className={cn(
@@ -26,12 +30,16 @@ export default function Sidebar({ collapsed, onToggle }) {
       {/* Logo */}
       <div className="flex items-center h-16 px-4 border-b border-sidebar-border">
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-9 h-9 rounded-lg bg-sidebar-primary flex items-center justify-center flex-shrink-0">
-            <HardHat className="w-5 h-5 text-sidebar-primary-foreground" />
-          </div>
+          {companyLogoUrl ? (
+            <img src={companyLogoUrl} alt="Logo" className="h-9 max-w-[36px] object-contain flex-shrink-0 rounded" />
+          ) : (
+            <div className="w-9 h-9 rounded-lg bg-sidebar-primary flex items-center justify-center flex-shrink-0">
+              <HardHat className="w-5 h-5 text-sidebar-primary-foreground" />
+            </div>
+          )}
           {!collapsed && (
             <span className="font-heading font-bold text-lg tracking-tight text-sidebar-primary-foreground truncate">
-              ConstructIQ
+              {companyName}
             </span>
           )}
         </div>

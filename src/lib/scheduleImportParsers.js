@@ -44,7 +44,7 @@ export const parseXML = (text, projectId) => {
     const predLinks = Array.from(node.querySelectorAll('PredecessorLink')).map(pl => {
       const predUid = pl.querySelector('PredecessorUID')?.textContent?.trim();
       if (!predUid || predUid === '0') return null;
-      const typeMap = { '0': 'FF', '1': 'FS', '2': 'SF', '3': 'SS' };
+      const typeMap = { '0': 'SS', '1': 'FS', '2': 'SF', '3': 'FF' };
       const rawType = pl.querySelector('Type')?.textContent?.trim();
       const lagText = pl.querySelector('LinkLag')?.textContent?.trim();
       // MS Project stores lag in 1/10 minutes; convert to hours
@@ -56,6 +56,10 @@ export const parseXML = (text, projectId) => {
         is_elapsed: false,
       };
     }).filter(Boolean);
+
+    const constraintType = get('ConstraintType');
+    const constraintDate = get('ConstraintDate');
+    const constraintTypeMap = { '0':'ASAP','1':'ALAP','2':'MSO','3':'MFO','4':'SNET','5':'SNLT','6':'FNET','7':'FNLT' };
 
     const task = {
       _mspUid: parseInt(uid),
@@ -72,6 +76,10 @@ export const parseXML = (text, projectId) => {
       project_id: projectId,
       predecessors: [],
       _predecessorLinks: predLinks,
+      constraint: {
+        type: constraintTypeMap[constraintType] || 'ASAP',
+        date: constraintDate ? constraintDate.split('T')[0] : null,
+      },
     };
 
     if (predLinks.length > 0) {
