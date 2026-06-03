@@ -23,7 +23,7 @@ import GanttChart from '@/components/programme/GanttChart';
 import TaskEditPanel from '@/components/programme/TaskEditPanel';
 import NetworkDiagram from '@/components/programme/NetworkDiagram';
 import { parseXML, parseMPX, parseExcelCSV } from '@/lib/scheduleImportParsers';
-import { runScheduleEngine } from '@/lib/schedulingEngine';
+import { runScheduleEngine } from '@/lib/scheduling/scheduleEngine';
 import { buildBaselineMap } from '@/lib/scheduling/baselineEngine.js';
 
 const ZOOM_LEVELS = ['year', 'quarter', 'month', 'week', 'day'];

@@ -319,7 +319,9 @@ export default function GanttChart({
               const isMilestoneTask = bar.isMilestone;
               const hasChildren = tasks.some(t => t.parent_id === task.id);
               const isSummary = hasChildren;
-              const percentComplete = task.percent_complete || 0;
+              const percentComplete = isSummary
+                ? (resolved?.rolledProgress ?? task.percent_complete ?? 0)
+                : (task.percent_complete || 0);
               const totalFloat = resolved?.totalFloat ?? null;
 
               // Baseline bar

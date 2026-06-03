@@ -138,10 +138,15 @@ export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALEND
     const constraint = task.constraint || { type: 'ASAP' };
     let es = parseDate(task.start_date) || fallbackStart;
 
-    // Apply SNET constraint
+    // Apply forward-pass constraints
     if (constraint.type === 'SNET' && constraint.date) {
       const snetDate = parseDate(constraint.date);
       if (snetDate && snetDate > es) es = snetDate;
+    }
+    if (constraint.type === 'SNLT' && constraint.date) {
+      // Start No Later Than — caps the latest allowed start (enforced in forward pass)
+      const snltDate = parseDate(constraint.date);
+      if (snltDate && es > snltDate) es = snltDate;
     }
     if (constraint.type === 'MSO' && constraint.date) {
       es = parseDate(constraint.date) || es;
@@ -194,6 +199,22 @@ export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALEND
   // ─── Project End Date ────────────────────────────────────────────────────────
   let projectEnd = new Date(0);
   efMap.forEach(ef => { if (ef > projectEnd) projectEnd = ef; });
+
+  // ─── ALAP: push tasks with no successors to end of project ──────────────────
+  for (const task of sorted) {
+    const constraint = task.constraint || { type: 'ASAP' };
+    if (constraint.type !== 'ALAP') continue;
+    const succs = graph.successors.get(task.id) || [];
+    if (succs.length > 0) continue; // ALAP only applies to tasks with no successors
+    const durationHours = (task.duration || 1) * WORK_HOURS_PER_DAY;
+    const isMilestone = task.is_milestone || task.duration === 0;
+    const newEF = new Date(projectEnd);
+    const newES = isMilestone
+      ? new Date(newEF)
+      : addWorkingHours(newEF, -(durationHours - WORK_HOURS_PER_DAY), calendar);
+    esMap.set(task.id, newES);
+    efMap.set(task.id, newEF);
+  }
 
   // ─── Backward Pass ───────────────────────────────────────────────────────────
   const lsMap = new Map();

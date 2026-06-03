@@ -118,6 +118,16 @@ function rollupSummaryTasks(tasks, resolvedMap, summaryIds) {
     const maxFinish = new Date(Math.max(...childFinishes.map(d => d.getTime())));
     const durationDays = Math.max(1, Math.round((maxFinish - minStart) / 86400000) + 1);
 
+    // Progress rollup — weighted average by duration
+    const childProgressList = childIds
+      .map(cid => tasks.find(t => t.id === cid))
+      .filter(Boolean)
+      .map(t => ({ pct: t.percent_complete || 0, dur: t.duration || 1 }));
+    const totalDur = childProgressList.reduce((s, c) => s + c.dur, 0);
+    const rolledProgress = totalDur > 0
+      ? Math.round(childProgressList.reduce((s, c) => s + c.pct * c.dur, 0) / totalDur)
+      : 0;
+
     const existing = resolvedMap.get(summary.id) || {};
     resolvedMap.set(summary.id, {
       ...existing,
@@ -131,6 +141,7 @@ function rollupSummaryTasks(tasks, resolvedMap, summaryIds) {
       isCritical: allCritical,
       totalFloat: 0,
       freeFloat: 0,
+      rolledProgress,
     });
   }
 }

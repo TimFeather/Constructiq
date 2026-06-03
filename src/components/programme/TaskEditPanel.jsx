@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
-import { cascadeTaskDates } from '@/lib/cascadeTaskDates';
-import { wouldCreateCycle } from '@/lib/schedulingEngine';
+import { wouldCreateCycle } from '@/lib/scheduling/scheduleEngine';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -54,9 +53,6 @@ export default function TaskEditPanel({ task, tasks = [], open, onOpenChange, on
   const updateMutation = useMutation({
     mutationFn: async (data) => {
       await base44.entities.Task.update(task.id, data);
-      // Merge updated task into tasks list for accurate cascade
-      const mergedTasks = tasks.map(t => t.id === task.id ? { ...t, ...data } : t);
-      await cascadeTaskDates(task.id, mergedTasks, (id, d) => base44.entities.Task.update(id, d));
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
@@ -89,18 +85,7 @@ export default function TaskEditPanel({ task, tasks = [], open, onOpenChange, on
     }
   });
 
-  const recalcEnd = (start, duration) => {
-    if (!start || !duration) return form.end_date || '';
-    let date = new Date(start + 'T00:00:00');
-    let daysAdded = 0;
-    const target = Math.max(1, duration) - 1;
-    while (daysAdded < target) {
-      date.setDate(date.getDate() + 1);
-      const dow = date.getDay();
-      if (dow !== 0 && dow !== 6) daysAdded++;
-    }
-    return date.toISOString().split('T')[0];
-  };
+
 
   const handleSave = () => {
     const { id, created_date, updated_date, created_by, ...data } = form;
@@ -159,7 +144,7 @@ export default function TaskEditPanel({ task, tasks = [], open, onOpenChange, on
 
   if (!task) return null;
 
-  const isSummary = form.is_summary || form.level === 0 || form.level === 1;
+  const isSummary = tasks.some(t => t.parent_id === task?.id);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -245,10 +230,7 @@ export default function TaskEditPanel({ task, tasks = [], open, onOpenChange, on
                 type="date"
                 value={form.start_date || ''}
                 disabled={isSummary}
-                onChange={e => {
-                  const start = e.target.value;
-                  setForm({ ...form, start_date: start, end_date: recalcEnd(start, form.duration) });
-                }}
+                onChange={e => setForm({ ...form, start_date: e.target.value })}
               />
             </div>
             <div>
@@ -276,24 +258,15 @@ export default function TaskEditPanel({ task, tasks = [], open, onOpenChange, on
               <Label>Duration (days)</Label>
               <div className="flex items-center gap-2">
                 <Button type="button" variant="outline" size="sm" className="h-8 w-8 p-0"
-                  onClick={() => {
-                    const dur = Math.max(1, (form.duration || 1) - 1);
-                    setForm({ ...form, duration: dur, end_date: recalcEnd(form.start_date, dur) });
-                  }}>−</Button>
+                  onClick={() => setForm({ ...form, duration: Math.max(1, (form.duration || 1) - 1) })}>−</Button>
                 <Input
                   type="number" min="1"
                   value={form.duration || 1}
-                  onChange={e => {
-                    const dur = Math.max(1, parseInt(e.target.value) || 1);
-                    setForm({ ...form, duration: dur, end_date: recalcEnd(form.start_date, dur) });
-                  }}
+                  onChange={e => setForm({ ...form, duration: Math.max(1, parseInt(e.target.value) || 1) })}
                   className="text-center"
                 />
                 <Button type="button" variant="outline" size="sm" className="h-8 w-8 p-0"
-                  onClick={() => {
-                    const dur = (form.duration || 1) + 1;
-                    setForm({ ...form, duration: dur, end_date: recalcEnd(form.start_date, dur) });
-                  }}>+</Button>
+                  onClick={() => setForm({ ...form, duration: (form.duration || 1) + 1 })}>+</Button>
               </div>
             </div>
           )}
