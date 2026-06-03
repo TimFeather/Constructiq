@@ -12,8 +12,11 @@ import { computeCascade } from './schedulingEngine';
 export async function cascadeTaskDates(changedTaskId, allTasks, updateFn, projectStartDate) {
   const patches = computeCascade(changedTaskId, allTasks, projectStartDate);
 
-  // Apply patches sequentially to avoid rate limit errors
+  // Only patch tasks that still exist in the provided task list
+  const existingIds = new Set(allTasks.map(t => t.id));
+
   for (const patch of patches) {
+    if (!existingIds.has(patch.id)) continue;
     await updateFn(patch.id, {
       start_date: patch.start_date,
       end_date: patch.end_date,
