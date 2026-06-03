@@ -32,6 +32,11 @@ export default function Projects() {
     queryFn: () => base44.entities.Project.list('-created_date', 100),
   });
 
+  const { data: allTasks = [] } = useQuery({
+    queryKey: ['tasks'],
+    queryFn: () => base44.entities.Task.list('-created_date', 1000),
+  });
+
   const projects = isAdmin
     ? allProjects
     : allProjects.filter(p => p.team?.some(m => m.user_email === user?.email));
@@ -116,15 +121,28 @@ export default function Projects() {
                     {project.description && (
                       <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{project.description}</p>
                     )}
-                    <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                      {project.start_date && (
-                        <span className="flex items-center gap-1">
-                          <Calendar className="w-3 h-3" />
-                          {format(new Date(project.start_date), 'MMM d, yyyy')}
-                        </span>
-                      )}
-                      <span>{project.team?.length || 0} members</span>
-                    </div>
+                    {(() => {
+                      const today = new Date().toISOString().split('T')[0];
+                      const taskCount = allTasks.filter(t => t.project_id === project.id).length;
+                      const overdue = allTasks.filter(t =>
+                        t.project_id === project.id && t.end_date && t.end_date < today && (t.percent_complete || 0) < 100
+                      ).length;
+                      return (
+                        <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
+                          {project.start_date && (
+                            <span className="flex items-center gap-1">
+                              <Calendar className="w-3 h-3" />
+                              {format(new Date(project.start_date), 'MMM d, yyyy')}
+                            </span>
+                          )}
+                          <span>{project.team?.length || 0} members</span>
+                          {taskCount > 0 && <span>{taskCount} tasks</span>}
+                          {overdue > 0 && (
+                            <span className="text-red-500 font-medium">{overdue} overdue</span>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </CardContent>
                 </Card>
               </Link>

@@ -26,7 +26,7 @@ export default function RFIDetail() {
 
   const { data: rfi, isLoading } = useQuery({
     queryKey: ['rfi', id],
-    queryFn: () => base44.entities.RFI.list().then(all => all.find(r => r.id === id)),
+    queryFn: () => base44.entities.RFI.filter({ id }, '-created_date', 1).then(results => results[0] ?? null),
   });
 
   const { data: projects = [] } = useQuery({

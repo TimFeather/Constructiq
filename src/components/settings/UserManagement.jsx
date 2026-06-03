@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { UserPlus, Clock, Trash2, Pencil, Check, X } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Label } from '@/components/ui/label';
 
 export default function UserManagement() {
@@ -20,6 +21,7 @@ export default function UserManagement() {
   const [editingUser, setEditingUser] = useState(null);
   const [editRole, setEditRole] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [pendingRoleChange, setPendingRoleChange] = useState(null);
 
   const { data: users = [] } = useQuery({
     queryKey: ['users'],
@@ -173,13 +175,45 @@ export default function UserManagement() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingUser(null)}>Cancel</Button>
-            <Button onClick={() => updateUserMutation.mutate({ userId: editingUser.id, role: editRole })}
-              disabled={updateUserMutation.isPending}>
-              {updateUserMutation.isPending ? 'Saving...' : 'Save'}
+            <Button onClick={() => {
+              if (editRole !== (editingUser.role || 'external')) {
+                setPendingRoleChange({ userId: editingUser.id, currentRole: editingUser.role || 'external', newRole: editRole, userName: editingUser.full_name || editingUser.email });
+              } else {
+                setEditingUser(null);
+              }
+            }} disabled={updateUserMutation.isPending}>
+              Save
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Role change confirmation */}
+      <AlertDialog open={!!pendingRoleChange} onOpenChange={open => { if (!open) setPendingRoleChange(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Change user role?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You are about to change <strong>{pendingRoleChange?.userName}</strong> from{' '}
+              <strong>{pendingRoleChange?.currentRole}</strong> to <strong>{pendingRoleChange?.newRole}</strong>.
+              This will affect what they can see and do in ConstructIQ.
+              {pendingRoleChange?.newRole === 'admin' && ' This gives them full admin access including user management.'}
+              {pendingRoleChange?.currentRole === 'admin' && ' This removes their admin access.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogAction
+            onClick={() => {
+              updateUserMutation.mutate({ userId: pendingRoleChange.userId, role: pendingRoleChange.newRole });
+              setPendingRoleChange(null);
+              setEditingUser(null);
+            }}
+            disabled={updateUserMutation.isPending}
+          >
+            {updateUserMutation.isPending ? 'Saving...' : 'Confirm change'}
+          </AlertDialogAction>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Delete confirm */}
       <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>

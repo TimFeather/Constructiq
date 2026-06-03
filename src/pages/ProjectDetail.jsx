@@ -5,7 +5,7 @@ import { base44 } from '@/api/base44Client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ArrowLeft, Pencil, FileText, MessageSquareMore, Calendar, BarChart2 } from 'lucide-react';
+import { ArrowLeft, Pencil, FileText, MessageSquareMore, Calendar, BarChart2, ExternalLink } from 'lucide-react';
 import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
 import TeamManager from '@/components/projects/TeamManager';
@@ -17,10 +17,11 @@ import { format } from 'date-fns';
 export default function ProjectDetail() {
   const { id } = useParams();
   const [showEdit, setShowEdit] = useState(false);
+  const [activeTab, setActiveTab] = useState('team');
 
   const { data: project, isLoading } = useQuery({
     queryKey: ['project', id],
-    queryFn: () => base44.entities.Project.list().then(all => all.find(p => p.id === id)),
+    queryFn: () => base44.entities.Project.filter({ id }, '-created_date', 1).then(results => results[0] ?? null),
   });
 
   const { data: projectDocs = [], refetch: refetchDocs } = useQuery({
@@ -31,6 +32,12 @@ export default function ProjectDetail() {
   const { data: projectRfis = [] } = useQuery({
     queryKey: ['rfis', id],
     queryFn: () => base44.entities.RFI.filter({ project_id: id }, '-created_date', 50),
+  });
+
+  const { data: projectTasks = [] } = useQuery({
+    queryKey: ['tasks', id],
+    queryFn: () => base44.entities.Task.filter({ project_id: id }, 'sort_order', 100),
+    enabled: activeTab === 'programme',
   });
 
   if (isLoading) {
@@ -103,7 +110,7 @@ export default function ProjectDetail() {
         </Card>
       </div>
 
-      <Tabs defaultValue="team" className="space-y-4">
+      <Tabs defaultValue="team" className="space-y-4" onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="team">Team</TabsTrigger>
           <TabsTrigger value="documents" className="gap-1">
@@ -130,18 +137,66 @@ export default function ProjectDetail() {
         </TabsContent>
 
         <TabsContent value="programme">
-          <Card>
-            <CardContent className="p-6 text-center">
-              <BarChart2 className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-              <p className="font-medium mb-1">Project Programme</p>
-              <p className="text-sm text-muted-foreground mb-4">View and manage the full Gantt chart and task schedule for this project.</p>
+          <div className="space-y-3">
+            <div className="flex justify-end">
               <Link to={`/programme?project=${id}`}>
-                <Button className="gap-2">
-                  <BarChart2 className="w-4 h-4" /> Open Programme
+                <Button variant="outline" size="sm" className="gap-2">
+                  <ExternalLink className="w-3.5 h-3.5" /> Open full programme
                 </Button>
               </Link>
-            </CardContent>
-          </Card>
+            </div>
+            {projectTasks.length === 0 ? (
+              <Card><CardContent className="p-6 text-center text-sm text-muted-foreground">No tasks yet. Open the full programme to import or add tasks.</CardContent></Card>
+            ) : (
+              <Card>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b bg-muted/30 text-muted-foreground">
+                          <th className="text-left px-3 py-2 font-medium w-16">WBS</th>
+                          <th className="text-left px-3 py-2 font-medium">Name</th>
+                          <th className="text-center px-3 py-2 font-medium w-24">Start</th>
+                          <th className="text-center px-3 py-2 font-medium w-24">End</th>
+                          <th className="text-center px-3 py-2 font-medium w-16">Dur.</th>
+                          <th className="text-center px-3 py-2 font-medium w-28">Progress</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {projectTasks.map(task => {
+                          const pct = task.percent_complete || 0;
+                          const indent = (task.level || 0) * 12;
+                          return (
+                            <tr key={task.id} className="hover:bg-muted/20">
+                              <td className="px-3 py-1.5 font-mono text-muted-foreground">{task.wbs || '—'}</td>
+                              <td className="px-3 py-1.5" style={{ paddingLeft: `${12 + indent}px` }}>
+                                <span className={task.level === 0 ? 'font-bold' : task.level === 1 ? 'font-semibold' : ''}>{task.name}</span>
+                              </td>
+                              <td className="px-3 py-1.5 text-center text-muted-foreground font-mono">
+                                {task.start_date ? format(new Date(task.start_date), 'dd/MM/yy') : '—'}
+                              </td>
+                              <td className="px-3 py-1.5 text-center text-muted-foreground font-mono">
+                                {task.end_date ? format(new Date(task.end_date), 'dd/MM/yy') : '—'}
+                              </td>
+                              <td className="px-3 py-1.5 text-center text-muted-foreground">{task.duration || '—'}d</td>
+                              <td className="px-3 py-1.5">
+                                <div className="flex items-center gap-1.5">
+                                  <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                                    <div className="h-full bg-primary rounded-full" style={{ width: `${pct}%` }} />
+                                  </div>
+                                  <span className="text-muted-foreground w-7 text-right">{pct}%</span>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
         </TabsContent>
       </Tabs>
 

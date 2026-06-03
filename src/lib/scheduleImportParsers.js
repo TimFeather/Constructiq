@@ -44,7 +44,7 @@ export const parseXML = (text, projectId) => {
     const predLinks = Array.from(node.querySelectorAll('PredecessorLink')).map(pl => {
       const predUid = pl.querySelector('PredecessorUID')?.textContent?.trim();
       if (!predUid || predUid === '0') return null;
-      const typeMap = { '0': 'SS', '1': 'FS', '2': 'SF', '3': 'FF' };
+      const typeMap = { '0': 'SS', '1': 'FS', '2': 'SF', '3': 'FF' }; // MS Project: 0=SS,1=FS,2=SF,3=FF
       const rawType = pl.querySelector('Type')?.textContent?.trim();
       const lagText = pl.querySelector('LinkLag')?.textContent?.trim();
       // MS Project stores lag in 1/10 minutes; convert to hours

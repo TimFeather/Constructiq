@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/AuthContext';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
+import { resolveTemplate, applyTemplate } from '@/lib/emailTemplates';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,6 +25,11 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
   }, [open, defaultProjectId]);
   const [selectedEmails, setSelectedEmails] = useState([]);
   const queryClient = useQueryClient();
+
+  const { data: emailTemplates = [] } = useQuery({
+    queryKey: ['emailTemplates'],
+    queryFn: () => base44.entities.EmailTemplate.list(),
+  });
 
   const selectedProject = projects.find(p => p.id === form.project_id);
   const teamMembers = selectedProject?.team || [];
@@ -64,14 +70,22 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
       created_by_email: user?.email || '',
       created_by_name: user?.full_name || '',
       });
-      // send email to all assignees
+      // send email to all assignees using template
       const rfiUrl = `${window.location.origin}/rfis/${rfi.id}`;
+      const projectName = projects.find(p => p.id === data.project_id)?.name || '';
+      const tpl = resolveTemplate(emailTemplates, 'rfi_assigned');
       selectedEmails.forEach(assignee => {
-        base44.integrations.Core.SendEmail({
-          to: assignee.email,
-          subject: `New RFI Assigned: RFI-${String(nextNumber).padStart(3, '0')} – ${data.title}`,
-          body: `Hi ${assignee.name},\n\nYou have been assigned a new Request for Information.\n\nRFI-${String(nextNumber).padStart(3, '0')}: ${data.title}\n\nPriority: ${data.priority || 'Medium'}\nDue Date: ${data.due_date || 'Not set'}\n\nDescription:\n${data.description || 'No description provided'}\n\nView the full RFI and respond here:\n${rfiUrl}\n\nThank you.`
+        const { subject, body } = applyTemplate(tpl, {
+          rfi_ref: `RFI-${String(nextNumber).padStart(3, '0')}`,
+          title: data.title,
+          project_name: projectName,
+          assignee_name: assignee.name,
+          priority: data.priority || 'Medium',
+          due_date: data.due_date || 'Not set',
+          description: data.description || 'No description provided',
+          url: rfiUrl,
         });
+        base44.integrations.Core.SendEmail({ to: assignee.email, subject, body }).catch(() => {});
       });
       return rfi;
     },

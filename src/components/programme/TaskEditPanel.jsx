@@ -61,7 +61,24 @@ export default function TaskEditPanel({ task, tasks = [], open, onOpenChange, on
   });
 
   const deleteMutation = useMutation({
-    mutationFn: () => base44.entities.Task.delete(task.id),
+    mutationFn: async () => {
+      const deletedId = task.id;
+      // Remove predecessor references to this task from all other tasks
+      const affected = tasks.filter(t =>
+        t.id !== deletedId &&
+        (t.predecessors || []).some(p => (p.predecessor_id || p.task_id) === deletedId)
+      );
+      await Promise.all(
+        affected.map(t =>
+          base44.entities.Task.update(t.id, {
+            predecessors: (t.predecessors || []).filter(
+              p => (p.predecessor_id || p.task_id) !== deletedId
+            ),
+          })
+        )
+      );
+      return base44.entities.Task.delete(deletedId);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       onOpenChange(false);
@@ -70,9 +87,15 @@ export default function TaskEditPanel({ task, tasks = [], open, onOpenChange, on
 
   const recalcEnd = (start, duration) => {
     if (!start || !duration) return form.end_date || '';
-    const end = new Date(start);
-    end.setDate(end.getDate() + duration - 1);
-    return end.toISOString().split('T')[0];
+    let date = new Date(start + 'T00:00:00');
+    let daysAdded = 0;
+    const target = Math.max(1, duration) - 1;
+    while (daysAdded < target) {
+      date.setDate(date.getDate() + 1);
+      const dow = date.getDay();
+      if (dow !== 0 && dow !== 6) daysAdded++;
+    }
+    return date.toISOString().split('T')[0];
   };
 
   const handleSave = () => {

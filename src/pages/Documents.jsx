@@ -73,23 +73,29 @@ export default function Documents() {
   const handleUpload = async () => {
     if (!uploadForm.file || !uploadForm.name || !uploadForm.project_id) return;
     setUploading(true);
-    const folder = uploadForm.folder === '__new__' ? newFolder.trim() : uploadForm.folder;
-    const { file_url } = await base44.integrations.Core.UploadFile({ file: uploadForm.file });
-    await base44.entities.Document.create({
-      name: uploadForm.name,
-      project_id: uploadForm.project_id,
-      folder: folder || undefined,
-      file_url,
-      file_type: getFileType(uploadForm.file.name),
-      status: 'Draft',
-      uploaded_by_name: user?.full_name || 'Unknown',
-      uploaded_by_email: user?.email || '',
-    });
-    queryClient.invalidateQueries({ queryKey: ['documents'] });
-    setShowUpload(false);
-    setUploadForm({ name: '', project_id: '', file: null, folder: '' });
-    setNewFolder('');
-    setUploading(false);
+    try {
+      const folder = uploadForm.folder === '__new__' ? newFolder.trim() : uploadForm.folder;
+      const { file_url } = await base44.integrations.Core.UploadFile({ file: uploadForm.file });
+      await base44.entities.Document.create({
+        name: uploadForm.name,
+        project_id: uploadForm.project_id,
+        folder: folder || undefined,
+        file_url,
+        file_type: getFileType(uploadForm.file.name),
+        status: 'Draft',
+        uploaded_by_name: user?.full_name || 'Unknown',
+        uploaded_by_email: user?.email || '',
+      });
+      queryClient.invalidateQueries({ queryKey: ['documents'] });
+      setShowUpload(false);
+      setUploadForm({ name: '', project_id: '', file: null, folder: '' });
+      setNewFolder('');
+    } catch (err) {
+      console.error('Upload failed:', err);
+      alert('Upload failed. Please check your connection and try again.');
+    } finally {
+      setUploading(false);
+    }
   };
 
   // Folders available for selected project

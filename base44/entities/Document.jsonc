@@ -40,6 +40,38 @@
     "uploaded_by_email": {
       "type": "string",
       "description": "Email of the uploader"
+    },
+    "version_number": {
+      "type": "number",
+      "description": "Current version number",
+      "default": 1
+    },
+    "versions": {
+      "type": "array",
+      "description": "Version history of this document",
+      "items": {
+        "type": "object",
+        "properties": {
+          "version_number": {
+            "type": "number"
+          },
+          "file_url": {
+            "type": "string"
+          },
+          "uploaded_by_name": {
+            "type": "string"
+          },
+          "uploaded_by_email": {
+            "type": "string"
+          },
+          "uploaded_at": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      }
     }
   },
   "required": [

@@ -14,9 +14,11 @@ import EmptyState from '@/components/shared/EmptyState';
 import RFIFormDialog from '@/components/rfis/RFIFormDialog';
 import { format } from 'date-fns';
 
-const RFICard = ({ rfi, projectMap, rfiNumber }) => (
+const RFICard = ({ rfi, projectMap, rfiNumber }) => {
+  const isOverdue = rfi.due_date && rfi.due_date < new Date().toISOString().split('T')[0] && rfi.status === 'Open';
+  return (
   <Link key={rfi.id} to={`/rfis/${rfi.id}`}>
-    <Card className="hover:shadow-md transition-all duration-200 hover:border-primary/30 cursor-pointer">
+    <Card className={`hover:shadow-md transition-all duration-200 cursor-pointer ${isOverdue ? 'border-l-4 border-l-red-500' : 'hover:border-primary/30'}`}>
       <CardContent className="p-4">
         <div className="flex items-start gap-4">
           <div className="min-w-0 flex-1">
@@ -24,6 +26,7 @@ const RFICard = ({ rfi, projectMap, rfiNumber }) => (
               <span className="text-xs font-mono font-semibold text-primary">RFI-{String(rfiNumber).padStart(3, '0')}</span>
               <StatusBadge status={rfi.priority} />
               <StatusBadge status={rfi.status} />
+              {isOverdue && <span className="text-xs font-semibold text-red-600 bg-red-50 px-2 py-0.5 rounded-full">Overdue</span>}
             </div>
             <h3 className="font-semibold text-sm mt-1.5">{rfi.title}</h3>
             {rfi.description && (
@@ -43,7 +46,8 @@ const RFICard = ({ rfi, projectMap, rfiNumber }) => (
       </CardContent>
     </Card>
   </Link>
-);
+  );
+};
 
 export default function RFIs() {
   const { user } = useAuth();

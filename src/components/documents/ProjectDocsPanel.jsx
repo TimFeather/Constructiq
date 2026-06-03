@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { base44 } from '@/api/base44Client';
@@ -42,6 +43,12 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
   const [collapsedFolders, setCollapsedFolders] = useState({});
   const [extraFolders, setExtraFolders] = useState([]);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [deleteDocId, setDeleteDocId] = useState(null);
+  const [versioningDoc, setVersioningDoc] = useState(null);
+  const [versionFile, setVersionFile] = useState(null);
+  const [versionNotes, setVersionNotes] = useState('');
+  const [versionUploading, setVersionUploading] = useState(false);
+  const [expandedHistory, setExpandedHistory] = useState(new Set());
   const dropZoneRef = useRef(null);
   const queryClient = useQueryClient();
 
@@ -126,6 +133,33 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
     }
   };
 
+  const handleNewVersion = async () => {
+    if (!versionFile || !versioningDoc) return;
+    setVersionUploading(true);
+    const { file_url: newFileUrl } = await base44.integrations.Core.UploadFile({ file: versionFile });
+    const existingVersions = versioningDoc.versions || [];
+    await base44.entities.Document.update(versioningDoc.id, {
+      file_url: newFileUrl,
+      version_number: (versioningDoc.version_number || 1) + 1,
+      versions: [
+        ...existingVersions,
+        {
+          version_number: versioningDoc.version_number || 1,
+          file_url: versioningDoc.file_url,
+          uploaded_by_name: versioningDoc.uploaded_by_name,
+          uploaded_by_email: versioningDoc.uploaded_by_email,
+          uploaded_at: new Date().toISOString(),
+          notes: versionNotes || '',
+        },
+      ],
+    });
+    invalidate();
+    setVersioningDoc(null);
+    setVersionFile(null);
+    setVersionNotes('');
+    setVersionUploading(false);
+  };
+
   const handleDragEnd = (result) => {
     if (!isInternal) return;
     if (!result.destination) return;
@@ -191,8 +225,17 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
           </a>
           {isInternal && (
             <button
+              className="flex-shrink-0 text-xs text-muted-foreground hover:text-primary transition-colors px-1 py-0.5 rounded border border-transparent hover:border-border"
+              onClick={() => { setVersioningDoc(doc); setVersionFile(null); setVersionNotes(''); }}
+              title="Upload new version"
+            >
+              v{doc.version_number || 1}
+            </button>
+          )}
+          {isInternal && (
+            <button
               className="flex-shrink-0 text-muted-foreground hover:text-destructive transition-colors"
-              onClick={() => deleteMutation.mutate(doc.id)}
+              onClick={() => setDeleteDocId(doc.id)}
               title="Delete document"
             >
               <Trash2 className="w-3.5 h-3.5" />
@@ -325,6 +368,59 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
           </div>
         </DragDropContext>
       )}
+
+      {/* New Version Dialog */}
+      <Dialog open={!!versioningDoc} onOpenChange={open => !open && setVersioningDoc(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader><DialogTitle>Upload New Version — {versioningDoc?.name}</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">Current version: v{versioningDoc?.version_number || 1}. The current file will be archived.</p>
+            <div>
+              <Label>New File *</Label>
+              <Input type="file" onChange={e => setVersionFile(e.target.files[0])} />
+            </div>
+            <div>
+              <Label>Revision Notes (optional)</Label>
+              <Input value={versionNotes} onChange={e => setVersionNotes(e.target.value)} placeholder="What changed in this version?" />
+            </div>
+            {(versioningDoc?.versions || []).length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-1">Version History</p>
+                <div className="space-y-1 max-h-32 overflow-y-auto">
+                  {[...(versioningDoc?.versions || [])].reverse().map((v, i) => (
+                    <div key={i} className="flex items-center justify-between text-xs bg-muted/30 rounded px-2 py-1">
+                      <span className="font-mono">v{v.version_number}</span>
+                      <span className="text-muted-foreground">{v.uploaded_by_name}</span>
+                      <a href={v.file_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Download</a>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVersioningDoc(null)}>Cancel</Button>
+            <Button onClick={handleNewVersion} disabled={!versionFile || versionUploading}>
+              {versionUploading ? 'Uploading...' : 'Upload New Version'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation */}
+      <AlertDialog open={!!deleteDocId} onOpenChange={open => !open && setDeleteDocId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete document?</AlertDialogTitle>
+            <AlertDialogDescription>This will permanently delete this document and cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogAction
+            onClick={() => { deleteMutation.mutate(deleteDocId); setDeleteDocId(null); }}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          >Delete</AlertDialogAction>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Upload Dialog */}
       <Dialog open={showUpload} onOpenChange={setShowUpload}>

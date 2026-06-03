@@ -38,7 +38,7 @@ export default function Dashboard() {
 
   const { data: allProjects = [] } = useQuery({
     queryKey: ['projects'],
-    queryFn: () => base44.entities.Project.list('-created_date', 50),
+    queryFn: () => base44.entities.Project.list('-created_date', 200),
   });
 
   const projects = isAdmin
@@ -49,17 +49,17 @@ export default function Dashboard() {
 
   const { data: allRfis = [] } = useQuery({
     queryKey: ['rfis'],
-    queryFn: () => base44.entities.RFI.list('-created_date', 50),
+    queryFn: () => base44.entities.RFI.list('-created_date', 500),
   });
 
   const { data: allDocuments = [] } = useQuery({
     queryKey: ['documents'],
-    queryFn: () => base44.entities.Document.list('-created_date', 50),
+    queryFn: () => base44.entities.Document.list('-created_date', 500),
   });
 
   const { data: allTasks = [] } = useQuery({
     queryKey: ['tasks'],
-    queryFn: () => base44.entities.Task.list('-created_date', 50),
+    queryFn: () => base44.entities.Task.list('-created_date', 1000),
   });
 
   const rfis = allRfis.filter(r => projectIds.has(r.project_id));
@@ -70,6 +70,20 @@ export default function Dashboard() {
   const openRfis = rfis.filter(r => r.status === 'Open');
   const recentDocs = documents.slice(0, 5);
   const recentRfis = rfis.slice(0, 5);
+
+  const today = new Date().toISOString().split('T')[0];
+  const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const projectMap = Object.fromEntries(projects.map(p => [p.id, p.name]));
+
+  const overdueTasks = tasks
+    .filter(t => t.end_date && t.end_date < today && (t.percent_complete || 0) < 100)
+    .sort((a, b) => a.end_date.localeCompare(b.end_date))
+    .slice(0, 8);
+
+  const dueSoonTasks = tasks
+    .filter(t => t.end_date && t.end_date >= today && t.end_date <= nextWeek && (t.percent_complete || 0) < 100)
+    .sort((a, b) => a.end_date.localeCompare(b.end_date))
+    .slice(0, 8);
 
   return (
     <div>
@@ -85,6 +99,58 @@ export default function Dashboard() {
         <StatCard icon={FileText} label="Documents" value={documents.length} color="bg-purple-500" to="/documents" />
         <StatCard icon={GanttChart} label="Tasks" value={tasks.length} color="bg-accent" to="/programme" />
       </div>
+
+      {/* Deadlines Widget */}
+      {(overdueTasks.length > 0 || dueSoonTasks.length > 0) && (
+        <div className="grid lg:grid-cols-2 gap-4 mb-8">
+          {overdueTasks.length > 0 && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base font-semibold text-red-600 flex items-center gap-2">
+                  <Clock className="w-4 h-4" /> Overdue Tasks ({overdueTasks.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {overdueTasks.map(task => (
+                  <Link key={task.id} to={`/programme?project=${task.project_id}`} className="flex items-center justify-between p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{task.name}</p>
+                      <p className="text-xs text-muted-foreground">{projectMap[task.project_id] || ''}</p>
+                    </div>
+                    <div className="text-right flex-shrink-0 ml-2">
+                      <p className="text-xs font-medium text-red-600">{format(new Date(task.end_date), 'MMM d')}</p>
+                      <p className="text-xs text-muted-foreground">{task.percent_complete || 0}%</p>
+                    </div>
+                  </Link>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+          {dueSoonTasks.length > 0 && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base font-semibold text-amber-600 flex items-center gap-2">
+                  <Clock className="w-4 h-4" /> Due This Week ({dueSoonTasks.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {dueSoonTasks.map(task => (
+                  <Link key={task.id} to={`/programme?project=${task.project_id}`} className="flex items-center justify-between p-2 rounded-lg hover:bg-amber-50 dark:hover:bg-amber-950/20 transition-colors">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{task.name}</p>
+                      <p className="text-xs text-muted-foreground">{projectMap[task.project_id] || ''}</p>
+                    </div>
+                    <div className="text-right flex-shrink-0 ml-2">
+                      <p className="text-xs font-medium text-amber-600">{format(new Date(task.end_date), 'MMM d')}</p>
+                      <p className="text-xs text-muted-foreground">{task.percent_complete || 0}%</p>
+                    </div>
+                  </Link>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
 
       <div className="grid lg:grid-cols-2 gap-6">
         {/* Recent Projects */}
