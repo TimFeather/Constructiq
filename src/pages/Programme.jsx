@@ -96,8 +96,8 @@ export default function Programme() {
   const { data: allTasks = [] } = useQuery({
     queryKey: ['tasks', selectedProjectId],
     queryFn: () => selectedProjectId === 'all'
-      ? base44.entities.Task.list('sort_order', 500)
-      : base44.entities.Task.filter({ project_id: selectedProjectId }, 'sort_order', 500),
+      ? base44.entities.Task.list('sort_order', 2000)
+      : base44.entities.Task.filter({ project_id: selectedProjectId }, 'sort_order', 2000),
     staleTime: 30000,
   });
 
@@ -239,33 +239,85 @@ export default function Programme() {
     }
   };
 
-  // ─── Chunked delete with progress ────────────────────────────────────────────
+  // ─── Chunked delete with verification ────────────────────────────────────────
   const handleDeleteAllTasks = async () => {
     if (!selectedProjectId || selectedProjectId === 'all') return;
+    if (importProgress) return; // block during active import
     setShowDeleteConfirm(false);
 
-    const total = tasks.length;
-    setDeleteProgress({ pct: 0, statusText: `0 / ${total} tasks deleted`, done: false, error: null });
+    setDeleteProgress({ pct: 0, statusText: 'Fetching task list…', done: false, error: null });
 
-    let deleted = 0;
-    const ids = tasks.map(t => t.id);
+    try {
+      // Always fetch fresh from DB — UI cache is capped and may be stale
+      const freshTasks = await base44.entities.Task.filter(
+        { project_id: selectedProjectId }, 'sort_order', 5000
+      );
+      const allIds = freshTasks.map(t => t.id);
+      const total = allIds.length;
 
-    for (let i = 0; i < ids.length; i += DELETE_CHUNK) {
-      const chunk = ids.slice(i, i + DELETE_CHUNK);
-      await Promise.all(chunk.map(id => base44.entities.Task.delete(id).catch(() => {})));
-      deleted += chunk.length;
-      const pct = Math.round((deleted / total) * 100);
-      setDeleteProgress({ pct, statusText: `${deleted} / ${total} tasks deleted`, done: false, error: null });
-      // yield to browser between chunks
-      await new Promise(r => setTimeout(r, 40));
+      if (total === 0) {
+        setDeleteProgress(null);
+        toast({ title: 'Nothing to delete', description: 'No tasks found for this project.' });
+        return;
+      }
+
+      setDeleteProgress({ pct: 0, statusText: `0 / ${total} tasks deleted`, done: false, error: null });
+
+      const BATCH = 20;
+      let deleted = 0;
+      let failedIds = [];
+
+      // Pass 1: delete all in batches
+      for (let i = 0; i < allIds.length; i += BATCH) {
+        const batch = allIds.slice(i, i + BATCH);
+        const results = await Promise.allSettled(batch.map(id => base44.entities.Task.delete(id)));
+        results.forEach((r, idx) => {
+          if (r.status === 'fulfilled') deleted++;
+          else failedIds.push(batch[idx]);
+        });
+        const pct = Math.round(((i + batch.length) / total) * 80);
+        setDeleteProgress({ pct, statusText: `${deleted} / ${total} deleted`, done: false, error: null });
+        await new Promise(r => setTimeout(r, 200));
+      }
+
+      // Pass 2: retry failures with back-off (up to 2 attempts)
+      for (let attempt = 0; attempt < 2 && failedIds.length > 0; attempt++) {
+        await new Promise(r => setTimeout(r, 600 * (attempt + 1)));
+        setDeleteProgress(p => ({ ...p, pct: 82, statusText: `Retrying ${failedIds.length} failed…` }));
+        const retrying = [...failedIds];
+        failedIds = [];
+        const results = await Promise.allSettled(retrying.map(id => base44.entities.Task.delete(id)));
+        results.forEach((r, idx) => {
+          if (r.status === 'fulfilled') deleted++;
+          else failedIds.push(retrying[idx]);
+        });
+      }
+
+      // Verify: re-query DB to confirm nothing remains
+      setDeleteProgress(p => ({ ...p, pct: 90, statusText: 'Verifying…' }));
+      await new Promise(r => setTimeout(r, 400));
+      const remaining = await base44.entities.Task.filter({ project_id: selectedProjectId }, 'sort_order', 1);
+
+      if (remaining.length > 0 || failedIds.length > 0) {
+        const msg = failedIds.length > 0
+          ? `${failedIds.length} of ${total} tasks could not be deleted. Please try again.`
+          : `Deletion incomplete — tasks still remain. Please try again.`;
+        setDeleteProgress(p => ({ ...p, pct: 90, error: msg }));
+        queryClient.invalidateQueries({ queryKey: ['tasks'] });
+        return;
+      }
+
+      // Confirmed fully deleted
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      setDeleteProgress(p => ({ ...p, pct: 100, statusText: `${total} tasks deleted`, done: true }));
+      setTimeout(() => {
+        setDeleteProgress(null);
+        toast({ title: 'Programme deleted', description: `${total} tasks removed successfully.`, duration: 4000 });
+      }, 1200);
+
+    } catch (error) {
+      setDeleteProgress(p => ({ ...p, error: error.message || 'Delete failed. Please try again.' }));
     }
-
-    queryClient.invalidateQueries({ queryKey: ['tasks'] });
-    setDeleteProgress(p => ({ ...p, pct: 100, statusText: `${total} tasks deleted`, done: true }));
-    setTimeout(() => {
-      setDeleteProgress(null);
-      toast({ title: 'Programme deleted', description: `${total} tasks removed.`, duration: 4000 });
-    }, 1200);
   };
 
   const cycleZoom = (direction) => {
@@ -314,10 +366,10 @@ export default function Programme() {
             <Button variant="outline" size="icon" onClick={() => cycleZoom('out')} title={`Zoom out (${zoom})`}><ZoomOut className="w-4 h-4" /></Button>
             <Button variant="outline" size="icon" onClick={() => cycleZoom('in')} title={`Zoom in (${zoom})`}><ZoomIn className="w-4 h-4" /></Button>
             <Button variant="outline" size="icon" onClick={() => window.print()} title="Print"><Printer className="w-4 h-4" /></Button>
-            <Button onClick={() => setShowImportDialog(true)} className="gap-2"><Upload className="w-4 h-4" /> Import</Button>
+            <Button onClick={() => setShowImportDialog(true)} disabled={!!deleteProgress} className="gap-2"><Upload className="w-4 h-4" /> Import</Button>
             <Button variant="destructive" size="icon"
               onClick={() => setShowDeleteConfirm(true)}
-              disabled={!selectedProjectId || selectedProjectId === 'all' || tasks.length === 0}
+              disabled={!selectedProjectId || selectedProjectId === 'all' || tasks.length === 0 || !!importProgress}
               title="Delete all tasks">
               <Trash2 className="w-4 h-4" />
             </Button>
