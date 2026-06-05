@@ -211,13 +211,14 @@ export default function Programme() {
         if (Object.keys(payload).length) updates.push({ id: dbId, ...payload });
       });
 
+      const DEP_BATCH = 10;
       let done = 0;
-      for (const { id, ...payload } of updates) {
-        await base44.entities.Task.update(id, payload);
-        done++;
-        if (done % 50 === 0) {
-          setStage(3, 60 + Math.round((done / updates.length) * 25), `${done} / ${updates.length} dependencies`);
-        }
+      for (let i = 0; i < updates.length; i += DEP_BATCH) {
+        const batch = updates.slice(i, i + DEP_BATCH);
+        await Promise.all(batch.map(({ id, ...payload }) => base44.entities.Task.update(id, payload)));
+        done += batch.length;
+        setStage(3, 60 + Math.round((done / updates.length) * 25), `${done} / ${updates.length} dependencies`);
+        await new Promise(r => setTimeout(r, 150));
       }
 
       // Stage 5/6: finalise
