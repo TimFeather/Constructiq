@@ -51,6 +51,7 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
     setSending(true);
     const tpl = resolveTemplate(emailTemplates, 'tender_outcome_unsuccessful');
     let sent = 0;
+    let failed = 0;
     for (const inv of submitted) {
       if (!inv.email) continue;
       try {
@@ -64,9 +65,17 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
         const htmlBody = buildEmailHtml(body, emailBranding);
         await base44.integrations.Core.SendEmail({ to: inv.email, subject, body: htmlBody });
         sent++;
-      } catch (_e) {}
+      } catch (e) {
+        failed++;
+        console.error('Outcome email failed for', inv.email, e);
+      }
     }
-    toast({ title: `Notified ${sent} subcontractor${sent !== 1 ? 's' : ''}` });
+    toast({
+      title: sent > 0 ? `Notified ${sent} subcontractor${sent !== 1 ? 's' : ''}` : 'No emails sent',
+      description: failed > 0 ? `${failed} failed — check console for details` : undefined,
+      variant: sent === 0 ? 'destructive' : 'default',
+      duration: sent === 0 ? 8000 : 4000,
+    });
     setSending(false);
   };
 
@@ -81,6 +90,7 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
     }));
 
     let sent = 0;
+    let failed = 0;
     for (const inv of submitted) {
       if (!inv.email) continue;
       const result = subResults[inv.id];
@@ -97,7 +107,10 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
         const htmlBody = buildEmailHtml(body, emailBranding);
         await base44.integrations.Core.SendEmail({ to: inv.email, subject, body: htmlBody });
         sent++;
-      } catch (_e) {}
+      } catch (e) {
+        failed++;
+        console.error('Outcome email failed for', inv.email, e);
+      }
     }
 
     // Determine overall tender status
@@ -110,7 +123,12 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
       award_date: anyAwarded ? new Date().toISOString().split('T')[0] : tender.award_date,
     });
 
-    toast({ title: `Outcome notifications sent to ${sent} subcontractor${sent !== 1 ? 's' : ''}` });
+    toast({
+      title: sent > 0 ? `Outcome notifications sent to ${sent} subcontractor${sent !== 1 ? 's' : ''}` : 'No emails sent',
+      description: failed > 0 ? `${failed} failed — check console for details` : undefined,
+      variant: sent === 0 ? 'destructive' : 'default',
+      duration: sent === 0 ? 8000 : 4000,
+    });
     setSending(false);
   };
 

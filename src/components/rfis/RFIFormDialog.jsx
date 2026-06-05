@@ -12,9 +12,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { X } from 'lucide-react';
+import { useToast } from '@/components/ui/use-toast';
 
 export default function RFIFormDialog({ open, onOpenChange, projects = [], defaultProjectId = '' }) {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [form, setForm] = useState({
     title: '', description: '', project_id: defaultProjectId || '', due_date: '', priority: 'Medium',
   });
@@ -98,6 +100,15 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['rfis'] });
       onOpenChange(false);
+      if (!selectedEmails || selectedEmails.length === 0) {
+        toast({
+          title: 'RFI created — no assignees set',
+          description: 'No notification email was sent. You can assign someone from the RFI detail page.',
+          duration: 7000,
+        });
+      } else {
+        toast({ title: 'RFI created and assignees notified', duration: 4000 });
+      }
       setForm({ title: '', description: '', project_id: '', due_date: '', priority: 'Medium' });
       setSelectedEmails([]);
     }

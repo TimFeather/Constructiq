@@ -54,7 +54,8 @@ export default function TopBar({ onMenuToggle, projectName }) {
         <DropdownMenuContent align="end" className="w-48">
           <DropdownMenuItem asChild>
             <Link to="/settings" className="flex items-center gap-2">
-              <User className="w-4 h-4" /> Profile & Settings
+              <User className="w-4 h-4" />
+              {user?.role === 'admin' ? 'Settings' : 'Profile & Notifications'}
             </Link>
           </DropdownMenuItem>
           <DropdownMenuSeparator />

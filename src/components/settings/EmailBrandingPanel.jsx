@@ -67,9 +67,20 @@ export default function EmailBrandingPanel() {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
-    const { file_url } = await base44.integrations.Core.UploadFile({ file });
-    setForm(f => ({ ...f, logo_url: file_url }));
-    setUploading(false);
+    try {
+      const { file_url } = await base44.integrations.Core.UploadFile({ file });
+      setForm(f => ({ ...f, logo_url: file_url }));
+      toast({ title: 'Logo uploaded', duration: 4000 });
+    } catch (err) {
+      toast({
+        title: 'Logo upload failed',
+        description: err.message || 'Check your connection and try again',
+        variant: 'destructive',
+        duration: 8000,
+      });
+    } finally {
+      setUploading(false);
+    }
   };
 
   const previewHtml = buildEmailHtml(

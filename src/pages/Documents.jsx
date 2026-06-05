@@ -134,9 +134,11 @@ export default function Documents() {
             title={selectedProject.name}
             description="Project documents"
             actions={
-              <Button onClick={() => setShowUpload(true)} className="gap-2">
-                <Upload className="w-4 h-4" /> Upload Document
-              </Button>
+              isAdmin ? (
+                <Button onClick={() => setShowUpload(true)} className="gap-2">
+                  <Upload className="w-4 h-4" /> Upload Document
+                </Button>
+              ) : null
             }
           />
           <ProjectDocsPanel project={selectedProject} docs={selectedProjectDocs} />

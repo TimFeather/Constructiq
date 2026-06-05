@@ -10,17 +10,24 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Token required' }, { status: 400 });
     }
 
-    // Find tender with this invitee token
-    const tenders = await base44.asServiceRole.entities.Tender.list('-created_date', 500);
+    // Find tender with this invitee token — check active tenders first for performance
     let tender = null;
     let inviteeIndex = -1;
 
-    for (const t of tenders) {
+    const activeTenders = await base44.asServiceRole.entities.Tender.filter(
+      { status: 'Issued' }, '-created_date', 200
+    );
+    for (const t of activeTenders) {
       const idx = (t.invitees || []).findIndex(inv => inv.token === token);
-      if (idx !== -1) {
-        tender = t;
-        inviteeIndex = idx;
-        break;
+      if (idx !== -1) { tender = t; inviteeIndex = idx; break; }
+    }
+
+    // If not found in active, check all (covers edge cases like Closed tenders)
+    if (!tender) {
+      const allTenders = await base44.asServiceRole.entities.Tender.list('-created_date', 500);
+      for (const t of allTenders) {
+        const idx = (t.invitees || []).findIndex(inv => inv.token === token);
+        if (idx !== -1) { tender = t; inviteeIndex = idx; break; }
       }
     }
 

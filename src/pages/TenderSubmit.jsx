@@ -19,6 +19,7 @@ export default function TenderSubmit() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [editingSubmission, setEditingSubmission] = useState(false);
 
   const [form, setForm] = useState({
     lump_sum_price: '',
@@ -83,7 +84,12 @@ export default function TenderSubmit() {
           uploaded_file_name: form.uploaded_file_name,
         },
       });
+      setInvitee(prev => prev ? {
+        ...prev,
+        submission: { ...(prev.submission || {}), submitted_at: new Date().toISOString() }
+      } : prev);
       setSubmitted(true);
+      setEditingSubmission(false);
     } catch (e) {
       setSubmitError(e?.response?.data?.error || 'Submission failed. Please try again.');
     } finally {
@@ -113,17 +119,33 @@ export default function TenderSubmit() {
     );
   }
 
-  if (submitted) {
+  if (submitted && !editingSubmission) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <Card className="max-w-md w-full">
-          <CardContent className="p-8 text-center">
-            <CheckCircle2 className="w-14 h-14 text-green-500 mx-auto mb-4" />
-            <h2 className="text-xl font-bold mb-2">Submission Received</h2>
-            <p className="text-sm text-muted-foreground mb-4">
-              Your submission has been received. We will be in touch following the closing date
-              {tender?.closing_date ? ` of ${format(parseISO(tender.closing_date), 'dd MMMM yyyy')}` : ''}.
+          <CardContent className="p-8 text-center space-y-4">
+            <CheckCircle2 className="w-14 h-14 text-green-500 mx-auto" />
+            <h2 className="text-xl font-bold">Submission Received</h2>
+            <p className="text-sm text-muted-foreground">
+              Your pricing was submitted{invitee?.submission?.submitted_at
+                ? ` on ${format(new Date(invitee.submission.submitted_at), 'dd MMM yyyy h:mm a')}`
+                : ''}.
             </p>
+            {!isOverdue && (
+              <div className="pt-2">
+                <p className="text-sm text-muted-foreground mb-3">
+                  The tender is still open. You can update your submission before the closing date.
+                </p>
+                <Button variant="outline" onClick={() => setEditingSubmission(true)}>
+                  Update my submission
+                </Button>
+              </div>
+            )}
+            {isOverdue && (
+              <p className="text-sm text-muted-foreground">
+                The tender has closed. No further changes can be made.
+              </p>
+            )}
             <p className="text-sm font-medium">{tender?.title}</p>
           </CardContent>
         </Card>
@@ -239,31 +261,35 @@ export default function TenderSubmit() {
               {form.price_breakdown.length > 0 && (
                 <div>
                   <Label>Price Breakdown by Trade Package (optional)</Label>
-                  <div className="space-y-2 mt-2">
+                  <div className="space-y-3 mt-2">
                     {form.price_breakdown.map((b, idx) => (
-                      <div key={idx} className="grid grid-cols-5 gap-2 items-center">
-                        <div className="col-span-2 text-sm font-medium">{b.trade_package}</div>
-                        <div className="col-span-2">
-                          <Input
-                            type="number" min="0" placeholder="Amount"
-                            value={b.amount}
-                            onChange={e => setForm(f => ({
-                              ...f,
-                              price_breakdown: f.price_breakdown.map((x, i) => i === idx ? { ...x, amount: e.target.value } : x)
-                            }))}
-                            className="h-8 text-sm"
-                          />
-                        </div>
-                        <div>
-                          <Input
-                            placeholder="Notes"
-                            value={b.notes}
-                            onChange={e => setForm(f => ({
-                              ...f,
-                              price_breakdown: f.price_breakdown.map((x, i) => i === idx ? { ...x, notes: e.target.value } : x)
-                            }))}
-                            className="h-8 text-sm"
-                          />
+                      <div key={idx} className="border rounded-lg p-4 space-y-3 bg-card">
+                        <p className="font-medium text-sm">{b.trade_package}</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-xs text-muted-foreground mb-1 block">Amount (NZD)</label>
+                            <Input
+                              type="number" min="0" step="0.01" placeholder="0.00"
+                              value={b.amount}
+                              onChange={e => setForm(f => ({
+                                ...f,
+                                price_breakdown: f.price_breakdown.map((x, i) => i === idx ? { ...x, amount: e.target.value } : x)
+                              }))}
+                              className="w-full"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs text-muted-foreground mb-1 block">Notes / qualifications</label>
+                            <Input
+                              placeholder="Optional"
+                              value={b.notes}
+                              onChange={e => setForm(f => ({
+                                ...f,
+                                price_breakdown: f.price_breakdown.map((x, i) => i === idx ? { ...x, notes: e.target.value } : x)
+                              }))}
+                              className="w-full"
+                            />
+                          </div>
                         </div>
                       </div>
                     ))}

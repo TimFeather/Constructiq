@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import StatusBadge from '@/components/shared/StatusBadge';
-import { Upload, ExternalLink, FileText, Folder, FolderOpen, Plus, GripVertical, ChevronDown, ChevronRight, FolderPlus, Trash2 } from 'lucide-react';
+import { Upload, ExternalLink, FileText, Folder, FolderOpen, Plus, GripVertical, ChevronDown, ChevronRight, FolderPlus, Trash2, Eye } from 'lucide-react';
 import { format } from 'date-fns';
 
 function getFileType(name) {
@@ -49,6 +49,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
   const [versionNotes, setVersionNotes] = useState('');
   const [versionUploading, setVersionUploading] = useState(false);
   const [expandedHistory, setExpandedHistory] = useState(new Set());
+  const [previewDoc, setPreviewDoc] = useState(null);
   const dropZoneRef = useRef(null);
   const queryClient = useQueryClient();
 
@@ -220,6 +221,15 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
           ) : (
             <span className="flex-shrink-0"><StatusBadge status={doc.status} /></span>
           )}
+          {(/\.(pdf|png|jpg|jpeg|gif|webp|svg)$/i.test(doc.file_url || '')) && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setPreviewDoc(doc); }}
+              title="Preview"
+              className="flex-shrink-0 p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+            >
+              <Eye className="w-3.5 h-3.5" />
+            </button>
+          )}
           <a href={doc.file_url} target="_blank" rel="noopener noreferrer" className="flex-shrink-0">
             <ExternalLink className="w-3.5 h-3.5 text-muted-foreground hover:text-primary" />
           </a>
@@ -313,12 +323,14 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
               <FolderPlus className="w-3 h-3" /> New Folder
             </Button>
           )}
-          <Button size="sm" className="gap-1.5 h-8 text-xs" onClick={() => {
-            setUploadForm({ name: '', file: null, folder: allowedFolders ? allowedFolders[0] : '' });
-            setShowUpload(true);
-          }}>
-            <Upload className="w-3 h-3" /> Upload
-          </Button>
+          {!isExternal && (
+            <Button size="sm" className="gap-1.5 h-8 text-xs" onClick={() => {
+              setUploadForm({ name: '', file: null, folder: '' });
+              setShowUpload(true);
+            }}>
+              <Upload className="w-3 h-3" /> Upload
+            </Button>
+          )}
         </div>
       </div>
 
@@ -368,6 +380,32 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
           </div>
         </DragDropContext>
       )}
+
+      {/* Document Preview */}
+      <Dialog open={!!previewDoc} onOpenChange={open => !open && setPreviewDoc(null)}>
+        <DialogContent className="max-w-4xl w-full h-[85vh] flex flex-col p-0">
+          <DialogHeader className="px-4 pt-4 pb-2 border-b flex-shrink-0">
+            <DialogTitle className="text-sm font-medium truncate">{previewDoc?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-hidden">
+            {previewDoc?.file_url && (
+              /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(previewDoc.file_url) ? (
+                <div className="flex items-center justify-center h-full p-4 bg-muted/30">
+                  <img src={previewDoc.file_url} alt={previewDoc.name} className="max-h-full max-w-full object-contain rounded" />
+                </div>
+              ) : (
+                <iframe src={previewDoc.file_url} title={previewDoc.name} className="w-full h-full border-0" />
+              )
+            )}
+          </div>
+          <div className="px-4 py-3 border-t flex justify-between flex-shrink-0">
+            <Button variant="outline" size="sm" asChild>
+              <a href={previewDoc?.file_url} target="_blank" rel="noopener noreferrer">Open in new tab</a>
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setPreviewDoc(null)}>Close</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* New Version Dialog */}
       <Dialog open={!!versioningDoc} onOpenChange={open => !open && setVersioningDoc(null)}>

@@ -77,7 +77,18 @@ export default function Settings() {
 
   const profileMutation = useMutation({
     mutationFn: (data) => base44.auth.updateMe(data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['auth'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['auth'] });
+      toast({ title: 'Profile saved', duration: 4000 });
+    },
+    onError: (err) => {
+      toast({
+        title: 'Failed to save profile',
+        description: err.message,
+        variant: 'destructive',
+        duration: 8000,
+      });
+    },
   });
 
   const inviteMutation = useMutation({

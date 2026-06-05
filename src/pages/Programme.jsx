@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import PageHeader from '@/components/shared/PageHeader';
+import { Link } from 'react-router-dom';
 import TaskList from '@/components/programme/TaskList';
 import GanttChart from '@/components/programme/GanttChart';
 import TaskEditPanel from '@/components/programme/TaskEditPanel';
@@ -97,7 +98,7 @@ export default function Programme() {
   }, []);
 
   // ─── Data fetching ──────────────────────────────────────────────────────────
-  const { data: allProjectsRaw = [] } = useQuery({
+  const { data: allProjectsRaw = [], isLoading: isLoadingProjects } = useQuery({
     queryKey: ['projects'],
     queryFn: () => base44.entities.Project.list('-created_date', 100),
   });
@@ -109,8 +110,11 @@ export default function Programme() {
   const projectIds = new Set(projects.map(p => p.id));
 
   const { data: allTasks = [] } = useQuery({
-    queryKey: ['tasks'],
-    queryFn: () => base44.entities.Task.list('-created_date', 500),
+    queryKey: ['tasks', selectedProjectId],
+    queryFn: () => selectedProjectId === 'all'
+      ? base44.entities.Task.list('sort_order', 500)
+      : base44.entities.Task.filter({ project_id: selectedProjectId }, 'sort_order', 500),
+    staleTime: 30000,
   });
 
   // Real-time subscription
@@ -269,6 +273,25 @@ export default function Programme() {
     const newIdx = direction === 'in' ? Math.min(idx + 1, ZOOM_LEVELS.length - 1) : Math.max(idx - 1, 0);
     setZoom(ZOOM_LEVELS[newIdx]);
   };
+
+  if (!isLoadingProjects && projects.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 gap-4 text-center">
+        <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
+          <Calendar className="w-8 h-8 text-muted-foreground" />
+        </div>
+        <div>
+          <h3 className="font-semibold text-lg mb-1">No projects yet</h3>
+          <p className="text-muted-foreground text-sm max-w-sm">
+            You need to be part of a project before you can view its programme schedule.
+          </p>
+        </div>
+        <Button asChild>
+          <Link to="/projects">Go to Projects</Link>
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="h-[calc(100vh-8rem)] flex flex-col">

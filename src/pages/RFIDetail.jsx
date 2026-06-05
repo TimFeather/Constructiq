@@ -262,7 +262,7 @@ export default function RFIDetail() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-sm font-semibold">{resp.author_name}</span>
-                  <span className="text-xs text-muted-foreground">{format(new Date(resp.timestamp), 'MMM d, yyyy h:mm a')}</span>
+                  <span className="text-xs text-muted-foreground">{resp.timestamp ? format(new Date(resp.timestamp), 'MMM d, yyyy h:mm a') : 'Date unknown'}</span>
                 </div>
                 <p className="text-sm mt-1 whitespace-pre-wrap">{resp.content}</p>
                 {resp.attachments?.length > 0 && (

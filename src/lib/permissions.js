@@ -25,19 +25,21 @@ const MODULE_RULES = {
   },
   documents: {
     access: ['admin', 'pricing', 'internal', 'external'],
-    edit:   ['admin', 'internal', 'external'],
+    edit:   ['admin', 'pricing', 'internal'],
     delete: ['admin', 'internal'],
     manage: ['admin', 'internal'],
   },
   rfis: {
-    access: ['admin', 'pricing', 'internal', 'external'],
-    edit:   ['admin', 'internal', 'external'],
-    delete: ['admin', 'internal'],
-    manage: ['admin', 'internal'],
+    access:  ['admin', 'pricing', 'internal', 'external'],
+    create:  ['admin', 'pricing', 'internal'],
+    respond: ['admin', 'pricing', 'internal', 'external'],
+    edit:    ['admin', 'internal'],
+    delete:  ['admin', 'internal'],
+    manage:  ['admin', 'internal'],
   },
   programme: {
     access: ['admin', 'pricing', 'internal', 'external'],
-    edit:   ['admin', 'internal'],
+    edit:   ['admin', 'pricing', 'internal'],
     delete: ['admin', 'internal'],
     manage: ['admin', 'internal'],
   },
@@ -92,6 +94,10 @@ export function canDelete(user, module) {
 
 export function canManage(user, module) {
   return check(user, module, 'manage');
+}
+
+export function canCreate(user, module) {
+  return check(user, module, 'create');
 }
 
 // Convenience helpers used throughout the app

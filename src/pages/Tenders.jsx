@@ -32,8 +32,13 @@ function TenderStatusBadge({ status }) {
 function closingDateLabel(tender) {
   if (!tender.closing_date) return null;
   const days = differenceInDays(parseISO(tender.closing_date), new Date());
-  if (tender.status === 'Issued' && days >= 0 && days <= 7) {
-    return <span className="text-amber-600 font-medium text-xs">Closes in {days} day{days !== 1 ? 's' : ''}</span>;
+  if (tender.status === 'Issued' && days >= 0 && days <= 3) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+        <Clock className="w-3 h-3" />
+        {days === 0 ? 'Closes today' : `Closes in ${days} day${days !== 1 ? 's' : ''}`}
+      </span>
+    );
   }
   if (tender.status === 'Issued' && isPast(parseISO(tender.closing_date))) {
     return <span className="text-red-600 font-medium text-xs">Overdue</span>;
@@ -59,14 +64,13 @@ export default function Tenders() {
   const createMutation = useMutation({
     mutationFn: async () => {
       const existing = await base44.entities.Tender.list('-created_date', 500);
-      const nextNum = (existing.length > 0 ? Math.max(...existing.map(t => {
-        const n = parseInt((t.tender_number || '').replace('TDR-', ''));
-        return isNaN(n) ? 0 : n;
-      })) : 0) + 1;
-      return base44.entities.Tender.create({
+      const nums = existing.map(t => parseInt((t.tender_number || '').replace(/\D/g, ''), 10)).filter(n => !isNaN(n));
+      const nextNum = nums.length > 0 ? Math.max(...nums) + 1 : 1;
+      const tenderNumber = `TDR-${String(nextNum).padStart(3, '0')}`;
+      const created = await base44.entities.Tender.create({
         title: 'New Tender',
         status: 'Draft',
-        tender_number: `TDR-${String(nextNum).padStart(3, '0')}`,
+        tender_number: tenderNumber,
         created_by_email: user?.email,
         scoring_criteria: [
           { criterion: 'Price', weight_percent: 40 },
@@ -76,6 +80,14 @@ export default function Tenders() {
           { criterion: 'Compliance', weight_percent: 10 },
         ],
       });
+      // Check for duplicate numbers and add suffix if needed
+      const all = await base44.entities.Tender.list('-created_date', 500);
+      const dupes = all.filter(t => t.tender_number === tenderNumber && t.id !== created.id);
+      if (dupes.length > 0) {
+        const suffix = String.fromCharCode(65 + dupes.length);
+        await base44.entities.Tender.update(created.id, { tender_number: `${tenderNumber}${suffix}` });
+      }
+      return created;
     },
     onSuccess: (tender) => {
       queryClient.invalidateQueries({ queryKey: ['tenders'] });
@@ -152,10 +164,12 @@ export default function Tenders() {
       ) : filtered.length === 0 ? (
         <EmptyState
           icon={FileSignature}
-          title="No tenders found"
-          description={tenders.length === 0 ? 'Create your first tender to get started' : 'Try adjusting your filters'}
-          actionLabel={tenders.length === 0 && canManage ? 'New Tender' : undefined}
-          onAction={tenders.length === 0 && canManage ? () => createMutation.mutate() : undefined}
+          title={statusTab === 'All' ? 'No tenders yet' : `No ${statusTab} tenders`}
+          description={statusTab === 'All'
+            ? 'Create your first tender to start inviting subcontractors'
+            : `No tenders with status "${statusTab}" found`}
+          actionLabel={statusTab === 'All' && canManage ? 'New Tender' : undefined}
+          onAction={statusTab === 'All' && canManage ? () => createMutation.mutate() : undefined}
         />
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">

@@ -3,7 +3,7 @@
  * This component performs ZERO scheduling calculations.
  * All schedule data is passed in via props (scheduledMap from the engine).
  */
-import React, { useMemo, useRef, useCallback } from 'react';
+import React, { useMemo, useRef, useCallback, useEffect } from 'react';
 import { differenceInDays, addDays, format, eachWeekOfInterval, eachDayOfInterval, isToday, isWeekend, eachMonthOfInterval } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { flattenTasks } from '@/lib/flattenTasks';
@@ -37,6 +37,7 @@ export default function GanttChart({
   onTaskClick,
 }) {
   const dayWidth = ZOOM_DAY_WIDTHS[zoom] || 18;
+  const scrolledToday = useRef(false);
 
   // ─── Timeline bounds ────────────────────────────────────────────────────────
   const { minDate, maxDate, totalDays, dateHeaders } = useMemo(() => {
@@ -195,6 +196,14 @@ export default function GanttChart({
   const chartWidth = Math.max(totalDays * dayWidth, 400);
   const chartHeight = flatTasks.length * ROW_H + 50;
   const todayX = Math.round(differenceInDays(new Date(), minDate) * dayWidth);
+
+  useEffect(() => {
+    if (scrolledToday.current || !scrollRef?.current || tasks.length === 0) return;
+    if (todayX <= 0) return;
+    const scrollTo = Math.max(0, todayX - (scrollRef.current.clientWidth || 800) / 2);
+    scrollRef.current.scrollLeft = scrollTo;
+    scrolledToday.current = true;
+  }, [tasks.length, todayX]);
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-card">

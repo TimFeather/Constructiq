@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ArrowLeft, Save, X, Trash2 } from 'lucide-react';
+import { ArrowLeft, Save, X, Trash2, AlertCircle } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { useToast } from '@/components/ui/use-toast';
 import TenderDocuments from '@/components/tenders/TenderDocuments';
@@ -44,6 +44,8 @@ export default function TenderDetail() {
   const [showConvert, setShowConvert] = useState(false);
   const [customTrade, setCustomTrade] = useState('');
   const [form, setForm] = useState(null);
+  const [isDirty, setIsDirty] = useState(false);
+  const [activeTab, setActiveTab] = useState('details');
 
   const { data: tender, isLoading } = useQuery({
     queryKey: ['tender', id],
@@ -57,6 +59,14 @@ export default function TenderDetail() {
   useEffect(() => {
     if (tender && !form) setForm(tender);
   }, [tender]);
+
+  // Detect unsaved changes
+  useEffect(() => {
+    if (!tender || !form) return;
+    const fields = ['title', 'description', 'status', 'location', 'issue_date', 'closing_date', 'notes', 'client_name', 'client_email', 'architect_name', 'architect_email', 'project_manager_name', 'project_manager_email'];
+    const hasChanges = fields.some(key => String(form[key] ?? '') !== String(tender[key] ?? ''));
+    setIsDirty(hasChanges);
+  }, [form, tender]);
 
   const updateMutation = useMutation({
     mutationFn: (data) => base44.entities.Tender.update(id, data),
@@ -99,6 +109,7 @@ export default function TenderDetail() {
       project_manager_email: form.project_manager_email,
       notes: form.notes,
     });
+    setIsDirty(false);
     toast({ title: 'Tender saved' });
   };
 
@@ -173,7 +184,13 @@ export default function TenderDetail() {
         )}
       </div>
 
-      <Tabs defaultValue="details" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={(val) => {
+        if (isDirty && activeTab === 'details') {
+          if (!window.confirm('You have unsaved changes. Leave without saving?')) return;
+          setIsDirty(false);
+        }
+        setActiveTab(val);
+      }} className="space-y-4">
         <TabsList className="flex-wrap">
           <TabsTrigger value="details">Details</TabsTrigger>
           <TabsTrigger value="documents">Documents {tender.documents?.length > 0 && <span className="ml-1 text-xs opacity-60">{tender.documents.length}</span>}</TabsTrigger>
@@ -306,9 +323,16 @@ export default function TenderDetail() {
           </div>
 
           {canManage && (
-            <Button onClick={handleSaveDetails} disabled={updateMutation.isPending} className="gap-2">
-              <Save className="w-4 h-4" /> {updateMutation.isPending ? 'Saving...' : 'Save Changes'}
-            </Button>
+            <div className="flex items-center gap-3">
+              {isDirty && (
+                <span className="text-xs text-amber-600 flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" /> Unsaved changes
+                </span>
+              )}
+              <Button onClick={handleSaveDetails} disabled={updateMutation.isPending} className="gap-2">
+                <Save className="w-4 h-4" /> {updateMutation.isPending ? 'Saving...' : 'Save Changes'}
+              </Button>
+            </div>
           )}
         </TabsContent>
 
