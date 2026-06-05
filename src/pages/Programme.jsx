@@ -211,14 +211,36 @@ export default function Programme() {
         if (Object.keys(payload).length) updates.push({ id: dbId, ...payload });
       });
 
-      const DEP_BATCH = 10;
+      // Helper: update one task with a single retry on rate-limit (429)
+      const updateWithRetry = async (id, payload) => {
+        try {
+          return await base44.entities.Task.update(id, payload);
+        } catch (err) {
+          const isRateLimit =
+            err?.status === 429 ||
+            err?.response?.status === 429 ||
+            (err?.message || '').toLowerCase().includes('rate limit');
+          if (isRateLimit) {
+            await new Promise(r => setTimeout(r, 2000));
+            return await base44.entities.Task.update(id, payload);
+          }
+          throw err;
+        }
+      };
+
+      // Link dependencies sequentially in small batches to stay under API rate limits
+      const DEP_BATCH = 3;
       let done = 0;
       for (let i = 0; i < updates.length; i += DEP_BATCH) {
         const batch = updates.slice(i, i + DEP_BATCH);
-        await Promise.all(batch.map(({ id, ...payload }) => base44.entities.Task.update(id, payload)));
-        done += batch.length;
-        setStage(3, 60 + Math.round((done / updates.length) * 25), `${done} / ${updates.length} dependencies`);
-        await new Promise(r => setTimeout(r, 150));
+        for (const { id, ...payload } of batch) {
+          await updateWithRetry(id, payload);
+          done++;
+          setStage(3, 60 + Math.round((done / updates.length) * 25), `${done} / ${updates.length} dependencies`);
+        }
+        if (i + DEP_BATCH < updates.length) {
+          await new Promise(r => setTimeout(r, 350));
+        }
       }
 
       // Stage 5/6: finalise
