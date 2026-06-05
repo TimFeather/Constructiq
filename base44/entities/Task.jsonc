@@ -65,6 +65,17 @@
       "description": "Percentage complete (0-100)",
       "default": 0
     },
+    "task_status": {
+      "type": "string",
+      "enum": [
+        "Not Started",
+        "In Progress",
+        "On Hold",
+        "Complete",
+        "Delayed"
+      ],
+      "description": "Task execution status"
+    },
     "actual_start": {
       "type": "string",
       "format": "date",
@@ -75,13 +86,17 @@
       "format": "date",
       "description": "Actual finish date"
     },
+    "delay_days": {
+      "type": "number",
+      "description": "Number of days delayed"
+    },
     "status_notes": {
       "type": "string",
       "description": "General status notes"
     },
     "delay_notes": {
       "type": "string",
-      "description": "Notes about any delays"
+      "description": "Notes about any delays / delay reason"
     },
     "assignee_name": {
       "type": "string",

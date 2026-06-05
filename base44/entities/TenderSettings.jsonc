@@ -1,0 +1,14 @@
+{
+  "name": "TenderSettings",
+  "type": "object",
+  "properties": {
+    "default_contact_roles": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Default contact roles pre-populated on new tenders"
+    }
+  },
+  "required": []
+}

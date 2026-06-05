@@ -1,0 +1,24 @@
+{
+  "name": "DocumentFolderTemplate",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Template name e.g. Standard Residential"
+    },
+    "is_default": {
+      "type": "boolean",
+      "description": "If true, applied automatically when creating new projects"
+    },
+    "folder_structure": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Ordered list of folder names"
+    }
+  },
+  "required": [
+    "name"
+  ]
+}

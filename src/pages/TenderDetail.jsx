@@ -32,7 +32,14 @@ const STATUS_STYLES = {
   Awarded:      'bg-green-100 text-green-700',
   Unsuccessful: 'bg-red-100 text-red-700',
   Converted:    'bg-purple-100 text-purple-700',
+  'On Hold':    'bg-orange-100 text-orange-700',
+  Cancelled:    'bg-gray-100 text-gray-500 line-through',
 };
+
+function formatCurrency(val) {
+  if (!val) return null;
+  return new Intl.NumberFormat('en-NZ', { style: 'currency', currency: 'NZD' }).format(Number(val));
+}
 
 export default function TenderDetail() {
   const { id } = useParams();
@@ -59,18 +66,29 @@ export default function TenderDetail() {
 
   // Sync form when tender loads
   useEffect(() => {
-    if (tender && !form) setForm(tender);
+    if (tender && !form) {
+      // Parse closing_date into date + time parts for the editor
+      let closing_date = tender.closing_date || '';
+      let closing_time = '17:00';
+      if (closing_date && closing_date.includes('T')) {
+        const parts = closing_date.split('T');
+        closing_date = parts[0];
+        closing_time = parts[1]?.slice(0, 5) || '17:00';
+      }
+      setForm({ ...tender, closing_date, closing_time });
+    }
   }, [tender]);
 
   // Detect unsaved changes
   useEffect(() => {
     if (!tender || !form) return;
-    const textFields = ['title', 'description', 'status', 'location', 'issue_date', 'closing_date', 'notes', 'client_name', 'client_email', 'architect_name', 'architect_email', 'project_manager_name', 'project_manager_email'];
+    const textFields = ['title', 'description', 'status', 'location', 'issue_date', 'closing_date', 'closing_time', 'notes', 'client_name', 'client_email', 'architect_name', 'architect_email', 'project_manager_name', 'project_manager_email'];
     const textChanged = textFields.some(key => String(form[key] ?? '') !== String(tender[key] ?? ''));
     const valueChanged = String(form.estimated_value ?? '') !== String(tender.estimated_value ?? '');
     const tradeChanged = JSON.stringify(form.trade_packages ?? []) !== JSON.stringify(tender.trade_packages ?? []);
     const scoringChanged = JSON.stringify(form.scoring_criteria ?? []) !== JSON.stringify(tender.scoring_criteria ?? []);
-    setIsDirty(textChanged || valueChanged || tradeChanged || scoringChanged);
+    const contactsChanged = JSON.stringify(form.additional_contacts ?? []) !== JSON.stringify(tender.additional_contacts ?? []);
+    setIsDirty(textChanged || valueChanged || tradeChanged || scoringChanged || contactsChanged);
   }, [form, tender]);
 
   const updateMutation = useMutation({
@@ -93,6 +111,14 @@ export default function TenderDetail() {
     await updateMutation.mutateAsync(data);
   };
 
+  // Build closing datetime from date + time
+  const buildClosingDatetime = () => {
+    if (!form.closing_date) return null;
+    const date = form.closing_date;
+    const time = form.closing_time || '00:00';
+    return `${date}T${time}:00`;
+  };
+
   const handleSaveDetails = async () => {
     await handleUpdate({
       title: form.title,
@@ -100,7 +126,7 @@ export default function TenderDetail() {
       status: form.status,
       location: form.location,
       issue_date: form.issue_date,
-      closing_date: form.closing_date,
+      closing_date: buildClosingDatetime(),
       estimated_value: form.estimated_value ? Number(form.estimated_value) : null,
       trade_packages: form.trade_packages || [],
       client_name: form.client_name,
@@ -112,6 +138,7 @@ export default function TenderDetail() {
       project_manager_name: form.project_manager_name,
       project_manager_contact: form.project_manager_contact,
       project_manager_email: form.project_manager_email,
+      additional_contacts: form.additional_contacts || [],
       notes: form.notes,
     });
     setIsDirty(false);
@@ -158,6 +185,9 @@ export default function TenderDetail() {
         <span className={`ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[tender.status] || 'bg-gray-100 text-gray-700'}`}>
           {tender.status}
         </span>
+        {tender.estimated_value && (
+          <span className="ml-2 text-xs text-muted-foreground font-medium">{formatCurrency(tender.estimated_value)}</span>
+        )}
         {canManage && (
           <div className="ml-auto">
             <AlertDialog>
@@ -218,7 +248,7 @@ export default function TenderDetail() {
                 <Select value={form.status || 'Draft'} onValueChange={v => setForm(f => ({ ...f, status: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {['Draft', 'Issued', 'Closed', 'Awarded', 'Unsuccessful', 'Converted'].map(s => (
+                    {['Draft', 'Issued', 'Closed', 'Awarded', 'Unsuccessful', 'Converted', 'On Hold', 'Cancelled'].map(s => (
                       <SelectItem key={s} value={s}>{s}</SelectItem>
                     ))}
                   </SelectContent>
@@ -240,6 +270,11 @@ export default function TenderDetail() {
             <div>
               <Label className="text-xs">Estimated Value (NZD)</Label>
               <Input type="number" value={form.estimated_value || ''} onChange={e => setForm(f => ({ ...f, estimated_value: e.target.value }))} disabled={!canManage} placeholder="0.00" />
+              {form.estimated_value && (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {new Intl.NumberFormat('en-NZ', { style: 'currency', currency: 'NZD' }).format(Number(form.estimated_value))}
+                </p>
+              )}
             </div>
             <div>
               <Label className="text-xs">Issue Date</Label>
@@ -248,6 +283,10 @@ export default function TenderDetail() {
             <div>
               <Label className="text-xs">Closing Date</Label>
               <Input type="date" value={form.closing_date || ''} onChange={e => setForm(f => ({ ...f, closing_date: e.target.value }))} disabled={!canManage} />
+            </div>
+            <div>
+              <Label className="text-xs">Closing Time</Label>
+              <Input type="time" value={form.closing_time || '17:00'} onChange={e => setForm(f => ({ ...f, closing_time: e.target.value }))} disabled={!canManage} />
             </div>
           </div>
 
@@ -320,6 +359,66 @@ export default function TenderDetail() {
                 </div>
               </div>
             ))}
+
+            {/* Additional contacts */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-medium text-muted-foreground">Additional Contacts</p>
+                {canManage && (
+                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
+                    onClick={() => setForm(f => ({ ...f, additional_contacts: [...(f.additional_contacts || []), { role: '', name: '', email: '', phone: '' }] }))}>
+                    <X className="w-3 h-3 rotate-45" /> Add Contact
+                  </Button>
+                )}
+              </div>
+              {(form.additional_contacts || []).map((contact, idx) => (
+                <div key={idx} className="grid grid-cols-1 sm:grid-cols-4 gap-2 p-3 border rounded-lg mb-2">
+                  <div>
+                    <Label className="text-xs">Role</Label>
+                    <Input value={contact.role || ''} onChange={e => {
+                      const updated = [...(form.additional_contacts || [])];
+                      updated[idx] = { ...updated[idx], role: e.target.value };
+                      setForm(f => ({ ...f, additional_contacts: updated }));
+                    }} disabled={!canManage} placeholder="e.g. QS" className="h-8 text-sm" />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Name</Label>
+                    <Input value={contact.name || ''} onChange={e => {
+                      const updated = [...(form.additional_contacts || [])];
+                      updated[idx] = { ...updated[idx], name: e.target.value };
+                      setForm(f => ({ ...f, additional_contacts: updated }));
+                    }} disabled={!canManage} placeholder="Full name" className="h-8 text-sm" />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Email</Label>
+                    <Input type="email" value={contact.email || ''} onChange={e => {
+                      const updated = [...(form.additional_contacts || [])];
+                      updated[idx] = { ...updated[idx], email: e.target.value };
+                      setForm(f => ({ ...f, additional_contacts: updated }));
+                    }} disabled={!canManage} placeholder="email@example.com" className="h-8 text-sm" />
+                  </div>
+                  <div className="flex gap-2 items-end">
+                    <div className="flex-1">
+                      <Label className="text-xs">Phone</Label>
+                      <Input value={contact.phone || ''} onChange={e => {
+                        const updated = [...(form.additional_contacts || [])];
+                        updated[idx] = { ...updated[idx], phone: e.target.value };
+                        setForm(f => ({ ...f, additional_contacts: updated }));
+                      }} disabled={!canManage} placeholder="Phone" className="h-8 text-sm" />
+                    </div>
+                    {canManage && (
+                      <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive hover:text-destructive flex-shrink-0"
+                        onClick={() => setForm(f => ({ ...f, additional_contacts: (f.additional_contacts || []).filter((_, i) => i !== idx) }))}>
+                        <X className="w-4 h-4" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {(!form.additional_contacts?.length) && (
+                <p className="text-xs text-muted-foreground">No additional contacts.</p>
+              )}
+            </div>
           </div>
 
           {/* Notes */}

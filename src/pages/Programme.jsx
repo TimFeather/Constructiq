@@ -15,6 +15,7 @@ import {
 import {
   PanelLeftClose, PanelLeftOpen, Upload, Printer, ZoomIn, ZoomOut,
   Trash2, Target, Calendar, LayoutDashboard, CalendarDays,
+  ChevronsDownUp, ChevronsUpDown, Pencil,
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
@@ -31,6 +32,7 @@ import { runScheduleEngine } from '@/lib/scheduling/scheduleEngine';
 import { getVisibleTasks } from '@/lib/programme/visibleTasks';
 import { bulkOperationState } from '@/lib/bulkOperationState';
 import { retry429 } from '@/lib/retry429';
+import TaskInlineEditor from '@/components/programme/TaskInlineEditor';
 
 const ZOOM_LEVELS = ['year', 'quarter', 'month', 'week', 'day'];
 const DELETE_CHUNK = 150;
@@ -51,6 +53,7 @@ export default function Programme() {
 
   // Expand/collapse state — shared source of truth for TaskList + GanttChart
   const [expandedIds, setExpandedIds] = useState(new Set());
+  const [editingTask, setEditingTask] = useState(null);
 
   // Import state
   const [showImportDialog, setShowImportDialog] = useState(false);
@@ -81,6 +84,14 @@ export default function Programme() {
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
+  }, []);
+
+  const expandAll = useCallback(() => {
+    setExpandedIds(new Set(tasks.map(t => t.id)));
+  }, [tasks]);
+
+  const collapseAll = useCallback(() => {
+    setExpandedIds(new Set());
   }, []);
 
   // ─── Data fetching ───────────────────────────────────────────────────────────
@@ -395,6 +406,8 @@ export default function Programme() {
               </Badge>
             )}
 
+            <Button variant="outline" size="sm" onClick={expandAll} title="Expand all" className="gap-1.5 text-xs h-9"><ChevronsUpDown className="w-3.5 h-3.5" />Expand All</Button>
+            <Button variant="outline" size="sm" onClick={collapseAll} title="Collapse all" className="gap-1.5 text-xs h-9"><ChevronsDownUp className="w-3.5 h-3.5" />Collapse</Button>
             <Button variant="outline" size="icon" onClick={() => cycleZoom('out')} title={`Zoom out (${zoom})`}><ZoomOut className="w-4 h-4" /></Button>
             <Button variant="outline" size="icon" onClick={() => cycleZoom('in')} title={`Zoom in (${zoom})`}><ZoomIn className="w-4 h-4" /></Button>
             <Button variant="outline" size="icon" onClick={() => window.print()} title="Print"><Printer className="w-4 h-4" /></Button>
@@ -425,7 +438,7 @@ export default function Programme() {
           </button>
 
           {!taskListCollapsed && (
-            <div className="w-[640px] xl:w-[720px] flex-shrink-0 overflow-hidden">
+            <div className="w-[520px] xl:w-[620px] flex-shrink-0 overflow-hidden">
               <TaskList
                 tasks={tasks}
                 visibleTasks={visibleTasks}
@@ -433,6 +446,7 @@ export default function Programme() {
                 expandedIds={expandedIds}
                 onToggleExpand={onToggleExpand}
                 onTaskClick={setSelectedTask}
+                onEditTask={setEditingTask}
                 scrollRef={taskScrollRef}
                 onScroll={() => ganttScrollRef.current && syncScroll(taskScrollRef.current, ganttScrollRef.current)}
               />
@@ -459,6 +473,13 @@ export default function Programme() {
           <ProgrammeHealth tasks={tasks} scheduledMap={scheduledMap} />
         </TabsContent>
       </Tabs>
+
+      {/* Inline task editor */}
+      <TaskInlineEditor
+        task={editingTask}
+        open={!!editingTask}
+        onOpenChange={open => { if (!open) setEditingTask(null); }}
+      />
 
       {/* Progress tracking panel */}
       <TaskProgressPanel

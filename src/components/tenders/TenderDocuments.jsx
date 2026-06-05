@@ -1,19 +1,19 @@
 import React, { useState } from 'react';
 import { base44 } from '@/api/base44Client';
-import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Upload, Download, Trash2, FileText, File } from 'lucide-react';
+import { Upload, Download, Trash2, FileText } from 'lucide-react';
 import { format } from 'date-fns';
+import { cn } from '@/lib/utils';
 
 const CATEGORIES = ['Plans', 'Specifications', 'Bill of Quantities', 'Schedule', 'Contract', 'Other'];
 
 const FILE_ICONS = {
   pdf: '📄', doc: '📝', docx: '📝', xls: '📊', xlsx: '📊',
-  png: '🖼', jpg: '🖼', jpeg: '🖼', dwg: '📐', dxf: '📐',
+  png: '🖼', jpg: '🖼', jpeg: '🖼', dwg: '📐', dxf: '📐', zip: '🗜',
 };
 
 function getExt(name) {
@@ -21,59 +21,108 @@ function getExt(name) {
 }
 
 export default function TenderDocuments({ tender, onUpdate, canManage }) {
-  const { user } = useAuth();
   const [showUpload, setShowUpload] = useState(false);
   const [uploadForm, setUploadForm] = useState({ name: '', category: 'Plans', file: null });
   const [uploading, setUploading] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
 
   const docs = tender.documents || [];
+
+  const uploadFiles = async (files) => {
+    if (!files.length) return;
+    setUploading(true);
+    const newDocs = [];
+    for (const file of files) {
+      const { file_url } = await base44.integrations.Core.UploadFile({ file });
+      newDocs.push({
+        name: file.name.replace(/\.[^.]+$/, ''),
+        file_url,
+        file_type: (file.name.split('.').pop() || 'File').toUpperCase(),
+        category: 'Other',
+        uploaded_at: new Date().toISOString(),
+      });
+    }
+    await onUpdate({ documents: [...docs, ...newDocs] });
+    setUploading(false);
+  };
+
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    if (!canManage) return;
+    const files = Array.from(e.dataTransfer.files).filter(f => {
+      const ext = getExt(f.name);
+      return ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'dwg', 'dxf', 'png', 'jpg', 'jpeg', 'zip'].includes(ext);
+    });
+    await uploadFiles(files);
+  };
 
   const handleUpload = async () => {
     if (!uploadForm.file || !uploadForm.name) return;
     setUploading(true);
-    try {
-      const { file_url } = await base44.integrations.Core.UploadFile({ file: uploadForm.file });
-      const newDoc = {
-        name: uploadForm.name,
-        file_url,
-        file_type: uploadForm.file.name.split('.').pop()?.toUpperCase() || 'File',
-        category: uploadForm.category,
-        uploaded_at: new Date().toISOString(),
-      };
-      await onUpdate({ documents: [...docs, newDoc] });
-      setShowUpload(false);
-      setUploadForm({ name: '', category: 'Plans', file: null });
-    } finally {
-      setUploading(false);
-    }
+    const { file_url } = await base44.integrations.Core.UploadFile({ file: uploadForm.file });
+    const newDoc = {
+      name: uploadForm.name,
+      file_url,
+      file_type: uploadForm.file.name.split('.').pop()?.toUpperCase() || 'File',
+      category: uploadForm.category,
+      uploaded_at: new Date().toISOString(),
+    };
+    await onUpdate({ documents: [...docs, newDoc] });
+    setUploading(false);
+    setShowUpload(false);
+    setUploadForm({ name: '', category: 'Plans', file: null });
   };
 
   const handleDelete = async (idx) => {
-    const updated = docs.filter((_, i) => i !== idx);
-    await onUpdate({ documents: updated });
+    await onUpdate({ documents: docs.filter((_, i) => i !== idx) });
   };
 
   const handleCategoryChange = async (idx, category) => {
-    const updated = docs.map((d, i) => i === idx ? { ...d, category } : d);
-    await onUpdate({ documents: updated });
+    await onUpdate({ documents: docs.map((d, i) => i === idx ? { ...d, category } : d) });
   };
 
   return (
-    <div>
+    <div
+      onDragOver={(e) => { e.preventDefault(); if (canManage) setIsDragOver(true); }}
+      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setIsDragOver(false); }}
+      onDrop={handleDrop}
+      className={cn(
+        'relative rounded-lg transition-all',
+        isDragOver && 'ring-2 ring-primary ring-offset-2'
+      )}
+    >
+      {/* Drag overlay */}
+      {isDragOver && canManage && (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-primary/5 border-2 border-dashed border-primary rounded-lg pointer-events-none">
+          <Upload className="w-10 h-10 text-primary mb-2" />
+          <p className="text-sm font-semibold text-primary">Drop files to upload</p>
+          <p className="text-xs text-muted-foreground mt-1">PDF, DOCX, XLSX, DWG, ZIP, Images</p>
+        </div>
+      )}
+
       <div className="flex items-center justify-between mb-4">
-        <p className="text-sm text-muted-foreground">{docs.length} document{docs.length !== 1 ? 's' : ''}</p>
+        <p className="text-sm text-muted-foreground">
+          {docs.length} document{docs.length !== 1 ? 's' : ''}
+          {canManage && <span className="ml-2 text-xs">· drag &amp; drop files anywhere</span>}
+        </p>
         {canManage && (
-          <Button onClick={() => setShowUpload(true)} className="gap-2" size="sm">
-            <Upload className="w-4 h-4" /> Upload Document
+          <Button onClick={() => setShowUpload(true)} disabled={uploading} className="gap-2" size="sm">
+            <Upload className="w-4 h-4" /> {uploading ? 'Uploading...' : 'Upload Document'}
           </Button>
         )}
       </div>
 
       {docs.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground">
+        <div className={cn(
+          'text-center py-16 border-2 border-dashed rounded-lg text-muted-foreground transition-colors',
+          canManage ? 'cursor-default' : ''
+        )}>
           <FileText className="w-10 h-10 mx-auto mb-3 opacity-30" />
           <p className="text-sm">No documents uploaded yet</p>
-          {canManage && <p className="text-xs mt-1">Upload plans, specs, BOQs and other tender documents</p>}
+          {canManage && (
+            <p className="text-xs mt-1">Upload files using the button above or drag &amp; drop here</p>
+          )}
         </div>
       ) : (
         <div className="border rounded-lg overflow-hidden">
@@ -109,7 +158,9 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
                     )}
                   </td>
                   <td className="px-4 py-3 hidden sm:table-cell">
-                    <span className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono">{doc.file_type || getExt(doc.name).toUpperCase()}</span>
+                    <span className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono">
+                      {doc.file_type || getExt(doc.name).toUpperCase()}
+                    </span>
                   </td>
                   <td className="px-4 py-3 hidden md:table-cell">
                     <span className="text-xs text-muted-foreground">
@@ -124,7 +175,8 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
                         </Button>
                       </a>
                       {canManage && (
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => handleDelete(idx)}>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
+                          onClick={() => handleDelete(idx)}>
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>
                       )}
@@ -162,7 +214,7 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
               <Label>File *</Label>
               <Input
                 type="file"
-                accept=".pdf,.doc,.docx,.xls,.xlsx,.dwg,.dxf,.png,.jpg,.jpeg"
+                accept=".pdf,.doc,.docx,.xls,.xlsx,.dwg,.dxf,.png,.jpg,.jpeg,.zip"
                 onChange={e => setUploadForm(f => ({ ...f, file: e.target.files?.[0] || null }))}
               />
             </div>

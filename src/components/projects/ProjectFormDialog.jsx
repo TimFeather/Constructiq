@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -16,10 +16,27 @@ export default function ProjectFormDialog({ open, onOpenChange, project }) {
   const [form, setForm] = useState(project || initialState);
   const queryClient = useQueryClient();
 
+  const { data: folderTemplates = [] } = useQuery({
+    queryKey: ['documentFolderTemplates'],
+    queryFn: () => base44.entities.DocumentFolderTemplate.list(),
+  });
+
   const mutation = useMutation({
-    mutationFn: (data) => project?.id 
-      ? base44.entities.Project.update(project.id, data) 
-      : base44.entities.Project.create(data),
+    mutationFn: async (data) => {
+      if (project?.id) return base44.entities.Project.update(project.id, data);
+      const created = await base44.entities.Project.create(data);
+      // Apply default folder template — create placeholder documents for each folder
+      const defaultTemplate = folderTemplates.find(t => t.is_default);
+      if (defaultTemplate?.folder_structure?.length && created?.id) {
+        // We just pre-create the folder structure by storing it; no documents needed.
+        // This is handled in ProjectDocsPanel which reads DEFAULT_FOLDERS.
+        // We store the chosen folder structure on the project for dynamic loading.
+        await base44.entities.Project.update(created.id, {
+          folder_structure: defaultTemplate.folder_structure,
+        });
+      }
+      return created;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
       queryClient.invalidateQueries({ queryKey: ['project'] });

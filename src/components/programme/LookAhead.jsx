@@ -17,7 +17,14 @@ export default function LookAhead({ tasks, scheduledMap }) {
 
   const { activeTasks, milestones, critical, overdue } = useMemo(() => {
     const active = [], miles = [], crit = [], late = [];
+    // Build set of parent IDs to exclude summary tasks
+    const parentIds = new Set(tasks.filter(t => tasks.some(o => o.parent_id === t.id)).map(t => t.id));
+
     for (const t of tasks) {
+      // Exclude parent/summary tasks — only leaf tasks and milestones
+      const isMilestone = t.is_milestone || t.duration === 0;
+      if (parentIds.has(t.id) && !isMilestone) continue;
+
       const resolved = scheduledMap?.get(t.id);
       const start = resolved?.startStr || t.start_date;
       const end = resolved?.finishStr || t.end_date;
@@ -26,7 +33,6 @@ export default function LookAhead({ tasks, scheduledMap }) {
       const overlaps = s <= windowEnd && e >= today;
       if (!overlaps) continue;
 
-      const isMilestone = t.is_milestone || t.duration === 0;
       const isCritical = resolved?.isCritical || false;
       const pct = t.percent_complete || 0;
       const isOverdue = pct < 100 && e < today;

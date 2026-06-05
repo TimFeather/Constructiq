@@ -22,7 +22,9 @@
         "Closed",
         "Awarded",
         "Unsuccessful",
-        "Converted"
+        "Converted",
+        "On Hold",
+        "Cancelled"
       ],
       "default": "Draft"
     },
@@ -32,7 +34,7 @@
     },
     "closing_date": {
       "type": "string",
-      "format": "date"
+      "description": "ISO datetime e.g. 2026-08-12T16:00:00"
     },
     "award_date": {
       "type": "string",
@@ -76,6 +78,27 @@
     "project_manager_email": {
       "type": "string"
     },
+    "additional_contacts": {
+      "type": "array",
+      "description": "Additional key contacts beyond the fixed three",
+      "items": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "location": {
       "type": "string"
     },
@@ -101,8 +124,7 @@
             "type": "string"
           },
           "category": {
-            "type": "string",
-            "description": "Plans/Specifications/Bill of Quantities/Schedule/Contract/Other"
+            "type": "string"
           },
           "uploaded_at": {
             "type": "string"
@@ -134,12 +156,10 @@
             "type": "string"
           },
           "status": {
-            "type": "string",
-            "description": "Invited, Viewed, Submitted, Awarded, Unsuccessful, Withdrawn"
+            "type": "string"
           },
           "token": {
-            "type": "string",
-            "description": "UUID for public submission link"
+            "type": "string"
           },
           "invited_at": {
             "type": "string"
@@ -162,18 +182,7 @@
               "price_breakdown": {
                 "type": "array",
                 "items": {
-                  "type": "object",
-                  "properties": {
-                    "trade_package": {
-                      "type": "string"
-                    },
-                    "amount": {
-                      "type": "number"
-                    },
-                    "notes": {
-                      "type": "string"
-                    }
-                  }
+                  "type": "object"
                 }
               },
               "uploaded_file_url": {
@@ -188,18 +197,7 @@
               "scores": {
                 "type": "array",
                 "items": {
-                  "type": "object",
-                  "properties": {
-                    "criterion": {
-                      "type": "string"
-                    },
-                    "score": {
-                      "type": "number"
-                    },
-                    "comment": {
-                      "type": "string"
-                    }
-                  }
+                  "type": "object"
                 }
               }
             }

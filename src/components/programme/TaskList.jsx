@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { ChevronRight, ChevronDown } from 'lucide-react';
+import { ChevronRight, ChevronDown, Pencil } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format, differenceInDays } from 'date-fns';
 
@@ -24,6 +24,7 @@ export default function TaskList({
   expandedIds,
   onToggleExpand,
   onTaskClick,
+  onEditTask,
   scrollRef,
   onScroll,
 }) {
@@ -94,14 +95,14 @@ export default function TaskList({
                 gridTemplateColumns: '52px 24px 1fr 60px 70px 70px 70px 70px 64px',
               }}
               className={cn(
-                'grid items-center w-full border-b border-border/20 hover:bg-muted/40 transition-colors cursor-pointer px-2 border-l-2',
+                'relative group grid items-center w-full border-b border-border/20 hover:bg-muted/40 transition-colors cursor-pointer px-2 border-l-2',
                 isCritical ? 'border-l-red-500 bg-red-50/30 dark:bg-red-950/10' : (levelColors[depth] || 'border-l-muted'),
               )}
               onClick={() => onTaskClick?.(task)}
             >
               <span className="text-[10px] font-mono text-muted-foreground text-center">{task.wbs || '—'}</span>
 
-              <div className="flex items-center justify-center">
+                      <div className="flex items-center justify-center">
                 {hasChildren ? (
                   <button
                     className="w-5 h-5 flex items-center justify-center hover:bg-muted rounded"
@@ -141,6 +142,15 @@ export default function TaskList({
                 {task.actual_finish ? format(new Date(task.actual_finish), 'dd/MM/yy') : '—'}
               </span>
               <div className="text-center">{varianceEl}</div>
+              {onEditTask && (
+                <button
+                  className="absolute right-1 opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center hover:bg-primary/10 rounded transition-opacity"
+                  onClick={e => { e.stopPropagation(); onEditTask(task); }}
+                  title="Edit task"
+                >
+                  <Pencil className="w-3 h-3 text-primary" />
+                </button>
+              )}
             </div>
           );
         })}

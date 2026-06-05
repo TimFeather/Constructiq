@@ -11,7 +11,7 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Save, Shield, Bell, Mail, Palette, Tag, RefreshCw, Trash2 } from 'lucide-react';
+import { Save, Shield, Bell, Mail, Palette, Tag, RefreshCw, Trash2, FolderOpen, FileSignature } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import PageHeader from '@/components/shared/PageHeader';
 import { DEFAULT_TEMPLATES } from '@/lib/emailTemplates';
@@ -22,6 +22,8 @@ import RoleManager from '@/components/settings/RoleManager';
 import SubcontractorDirectory from '@/components/settings/SubcontractorDirectory';
 import EmailBrandingPanel from '@/components/settings/EmailBrandingPanel';
 import EmailTemplateEditor from '@/components/settings/EmailTemplateEditor';
+import DocumentFolderTemplates from '@/components/settings/DocumentFolderTemplates';
+import TenderSettingsPanel from '@/components/settings/TenderSettingsPanel';
 
 const ROLES = [
   'Architect', 'Client', 'External Project Manager',
@@ -179,6 +181,16 @@ export default function Settings() {
           {isAdmin && (
             <TabsTrigger value="subcontractors">
               Subcontractors
+            </TabsTrigger>
+          )}
+          {isAdmin && (
+            <TabsTrigger value="documents">
+              <FolderOpen className="w-3.5 h-3.5 mr-1" /> Documents
+            </TabsTrigger>
+          )}
+          {isAdmin && (
+            <TabsTrigger value="tender-defaults">
+              <FileSignature className="w-3.5 h-3.5 mr-1" /> Tender Defaults
             </TabsTrigger>
           )}
         </TabsList>
@@ -382,6 +394,16 @@ export default function Settings() {
         {isAdmin && (
           <TabsContent value="subcontractors">
             <SubcontractorDirectory />
+          </TabsContent>
+        )}
+        {isAdmin && (
+          <TabsContent value="documents">
+            <DocumentFolderTemplates />
+          </TabsContent>
+        )}
+        {isAdmin && (
+          <TabsContent value="tender-defaults">
+            <TenderSettingsPanel />
           </TabsContent>
         )}
       </Tabs>

@@ -46,7 +46,13 @@ function closingDateLabel(tender) {
   return null;
 }
 
-const STATUS_TABS = ['All', 'Draft', 'Issued', 'Closed', 'Awarded', 'Unsuccessful', 'Converted'];
+const STATUS_TABS = ['All', 'Draft', 'Issued', 'Closed', 'Awarded', 'Unsuccessful', 'Converted', 'On Hold', 'Cancelled'];
+
+const STATUS_STYLES_LIST = {
+  ...STATUS_STYLES,
+  'On Hold':  'bg-orange-100 text-orange-700',
+  Cancelled:  'bg-gray-100 text-gray-500',
+};
 
 export default function Tenders() {
   const { user } = useAuth();
@@ -206,10 +212,10 @@ export default function Tenders() {
                         </div>
                       )}
                       {tender.estimated_value && (
-                        <div className="flex items-center gap-1.5">
-                          <DollarSign className="w-3 h-3" />
-                          NZD {Number(tender.estimated_value).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}
-                        </div>
+                      <div className="flex items-center gap-1.5">
+                        <DollarSign className="w-3 h-3" />
+                        {new Intl.NumberFormat('en-NZ', { style: 'currency', currency: 'NZD' }).format(Number(tender.estimated_value))}
+                      </div>
                       )}
                       <div className="flex items-center gap-1.5 pt-1">
                         <Users className="w-3 h-3" />
