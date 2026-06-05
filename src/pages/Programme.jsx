@@ -285,34 +285,59 @@ export default function Programme() {
 
       setDeleteProgress({ pct: 0, statusText: `0 / ${total} tasks deleted`, done: false, error: null });
 
-      const BATCH = 20;
+      // Helper: delete one task with a single retry on rate-limit (429)
+      const deleteWithRetry = async (id) => {
+        try {
+          return await base44.entities.Task.delete(id);
+        } catch (err) {
+          const isRateLimit =
+            err?.status === 429 ||
+            err?.response?.status === 429 ||
+            (err?.message || '').toLowerCase().includes('rate limit');
+          if (isRateLimit) {
+            await new Promise(r => setTimeout(r, 2000));
+            return await base44.entities.Task.delete(id);
+          }
+          throw err;
+        }
+      };
+
+      const BATCH = 3;
       let deleted = 0;
       let failedIds = [];
 
-      // Pass 1: delete all in batches
+      // Pass 1: delete sequentially in small batches
       for (let i = 0; i < allIds.length; i += BATCH) {
         const batch = allIds.slice(i, i + BATCH);
-        const results = await Promise.allSettled(batch.map(id => base44.entities.Task.delete(id)));
-        results.forEach((r, idx) => {
-          if (r.status === 'fulfilled') deleted++;
-          else failedIds.push(batch[idx]);
-        });
-        const pct = Math.round(((i + batch.length) / total) * 80);
-        setDeleteProgress({ pct, statusText: `${deleted} / ${total} deleted`, done: false, error: null });
-        await new Promise(r => setTimeout(r, 200));
+        for (const id of batch) {
+          try {
+            await deleteWithRetry(id);
+            deleted++;
+          } catch {
+            failedIds.push(id);
+          }
+          const pct = Math.round((deleted / total) * 80);
+          setDeleteProgress({ pct, statusText: `${deleted} / ${total} deleted`, done: false, error: null });
+        }
+        if (i + BATCH < allIds.length) {
+          await new Promise(r => setTimeout(r, 500));
+        }
       }
 
-      // Pass 2: retry failures with back-off (up to 2 attempts)
+      // Pass 2: retry failures with back-off
       for (let attempt = 0; attempt < 2 && failedIds.length > 0; attempt++) {
-        await new Promise(r => setTimeout(r, 600 * (attempt + 1)));
+        await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
         setDeleteProgress(p => ({ ...p, pct: 82, statusText: `Retrying ${failedIds.length} failed…` }));
         const retrying = [...failedIds];
         failedIds = [];
-        const results = await Promise.allSettled(retrying.map(id => base44.entities.Task.delete(id)));
-        results.forEach((r, idx) => {
-          if (r.status === 'fulfilled') deleted++;
-          else failedIds.push(retrying[idx]);
-        });
+        for (const id of retrying) {
+          try {
+            await deleteWithRetry(id);
+            deleted++;
+          } catch {
+            failedIds.push(id);
+          }
+        }
       }
 
       // Verify: re-query DB to confirm nothing remains
