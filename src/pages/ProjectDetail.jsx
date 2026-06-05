@@ -24,7 +24,7 @@ export default function ProjectDetail() {
     queryFn: () => base44.entities.Project.filter({ id }, '-created_date', 1).then(results => results[0] ?? null),
   });
 
-  const { data: projectDocs = [], refetch: refetchDocs } = useQuery({
+  const { data: projectDocs = [] } = useQuery({
     queryKey: ['documents', id],
     queryFn: () => base44.entities.Document.filter({ project_id: id }, '-created_date', 50),
   });

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useToast } from '@/components/ui/use-toast';
 import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { Search, FileText, Upload, ExternalLink, Folder, ArrowLeft, Calendar, FolderOpen } from 'lucide-react';
@@ -25,6 +26,7 @@ function getFileType(name) {
 
 export default function Documents() {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [projectFilter, setProjectFilter] = useState('all');
@@ -94,7 +96,7 @@ export default function Documents() {
       setNewFolder('');
     } catch (err) {
       console.error('Upload failed:', err);
-      alert('Upload failed. Please check your connection and try again.');
+      toast({ title: 'Upload failed', description: 'Please check your connection and try again.', variant: 'destructive' });
     } finally {
       setUploading(false);
     }

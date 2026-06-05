@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
@@ -92,8 +92,22 @@ export default function RFIs() {
     r.assigned_to_email === user?.email
   );
 
+  const [projectSearch, setProjectSearch] = useState('');
+  const [projectStatusFilter, setProjectStatusFilter] = useState('all');
+
+  useEffect(() => {
+    setProjectSearch('');
+    setProjectStatusFilter('all');
+  }, [selectedProjectId]);
+
   const selectedProject = projects.find(p => p.id === selectedProjectId);
   const projectRfis = selectedProjectId ? rfis.filter(r => r.project_id === selectedProjectId) : [];
+  const filteredProjectRfis = projectRfis.filter(r => {
+    const q = projectSearch.toLowerCase();
+    const matchSearch = !q || r.title?.toLowerCase().includes(q) || r.description?.toLowerCase().includes(q);
+    const matchStatus = projectStatusFilter === 'all' || r.status === projectStatusFilter;
+    return matchSearch && matchStatus;
+  });
 
   if (selectedProject) {
     return (
@@ -115,11 +129,26 @@ export default function RFIs() {
             </Button>
           }
         />
-        {projectRfis.length === 0 ? (
-          <EmptyState icon={MessageSquareMore} title="No RFIs for this project" description="Create the first RFI" actionLabel="New RFI" onAction={() => setShowForm(true)} />
+        <div className="flex flex-col sm:flex-row gap-3 mb-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input placeholder="Search RFIs..." value={projectSearch} onChange={e => setProjectSearch(e.target.value)} className="pl-9" />
+          </div>
+          <Select value={projectStatusFilter} onValueChange={setProjectStatusFilter}>
+            <SelectTrigger className="w-full sm:w-36"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="Open">Open</SelectItem>
+              <SelectItem value="Answered">Answered</SelectItem>
+              <SelectItem value="Closed">Closed</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        {filteredProjectRfis.length === 0 ? (
+          <EmptyState icon={MessageSquareMore} title={projectRfis.length === 0 ? "No RFIs for this project" : "No RFIs match your filters"} description={projectRfis.length === 0 ? "Create the first RFI" : "Try adjusting your search or filters"} actionLabel={projectRfis.length === 0 ? "New RFI" : undefined} onAction={projectRfis.length === 0 ? () => setShowForm(true) : undefined} />
         ) : (
           <div className="space-y-3">
-            {projectRfis.map(rfi => (
+            {filteredProjectRfis.map(rfi => (
               <RFICard key={rfi.id} rfi={rfi} projectMap={null} rfiNumber={projectRfiNumber[rfi.id] || rfi.number} />
             ))}
           </div>

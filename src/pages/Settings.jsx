@@ -38,20 +38,12 @@ export default function Settings() {
     construction_role: '', notify_rfis: true, notify_documents: true,
   });
 
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteRole, setInviteRole] = useState('external');
   const [editingTemplate, setEditingTemplate] = useState(null);
   const [deleteStep, setDeleteStep] = useState(0);
 
   const { data: users = [] } = useQuery({
     queryKey: ['users'],
     queryFn: () => base44.entities.User.list(),
-    enabled: user?.role === 'admin',
-  });
-
-  const { data: invitedUsers = [] } = useQuery({
-    queryKey: ['invitedUsers'],
-    queryFn: () => base44.entities.InvitedUser.list('-created_date', 100),
     enabled: user?.role === 'admin',
   });
 
@@ -89,21 +81,6 @@ export default function Settings() {
         duration: 8000,
       });
     },
-  });
-
-  const inviteMutation = useMutation({
-    mutationFn: async ({ email, role }) => {
-      await base44.users.inviteUser(email, role === 'admin' ? 'admin' : 'user');
-    },
-    onSuccess: () => {
-      setInviteEmail('');
-      queryClient.invalidateQueries({ queryKey: ['users'] });
-    }
-  });
-
-  const roleMutation = useMutation({
-    mutationFn: ({ userId, role }) => base44.entities.User.update(userId, { role }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['users'] }),
   });
 
   const { data: emailBrandingList = [] } = useQuery({

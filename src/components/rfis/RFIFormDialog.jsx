@@ -61,8 +61,9 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
 
   const createMutation = useMutation({
     mutationFn: async (data) => {
-      const projectRfis = await base44.entities.RFI.filter({ project_id: data.project_id }, '-number', 1);
-      const nextNumber = projectRfis.length > 0 ? (projectRfis[0].number || 0) + 1 : 1;
+      const projectRfis = await base44.entities.RFI.filter({ project_id: data.project_id }, '-created_date', 500);
+      const maxNumber = projectRfis.reduce((max, r) => Math.max(max, r.number || 0), 0);
+      const nextNumber = maxNumber + 1;
       // keep legacy single-assignee fields populated with first assignee for backwards compat
       const firstAssignee = selectedEmails[0];
       const rfi = await base44.entities.RFI.create({

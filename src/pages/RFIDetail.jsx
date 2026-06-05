@@ -65,7 +65,7 @@ export default function RFIDetail() {
 
   const deleteMutation = useMutation({
     mutationFn: () => base44.entities.RFI.delete(id),
-    onSuccess: () => navigate(-1),
+    onSuccess: () => navigate('/rfis', { replace: true }),
   });
 
   const respondMutation = useMutation({

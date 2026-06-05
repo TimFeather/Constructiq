@@ -46,6 +46,8 @@ export default function TenderDetail() {
   const [form, setForm] = useState(null);
   const [isDirty, setIsDirty] = useState(false);
   const [activeTab, setActiveTab] = useState('details');
+  const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
+  const [pendingTab, setPendingTab] = useState(null);
 
   const { data: tender, isLoading } = useQuery({
     queryKey: ['tender', id],
@@ -63,9 +65,12 @@ export default function TenderDetail() {
   // Detect unsaved changes
   useEffect(() => {
     if (!tender || !form) return;
-    const fields = ['title', 'description', 'status', 'location', 'issue_date', 'closing_date', 'notes', 'client_name', 'client_email', 'architect_name', 'architect_email', 'project_manager_name', 'project_manager_email'];
-    const hasChanges = fields.some(key => String(form[key] ?? '') !== String(tender[key] ?? ''));
-    setIsDirty(hasChanges);
+    const textFields = ['title', 'description', 'status', 'location', 'issue_date', 'closing_date', 'notes', 'client_name', 'client_email', 'architect_name', 'architect_email', 'project_manager_name', 'project_manager_email'];
+    const textChanged = textFields.some(key => String(form[key] ?? '') !== String(tender[key] ?? ''));
+    const valueChanged = String(form.estimated_value ?? '') !== String(tender.estimated_value ?? '');
+    const tradeChanged = JSON.stringify(form.trade_packages ?? []) !== JSON.stringify(tender.trade_packages ?? []);
+    const scoringChanged = JSON.stringify(form.scoring_criteria ?? []) !== JSON.stringify(tender.scoring_criteria ?? []);
+    setIsDirty(textChanged || valueChanged || tradeChanged || scoringChanged);
   }, [form, tender]);
 
   const updateMutation = useMutation({
@@ -186,10 +191,11 @@ export default function TenderDetail() {
 
       <Tabs value={activeTab} onValueChange={(val) => {
         if (isDirty && activeTab === 'details') {
-          if (!window.confirm('You have unsaved changes. Leave without saving?')) return;
-          setIsDirty(false);
+          setPendingTab(val);
+          setShowUnsavedDialog(true);
+        } else {
+          setActiveTab(val);
         }
-        setActiveTab(val);
       }} className="space-y-4">
         <TabsList className="flex-wrap">
           <TabsTrigger value="details">Details</TabsTrigger>
@@ -358,6 +364,28 @@ export default function TenderDetail() {
       </Tabs>
 
       <ConvertToProjectModal tender={tender} open={showConvert} onOpenChange={setShowConvert} />
+
+      <AlertDialog open={showUnsavedDialog} onOpenChange={setShowUnsavedDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unsaved changes</AlertDialogTitle>
+            <AlertDialogDescription>
+              You have unsaved changes on the Details tab. Leave without saving?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setPendingTab(null)}>Stay</AlertDialogCancel>
+            <AlertDialogAction onClick={() => {
+              setIsDirty(false);
+              setActiveTab(pendingTab);
+              setPendingTab(null);
+              setShowUnsavedDialog(false);
+            }}>
+              Leave without saving
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -38,10 +38,16 @@ export default function UserManagement() {
   const inviteMutation = useMutation({
     mutationFn: async ({ email, role }) => {
       await base44.users.inviteUser(email, role === 'admin' ? 'admin' : 'user');
+      await base44.entities.InvitedUser.create({
+        email,
+        app_role: role,
+        invited_by_email: user?.email,
+      });
     },
     onSuccess: () => {
       setInviteEmail('');
       queryClient.invalidateQueries({ queryKey: ['users'] });
+      queryClient.invalidateQueries({ queryKey: ['invitedUsers'] });
     }
   });
 

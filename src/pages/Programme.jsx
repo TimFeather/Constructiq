@@ -19,7 +19,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import PageHeader from '@/components/shared/PageHeader';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import TaskList from '@/components/programme/TaskList';
 import GanttChart from '@/components/programme/GanttChart';
 import TaskProgressPanel from '@/components/programme/TaskProgressPanel';
@@ -118,7 +118,7 @@ export default function Programme() {
     if (tasks.length > 0) {
       setExpandedIds(new Set(tasks.filter(t => !t.parent_id).map(t => t.id)));
     }
-  }, [tasks.length > 0 && selectedProjectId]);
+  }, [selectedProjectId]);
 
   // ─── Single visible task list — shared by TaskList + GanttChart ─────────────
   const visibleTasks = useMemo(() => getVisibleTasks(tasks, expandedIds), [tasks, expandedIds]);
