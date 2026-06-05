@@ -1,13 +1,13 @@
 /**
  * GanttChart — pure renderer.
- * This component performs ZERO scheduling calculations.
- * All schedule data is passed in via props (scheduledMap from the engine).
+ * Receives pre-computed visibleTasks (same list as TaskList) for perfect row alignment.
+ * Performs ZERO scheduling calculations.
  */
 import React, { useMemo, useRef, useCallback, useEffect } from 'react';
 import { differenceInDays, addDays, format, eachWeekOfInterval, eachDayOfInterval, isToday, isWeekend, eachMonthOfInterval } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { flattenTasks } from '@/lib/flattenTasks';
 
+export { ROW_HEIGHT } from './TaskList';
 import { ROW_HEIGHT } from './TaskList';
 
 const ROW_H = ROW_HEIGHT;
@@ -28,43 +28,36 @@ const ZOOM_DAY_WIDTHS = {
 };
 
 export default function GanttChart({
-  tasks,
-  scheduledMap,   // Map<id, ScheduleResult> — from scheduleEngine, computed in parent
+  tasks,          // full task list (for bounds calculation)
+  visibleTasks,   // pre-computed visible rows — MUST match TaskList exactly
+  scheduledMap,
   zoom = 'week',
   scrollRef,
   onScroll,
-  baselineMap,    // Map<task_id, { baseline_start, baseline_finish }> — optional
+  baselineMap,
   onTaskClick,
 }) {
   const dayWidth = ZOOM_DAY_WIDTHS[zoom] || 18;
   const scrolledToday = useRef(false);
 
-  // ─── Timeline bounds ────────────────────────────────────────────────────────
-  const { minDate, maxDate, totalDays, dateHeaders } = useMemo(() => {
+  // ─── Timeline bounds (based on full task set, not visible) ───────────────────
+  const { minDate, totalDays, dateHeaders } = useMemo(() => {
     const dates = [];
-    // Use only engine-calculated dates for timeline bounds
     if (scheduledMap) {
       scheduledMap.forEach(r => {
         if (r.start) dates.push(r.start);
         if (r.finish) dates.push(r.finish);
       });
     }
-    // Fallback for tasks not yet in the engine (e.g. just created)
     if (dates.length === 0) {
       tasks.forEach(t => {
         if (t.start_date) dates.push(new Date(t.start_date));
         if (t.end_date) dates.push(new Date(t.end_date));
       });
     }
-
     if (dates.length === 0) {
       const today = new Date();
-      return {
-        minDate: addDays(today, -7),
-        maxDate: addDays(today, 60),
-        totalDays: 67,
-        dateHeaders: [],
-      };
+      return { minDate: addDays(today, -7), totalDays: 67, dateHeaders: [] };
     }
 
     const min = new Date(Math.min(...dates.map(d => d.getTime())));
@@ -74,90 +67,65 @@ export default function GanttChart({
     const total = differenceInDays(padMax, padMin) + 1;
 
     let headers = [];
-
     if (zoom === 'day') {
       headers = eachDayOfInterval({ start: padMin, end: padMax }).map(d => ({
-        date: d,
-        label: format(d, 'd'),
-        sublabel: format(d, 'EEE'),
-        isWeekend: isWeekend(d),
-        isToday: isToday(d),
-        width: dayWidth,
+        date: d, label: format(d, 'd'), sublabel: format(d, 'EEE'),
+        isWeekend: isWeekend(d), isToday: isToday(d), width: dayWidth,
       }));
     } else if (zoom === 'week') {
       headers = eachWeekOfInterval({ start: padMin, end: padMax }).map(d => ({
-        date: d,
-        label: format(d, 'MMM d'),
-        sublabel: format(d, "'W'ww yyyy"),
-        width: dayWidth * 7,
+        date: d, label: format(d, 'MMM d'), sublabel: format(d, "'W'ww yyyy"), width: dayWidth * 7,
       }));
     } else if (zoom === 'month') {
       headers = eachMonthOfInterval({ start: padMin, end: padMax }).map(d => ({
-        date: d,
-        label: format(d, 'MMM yyyy'),
-        sublabel: '',
-        width: dayWidth * 30,
+        date: d, label: format(d, 'MMM yyyy'), sublabel: '', width: dayWidth * 30,
       }));
     } else if (zoom === 'quarter') {
       headers = eachMonthOfInterval({ start: padMin, end: padMax })
         .filter((_, i) => i % 3 === 0)
-        .map(d => ({
-          date: d,
-          label: `Q${Math.floor(d.getMonth() / 3) + 1} ${format(d, 'yyyy')}`,
-          sublabel: '',
-          width: dayWidth * 91,
-        }));
+        .map(d => ({ date: d, label: `Q${Math.floor(d.getMonth() / 3) + 1} ${format(d, 'yyyy')}`, sublabel: '', width: dayWidth * 91 }));
     } else {
-      // year
       const years = new Set(eachMonthOfInterval({ start: padMin, end: padMax }).map(d => d.getFullYear()));
-      headers = [...years].map(y => ({
-        date: new Date(y, 0, 1),
-        label: String(y),
-        sublabel: '',
-        width: dayWidth * 365,
-      }));
+      headers = [...years].map(y => ({ date: new Date(y, 0, 1), label: String(y), sublabel: '', width: dayWidth * 365 }));
     }
 
-    return { minDate: padMin, maxDate: padMax, totalDays: total, dateHeaders: headers };
+    return { minDate: padMin, totalDays: total, dateHeaders: headers };
   }, [tasks, scheduledMap, zoom, dayWidth]);
 
-  // ─── Flatten task tree ───────────────────────────────────────────────────────
-  const flatTasks = useMemo(() => flattenTasks(tasks), [tasks]);
-
-  // ─── Bar geometry helper ─────────────────────────────────────────────────────
+  // ─── Bar geometry ────────────────────────────────────────────────────────────
   const getBar = useCallback((task) => {
     const resolved = scheduledMap?.get(task.id);
-    // Only use engine-calculated dates — no silent fallback to raw task dates
     const startDate = resolved?.start ?? null;
     const endDate = resolved?.finish ?? null;
-    if (!startDate || !endDate) return null; // Missing = not yet scheduled, skip render
+    if (!startDate || !endDate) return null;
 
     const left = Math.round(differenceInDays(startDate, minDate) * dayWidth);
     const isMilestone = task.is_milestone || task.duration === 0;
     if (isMilestone) return { left, width: 0, isMilestone: true };
 
     const duration = Math.max(1, differenceInDays(endDate, startDate) + 1);
-    const width = Math.max(duration * dayWidth, dayWidth);
-    return { left, width, isMilestone: false };
+    return { left, width: Math.max(duration * dayWidth, dayWidth), isMilestone: false };
   }, [scheduledMap, minDate, dayWidth]);
 
-  // ─── Dependency arrows ───────────────────────────────────────────────────────
+  // ─── Dependency arrows — uses visibleTasks index map for correct positions ───
   const arrows = useMemo(() => {
     const result = [];
-    const taskIndexMap = new Map(flatTasks.map((t, i) => [t.id, i]));
+    // Only visible rows participate — hidden rows are absent from this map
+    const visibleIndexMap = new Map(visibleTasks.map((t, i) => [t.id, i]));
     const ELBOW = 8;
 
-    for (const task of flatTasks) {
-      const taskIdx = taskIndexMap.get(task.id);
+    for (const task of visibleTasks) {
+      const taskIdx = visibleIndexMap.get(task.id);
       const taskBar = getBar(task);
       if (!taskBar) continue;
 
       for (const dep of (task.predecessors || [])) {
         const pid = dep.predecessor_id || dep.task_id;
-        const predIdx = taskIndexMap.get(pid);
+        const predIdx = visibleIndexMap.get(pid);
+        // Skip if predecessor is not visible (collapsed away)
         if (predIdx === undefined) continue;
 
-        const predTask = flatTasks[predIdx];
+        const predTask = visibleTasks[predIdx];
         const predBar = getBar(predTask);
         if (!predBar) continue;
 
@@ -168,14 +136,10 @@ export default function GanttChart({
 
         let ox, oy, tx, ty;
         switch (type) {
-          case 'SS':
-            ox = predBar.left; oy = predCy; tx = taskBar.left; ty = taskCy; break;
-          case 'FF':
-            ox = predBar.left + predBar.width; oy = predCy; tx = taskBar.left + taskBar.width; ty = taskCy; break;
-          case 'SF':
-            ox = predBar.left; oy = predCy; tx = taskBar.left + taskBar.width; ty = taskCy; break;
-          default: // FS
-            ox = predBar.left + predBar.width; oy = predCy; tx = taskBar.left; ty = taskCy;
+          case 'SS': ox = predBar.left; oy = predCy; tx = taskBar.left; ty = taskCy; break;
+          case 'FF': ox = predBar.left + predBar.width; oy = predCy; tx = taskBar.left + taskBar.width; ty = taskCy; break;
+          case 'SF': ox = predBar.left; oy = predCy; tx = taskBar.left + taskBar.width; ty = taskCy; break;
+          default:   ox = predBar.left + predBar.width; oy = predCy; tx = taskBar.left; ty = taskCy;
         }
 
         const goRight = type === 'FS' || type === 'FF';
@@ -184,22 +148,18 @@ export default function GanttChart({
         const stubTx = arriveRight ? tx + ELBOW : tx - ELBOW;
         const midY = (oy + ty) / 2;
 
-        let pathD;
-        if (oy === ty) {
-          pathD = `M ${ox} ${oy} L ${tx} ${ty}`;
-        } else {
-          pathD = `M ${ox} ${oy} L ${stubOx} ${oy} L ${stubOx} ${midY} L ${stubTx} ${midY} L ${stubTx} ${ty} L ${tx} ${ty}`;
-        }
+        const pathD = oy === ty
+          ? `M ${ox} ${oy} L ${tx} ${ty}`
+          : `M ${ox} ${oy} L ${stubOx} ${oy} L ${stubOx} ${midY} L ${stubTx} ${midY} L ${stubTx} ${ty} L ${tx} ${ty}`;
 
         result.push({ pathD, color, type, key: `${pid}-${task.id}-${type}` });
       }
     }
-
     return result;
-  }, [flatTasks, getBar]);
+  }, [visibleTasks, getBar]);
 
   const chartWidth = Math.max(totalDays * dayWidth, 400);
-  const chartHeight = flatTasks.length * ROW_H + 50;
+  const chartHeight = visibleTasks.length * ROW_H + 50;
   const todayX = Math.round(differenceInDays(new Date(), minDate) * dayWidth);
 
   useEffect(() => {
@@ -212,25 +172,21 @@ export default function GanttChart({
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-card">
-      {/* Fixed header row 1 */}
       <div className="flex-shrink-0 h-10 border-b bg-muted/30 flex items-center px-3">
         <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Timeline</span>
       </div>
 
-      {/* Date header row — synced horizontally */}
-      <div className="flex-shrink-0 h-10 border-b bg-muted/30 overflow-hidden" id="gantt-date-header">
+      {/* Date header */}
+      <div className="flex-shrink-0 h-9 border-b bg-muted/30 overflow-hidden" id="gantt-date-header">
         <div className="flex h-full" style={{ minWidth: chartWidth }}>
           {dateHeaders.map((h, i) => (
             <div
               key={i}
-              className={cn(
-                "flex-shrink-0 border-r border-border/40 flex flex-col items-center justify-center",
-                h.isWeekend && "bg-muted/50",
-                h.isToday && "bg-primary/10",
-              )}
+              className={cn('flex-shrink-0 border-r border-border/40 flex flex-col items-center justify-center',
+                h.isWeekend && 'bg-muted/50', h.isToday && 'bg-primary/10')}
               style={{ width: h.width }}
             >
-              <span className={cn("text-[10px] font-semibold truncate px-1", h.isToday ? "text-primary" : "text-muted-foreground")}>
+              <span className={cn('text-[10px] font-semibold truncate px-1', h.isToday ? 'text-primary' : 'text-muted-foreground')}>
                 {h.label}
               </span>
               {h.sublabel && (zoom === 'day' || zoom === 'week') && (
@@ -254,52 +210,30 @@ export default function GanttChart({
         <div style={{ minWidth: chartWidth }} className="relative">
           <div className="relative" style={{ height: chartHeight }}>
 
-            {/* Weekend shading (day view) */}
             {zoom === 'day' && dateHeaders.filter(h => h.isWeekend).map((h, i) => (
-              <div
-                key={i}
-                className="absolute top-0 bottom-0 bg-muted/30 pointer-events-none"
-                style={{ left: differenceInDays(h.date, minDate) * dayWidth, width: dayWidth }}
-              />
+              <div key={i} className="absolute top-0 bottom-0 bg-muted/30 pointer-events-none"
+                style={{ left: differenceInDays(h.date, minDate) * dayWidth, width: dayWidth }} />
             ))}
 
-            {/* Vertical grid lines */}
             {dateHeaders.map((h, i) => (
-              <div
-                key={i}
-                className="absolute top-0 bottom-0 border-r border-border/15 pointer-events-none"
-                style={{ left: Math.round(differenceInDays(h.date, minDate) * dayWidth) }}
-              />
+              <div key={i} className="absolute top-0 bottom-0 border-r border-border/15 pointer-events-none"
+                style={{ left: Math.round(differenceInDays(h.date, minDate) * dayWidth) }} />
             ))}
 
-            {/* Today line */}
             {todayX >= 0 && todayX <= chartWidth && (
-              <div
-                className="absolute top-0 bottom-0 border-r-2 border-primary/70 pointer-events-none z-10"
-                style={{ left: todayX }}
-              >
-                <div className="absolute top-0 left-0 -translate-x-1/2 text-[9px] bg-primary text-primary-foreground px-1 rounded-b z-20">
-                  Today
-                </div>
+              <div className="absolute top-0 bottom-0 border-r-2 border-primary/70 pointer-events-none z-10" style={{ left: todayX }}>
+                <div className="absolute top-0 left-0 -translate-x-1/2 text-[9px] bg-primary text-primary-foreground px-1 rounded-b z-20">Today</div>
               </div>
             )}
 
-            {/* Row backgrounds */}
-            {flatTasks.map((_, i) => (
-              <div
-                key={i}
-                className={cn("absolute w-full border-b border-border/10", i % 2 === 0 ? "bg-muted/5" : "")}
-                style={{ top: i * ROW_H, height: ROW_H }}
-              />
+            {/* Row backgrounds — keyed to visibleTasks */}
+            {visibleTasks.map((t, i) => (
+              <div key={t.id} className={cn('absolute w-full border-b border-border/10', i % 2 === 0 ? 'bg-muted/5' : '')}
+                style={{ top: i * ROW_H, height: ROW_H }} />
             ))}
 
-            {/* Dependency arrows (SVG) */}
-            <svg
-              className="absolute inset-0 pointer-events-none overflow-visible"
-              width={chartWidth}
-              height={chartHeight}
-              style={{ zIndex: 1 }}
-            >
+            {/* Dependency arrows */}
+            <svg className="absolute inset-0 pointer-events-none overflow-visible" width={chartWidth} height={chartHeight} style={{ zIndex: 1 }}>
               <defs>
                 {Object.entries(DEP_COLORS).map(([type, color]) => (
                   <marker key={type} id={`arrow-${type}`} markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
@@ -310,21 +244,13 @@ export default function GanttChart({
               {arrows.map(({ pathD, color, type, key }) => (
                 <g key={key}>
                   <path d={pathD} fill="none" stroke="transparent" strokeWidth="6" />
-                  <path
-                    d={pathD}
-                    fill="none"
-                    stroke={color}
-                    strokeWidth="1.5"
-                    strokeDasharray="5 3"
-                    opacity="0.8"
-                    markerEnd={`url(#arrow-${type})`}
-                  />
+                  <path d={pathD} fill="none" stroke={color} strokeWidth="1.5" strokeDasharray="5 3" opacity="0.8" markerEnd={`url(#arrow-${type})`} />
                 </g>
               ))}
             </svg>
 
-            {/* Task bars */}
-            {flatTasks.map((task, i) => {
+            {/* Task bars — indexed against visibleTasks */}
+            {visibleTasks.map((task, i) => {
               const bar = getBar(task);
               if (!bar) return null;
 
@@ -338,7 +264,6 @@ export default function GanttChart({
                 : (task.percent_complete || 0);
               const totalFloat = resolved?.totalFloat ?? null;
 
-              // Baseline bar
               const baseline = baselineMap?.get(task.id);
               const baselineBar = baseline ? (() => {
                 const bs = baseline.baseline_start ? new Date(baseline.baseline_start) : null;
@@ -352,24 +277,14 @@ export default function GanttChart({
               const top = i * ROW_H;
 
               if (isMilestoneTask) {
-                // Diamond milestone symbol
-                const cx = bar.left;
-                const cy = top + ROW_H / 2;
-                const size = 7;
+                const cx = bar.left, cy = top + ROW_H / 2, size = 7;
                 return (
-                  <svg
-                    key={task.id}
-                    className="absolute pointer-events-auto cursor-pointer"
+                  <svg key={task.id} className="absolute pointer-events-auto cursor-pointer"
                     style={{ left: cx - size - 2, top: cy - size - 2, overflow: 'visible', zIndex: 2 }}
-                    width={size * 2 + 4}
-                    height={size * 2 + 4}
-                    onClick={() => onTaskClick?.(task)}
-                  >
+                    width={size * 2 + 4} height={size * 2 + 4} onClick={() => onTaskClick?.(task)}>
                     <polygon
                       points={`${size + 2},2 ${size * 2 + 2},${size + 2} ${size + 2},${size * 2 + 2} 2,${size + 2}`}
-                      fill={isCritical ? '#ef4444' : '#6366f1'}
-                      stroke={isCritical ? '#b91c1c' : '#4f46e5'}
-                      strokeWidth="1"
+                      fill={isCritical ? '#ef4444' : '#6366f1'} stroke={isCritical ? '#b91c1c' : '#4f46e5'} strokeWidth="1"
                     />
                   </svg>
                 );
@@ -379,22 +294,12 @@ export default function GanttChart({
                 return (
                   <React.Fragment key={task.id}>
                     {baselineBar && (
-                      <div
-                        className="absolute pointer-events-none opacity-40 border border-muted-foreground/50"
-                        style={{
-                          left: baselineBar.left,
-                          width: baselineBar.width,
-                          top: top + ROW_H - 6,
-                          height: 4,
-                          background: 'repeating-linear-gradient(90deg, #94a3b8 0px, #94a3b8 4px, transparent 4px, transparent 8px)',
-                        }}
-                      />
+                      <div className="absolute pointer-events-none opacity-40 border border-muted-foreground/50"
+                        style={{ left: baselineBar.left, width: baselineBar.width, top: top + ROW_H - 6, height: 4,
+                          background: 'repeating-linear-gradient(90deg,#94a3b8 0px,#94a3b8 4px,transparent 4px,transparent 8px)' }} />
                     )}
                     <div
-                      className={cn(
-                        "absolute flex items-center cursor-pointer",
-                        isCritical ? "bg-red-500" : "bg-primary",
-                      )}
+                      className={cn('absolute flex items-center cursor-pointer', isCritical ? 'bg-red-500' : 'bg-primary')}
                       style={{ left: bar.left, width: bar.width, top: top + 6, height: ROW_H - 12, borderRadius: 2 }}
                       title={`${task.name} (Summary)${isCritical ? ' — CRITICAL' : ''}`}
                       onClick={() => onTaskClick?.(task)}
@@ -410,42 +315,31 @@ export default function GanttChart({
                 );
               }
 
-              // Normal task bar
               const barColor = isCritical ? 'bg-red-500 hover:bg-red-400' : 'bg-accent hover:bg-accent/80';
               return (
                 <React.Fragment key={task.id}>
                   {baselineBar && (
-                    <div
-                      className="absolute pointer-events-none opacity-50"
-                      style={{
-                        left: baselineBar.left,
-                        width: baselineBar.width,
-                        top: top + ROW_H - 5,
-                        height: 3,
-                        background: '#94a3b8',
-                        borderRadius: 1,
-                      }}
-                    />
+                    <div className="absolute pointer-events-none opacity-50"
+                      style={{ left: baselineBar.left, width: baselineBar.width, top: top + ROW_H - 5, height: 3, background: '#94a3b8', borderRadius: 1 }} />
                   )}
                   <div
-                    className={cn("absolute rounded transition-all hover:shadow-md cursor-pointer group", barColor)}
+                    className={cn('absolute rounded transition-all hover:shadow-md cursor-pointer group', barColor)}
                     style={{ left: bar.left, width: bar.width, top: top + 4, height: ROW_H - 8, zIndex: 2 }}
                     title={`${task.name}\n${task.start_date} → ${task.end_date}\n${task.duration || 0}d | ${percentComplete}%${isCritical ? '\n⚠ CRITICAL PATH' : ''}${totalFloat !== null ? `\nFloat: ${Math.round(totalFloat / 8)}d` : ''}`}
                     onClick={() => onTaskClick?.(task)}
                   >
-                    {/* Critical path left edge indicator */}
-                    {isCritical && (
-                      <div className="absolute left-0 top-0 bottom-0 w-1 bg-red-700 rounded-l" />
-                    )}
+                    {isCritical && <div className="absolute left-0 top-0 bottom-0 w-1 bg-red-700 rounded-l" />}
                     {percentComplete > 0 && (
                       <div className="absolute inset-0 bg-white/30 rounded" style={{ width: `${percentComplete}%` }} />
                     )}
                     {bar.width > 50 && (
-                      <span className="absolute left-2 text-[10px] text-white font-medium truncate leading-tight pointer-events-none" style={{ maxWidth: bar.width - 16, top: '50%', transform: 'translateY(-50%)' }}>
+                      <span className="absolute left-2 text-[10px] text-white font-medium truncate leading-tight pointer-events-none"
+                        style={{ maxWidth: bar.width - 16, top: '50%', transform: 'translateY(-50%)' }}>
                         {task.name}
                       </span>
                     )}
-                    <span className="absolute right-1 text-[9px] text-white/80 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" style={{ top: '50%', transform: 'translateY(-50%)' }}>
+                    <span className="absolute right-1 text-[9px] text-white/80 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+                      style={{ top: '50%', transform: 'translateY(-50%)' }}>
                       {percentComplete}%
                     </span>
                   </div>

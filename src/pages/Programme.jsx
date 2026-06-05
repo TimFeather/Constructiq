@@ -17,6 +17,7 @@ import {
   Trash2, Target, Calendar, LayoutDashboard, CalendarDays,
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useToast } from '@/components/ui/use-toast';
 import PageHeader from '@/components/shared/PageHeader';
 import { Link } from 'react-router-dom';
 import TaskList from '@/components/programme/TaskList';
@@ -24,15 +25,19 @@ import GanttChart from '@/components/programme/GanttChart';
 import TaskProgressPanel from '@/components/programme/TaskProgressPanel';
 import ProgrammeHealth from '@/components/programme/ProgrammeHealth';
 import LookAhead from '@/components/programme/LookAhead';
-import NetworkDiagram from '@/components/programme/NetworkDiagram';
+import ProgressModal from '@/components/programme/ProgressModal';
 import { parseXML, parseMPX, parseExcelCSV } from '@/lib/scheduleImportParsers';
 import { runScheduleEngine } from '@/lib/scheduling/scheduleEngine';
+import { getVisibleTasks } from '@/lib/programme/visibleTasks';
 
 const ZOOM_LEVELS = ['year', 'quarter', 'month', 'week', 'day'];
+const DELETE_CHUNK = 150;
+const IMPORT_STAGES = ['Reading file', 'Parsing schedule', 'Creating tasks', 'Linking dependencies', 'Building hierarchy', 'Finalising'];
 
 export default function Programme() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
+  const { toast } = useToast();
 
   const urlParams = new URLSearchParams(window.location.search);
   const projectFromUrl = urlParams.get('project') || 'all';
@@ -41,11 +46,19 @@ export default function Programme() {
   const [taskListCollapsed, setTaskListCollapsed] = useState(false);
   const [zoom, setZoom] = useState('week');
   const [selectedTask, setSelectedTask] = useState(null);
-  const [showUploadMPP, setShowUploadMPP] = useState(false);
+
+  // Expand/collapse state — shared source of truth for TaskList + GanttChart
+  const [expandedIds, setExpandedIds] = useState(new Set());
+
+  // Import state
+  const [showImportDialog, setShowImportDialog] = useState(false);
   const [mppFile, setMppFile] = useState(null);
-  const [uploading, setUploading] = useState(false);
+  const [importProgress, setImportProgress] = useState(null); // { stage, pct, statusText, error }
+
+  // Delete state
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  const [deleteProgress, setDeleteProgress] = useState(null); // { pct, statusText, done, error }
+
   const [showCriticalPath, setShowCriticalPath] = useState(true);
 
   const queryClient = useQueryClient();
@@ -58,6 +71,14 @@ export default function Programme() {
     isSyncing.current = true;
     target.scrollTop = source.scrollTop;
     isSyncing.current = false;
+  }, []);
+
+  const onToggleExpand = useCallback((id) => {
+    setExpandedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
   }, []);
 
   // ─── Data fetching ───────────────────────────────────────────────────────────
@@ -81,10 +102,10 @@ export default function Programme() {
   });
 
   useEffect(() => {
-    const unsubscribe = base44.entities.Task.subscribe(() => {
+    const unsub = base44.entities.Task.subscribe(() => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
     });
-    return unsubscribe;
+    return unsub;
   }, [queryClient]);
 
   const accessibleTasks = allTasks.filter(t => projectIds.has(t.project_id));
@@ -92,17 +113,24 @@ export default function Programme() {
     ? accessibleTasks
     : accessibleTasks.filter(t => t.project_id === selectedProjectId);
 
-  // ─── Schedule Engine — display only, not used to write back ─────────────────
-  const { scheduledMap, projectStart } = useMemo(() => {
-    if (!tasks.length) return { scheduledMap: new Map(), projectStart: null };
+  // Seed expandedIds when tasks first load (expand root tasks)
+  useEffect(() => {
+    if (tasks.length > 0) {
+      setExpandedIds(new Set(tasks.filter(t => !t.parent_id).map(t => t.id)));
+    }
+  }, [tasks.length > 0 && selectedProjectId]);
+
+  // ─── Single visible task list — shared by TaskList + GanttChart ─────────────
+  const visibleTasks = useMemo(() => getVisibleTasks(tasks, expandedIds), [tasks, expandedIds]);
+
+  // ─── Schedule engine ─────────────────────────────────────────────────────────
+  const scheduledMap = useMemo(() => {
+    if (!tasks.length) return new Map();
     const pStart = tasks.reduce((min, t) => {
       if (!t.start_date) return min;
       return !min || t.start_date < min ? t.start_date : min;
     }, null) || new Date().toISOString().split('T')[0];
-    return {
-      scheduledMap: runScheduleEngine(tasks, pStart),
-      projectStart: pStart,
-    };
+    return runScheduleEngine(tasks, pStart);
   }, [tasks]);
 
   const criticalTaskCount = useMemo(() => {
@@ -111,34 +139,57 @@ export default function Programme() {
     return count;
   }, [scheduledMap]);
 
-  // ─── Import handler ──────────────────────────────────────────────────────────
+  // ─── Import with progress ────────────────────────────────────────────────────
   const handleMPPUpload = async () => {
     if (!mppFile || !selectedProjectId || selectedProjectId === 'all') return;
-    setUploading(true);
-    try {
-      const ext = mppFile.name.split('.').pop().toLowerCase();
-      let parsedTasks = [];
+    setShowImportDialog(false);
 
-      if (ext === 'xml') {
-        const text = await mppFile.text();
-        parsedTasks = parseXML(text, selectedProjectId);
-      } else if (ext === 'mpx') {
-        const text = await mppFile.text();
-        parsedTasks = parseMPX(text, selectedProjectId);
-      } else if (ext === 'xlsx' || ext === 'xls' || ext === 'csv') {
-        parsedTasks = await parseExcelCSV(mppFile, selectedProjectId);
+    const setStage = (stageIdx, pct, detail = '') => {
+      setImportProgress({
+        stage: stageIdx + 1,
+        stageOf: IMPORT_STAGES.length,
+        pct,
+        statusText: `${IMPORT_STAGES[stageIdx]}${detail ? ` — ${detail}` : ''}`,
+        error: null,
+      });
+    };
+
+    setImportProgress({ stage: 1, stageOf: 6, pct: 2, statusText: 'Reading file…', error: null });
+
+    try {
+      // Stage 1: read file
+      const ext = mppFile.name.split('.').pop().toLowerCase();
+      let text;
+      if (ext === 'xml' || ext === 'mpx') text = await mppFile.text();
+      setStage(0, 10);
+
+      // Stage 2: parse
+      setStage(1, 18);
+      let parsedTasks = [];
+      if (ext === 'xml') parsedTasks = parseXML(text, selectedProjectId);
+      else if (ext === 'mpx') parsedTasks = parseMPX(text, selectedProjectId);
+      else if (ext === 'xlsx' || ext === 'xls' || ext === 'csv') parsedTasks = await parseExcelCSV(mppFile, selectedProjectId);
+      setStage(1, 25, `${parsedTasks.length} tasks found`);
+
+      if (!parsedTasks.length) {
+        setImportProgress(null);
+        setMppFile(null);
+        return;
       }
 
-      if (!parsedTasks.length) { setShowUploadMPP(false); setMppFile(null); return; }
-
+      // Stage 3: bulk create tasks
+      setStage(2, 30, `Creating ${parsedTasks.length} tasks`);
       const tasksToCreate = parsedTasks.map(({ _mspUid, _predecessorLinks, _parentUid, ...t }) => t);
       const created = await base44.entities.Task.bulkCreate(tasksToCreate);
+      setStage(2, 55, `${created.length} tasks created`);
 
       const uidToDbId = new Map();
       parsedTasks.forEach((pt, i) => {
         if (pt._mspUid != null && created[i]?.id) uidToDbId.set(pt._mspUid, created[i].id);
       });
 
+      // Stage 4: link dependencies
+      setStage(3, 60);
       const updates = [];
       parsedTasks.forEach((pt, i) => {
         const dbId = created[i]?.id;
@@ -160,27 +211,60 @@ export default function Programme() {
         if (Object.keys(payload).length) updates.push({ id: dbId, ...payload });
       });
 
+      let done = 0;
       for (const { id, ...payload } of updates) {
         await base44.entities.Task.update(id, payload);
+        done++;
+        if (done % 50 === 0) {
+          setStage(3, 60 + Math.round((done / updates.length) * 25), `${done} / ${updates.length} dependencies`);
+        }
       }
 
+      // Stage 5/6: finalise
+      setStage(4, 88, 'Building WBS structure');
+      setStage(5, 95, 'Finalising');
+
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      setShowUploadMPP(false);
-      setMppFile(null);
+
+      setImportProgress(p => ({ ...p, pct: 100, statusText: 'Import complete!' }));
+      setTimeout(() => {
+        setImportProgress(null);
+        setMppFile(null);
+        toast({ title: `Schedule imported`, description: `${parsedTasks.length} tasks loaded successfully.`, duration: 4000 });
+      }, 1200);
+
     } catch (error) {
-      console.error('Import error:', error);
-    } finally {
-      setUploading(false);
+      setImportProgress(p => ({ ...p, error: error.message || 'Import failed. Please check the file and try again.' }));
     }
   };
 
+  // ─── Chunked delete with progress ────────────────────────────────────────────
   const handleDeleteAllTasks = async () => {
     if (!selectedProjectId || selectedProjectId === 'all') return;
-    setDeleting(true);
-    await Promise.all(tasks.map(t => base44.entities.Task.delete(t.id).catch(() => {})));
-    queryClient.invalidateQueries({ queryKey: ['tasks'] });
     setShowDeleteConfirm(false);
-    setDeleting(false);
+
+    const total = tasks.length;
+    setDeleteProgress({ pct: 0, statusText: `0 / ${total} tasks deleted`, done: false, error: null });
+
+    let deleted = 0;
+    const ids = tasks.map(t => t.id);
+
+    for (let i = 0; i < ids.length; i += DELETE_CHUNK) {
+      const chunk = ids.slice(i, i + DELETE_CHUNK);
+      await Promise.all(chunk.map(id => base44.entities.Task.delete(id).catch(() => {})));
+      deleted += chunk.length;
+      const pct = Math.round((deleted / total) * 100);
+      setDeleteProgress({ pct, statusText: `${deleted} / ${total} tasks deleted`, done: false, error: null });
+      // yield to browser between chunks
+      await new Promise(r => setTimeout(r, 40));
+    }
+
+    queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    setDeleteProgress(p => ({ ...p, pct: 100, statusText: `${total} tasks deleted`, done: true }));
+    setTimeout(() => {
+      setDeleteProgress(null);
+      toast({ title: 'Programme deleted', description: `${total} tasks removed.`, duration: 4000 });
+    }, 1200);
   };
 
   const cycleZoom = (direction) => {
@@ -197,9 +281,7 @@ export default function Programme() {
         </div>
         <div>
           <h3 className="font-semibold text-lg mb-1">No projects yet</h3>
-          <p className="text-muted-foreground text-sm max-w-sm">
-            You need to be part of a project before you can view its programme schedule.
-          </p>
+          <p className="text-muted-foreground text-sm max-w-sm">You need to be part of a project before you can view its programme.</p>
         </div>
         <Button asChild><Link to="/projects">Go to Projects</Link></Button>
       </div>
@@ -214,9 +296,7 @@ export default function Programme() {
         actions={
           <div className="flex items-center gap-2 flex-wrap">
             <Select value={selectedProjectId} onValueChange={setSelectedProjectId}>
-              <SelectTrigger className="w-44">
-                <SelectValue placeholder="All Projects" />
-              </SelectTrigger>
+              <SelectTrigger className="w-44"><SelectValue placeholder="All Projects" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Projects</SelectItem>
                 {projects.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
@@ -224,35 +304,20 @@ export default function Programme() {
             </Select>
 
             {criticalTaskCount > 0 && (
-              <Badge
-                variant={showCriticalPath ? 'destructive' : 'outline'}
-                className="cursor-pointer gap-1"
-                onClick={() => setShowCriticalPath(v => !v)}
-              >
-                <Target className="w-3 h-3" />
-                {criticalTaskCount} critical
+              <Badge variant={showCriticalPath ? 'destructive' : 'outline'} className="cursor-pointer gap-1"
+                onClick={() => setShowCriticalPath(v => !v)}>
+                <Target className="w-3 h-3" />{criticalTaskCount} critical
               </Badge>
             )}
 
-            <Button variant="outline" size="icon" onClick={() => cycleZoom('out')} title={`Zoom out (${zoom})`}>
-              <ZoomOut className="w-4 h-4" />
-            </Button>
-            <Button variant="outline" size="icon" onClick={() => cycleZoom('in')} title={`Zoom in (${zoom})`}>
-              <ZoomIn className="w-4 h-4" />
-            </Button>
-            <Button variant="outline" size="icon" onClick={() => window.print()} title="Print">
-              <Printer className="w-4 h-4" />
-            </Button>
-            <Button onClick={() => setShowUploadMPP(true)} className="gap-2">
-              <Upload className="w-4 h-4" /> Import
-            </Button>
-            <Button
-              variant="destructive"
-              size="icon"
+            <Button variant="outline" size="icon" onClick={() => cycleZoom('out')} title={`Zoom out (${zoom})`}><ZoomOut className="w-4 h-4" /></Button>
+            <Button variant="outline" size="icon" onClick={() => cycleZoom('in')} title={`Zoom in (${zoom})`}><ZoomIn className="w-4 h-4" /></Button>
+            <Button variant="outline" size="icon" onClick={() => window.print()} title="Print"><Printer className="w-4 h-4" /></Button>
+            <Button onClick={() => setShowImportDialog(true)} className="gap-2"><Upload className="w-4 h-4" /> Import</Button>
+            <Button variant="destructive" size="icon"
               onClick={() => setShowDeleteConfirm(true)}
               disabled={!selectedProjectId || selectedProjectId === 'all' || tasks.length === 0}
-              title="Delete all tasks"
-            >
+              title="Delete all tasks">
               <Trash2 className="w-4 h-4" />
             </Button>
           </div>
@@ -262,31 +327,26 @@ export default function Programme() {
       <Tabs defaultValue="gantt" className="flex-1 flex flex-col overflow-hidden">
         <TabsList className="flex-shrink-0 w-fit">
           <TabsTrigger value="gantt">Gantt Chart</TabsTrigger>
-          <TabsTrigger value="lookahead" className="gap-1.5">
-            <CalendarDays className="w-3.5 h-3.5" /> Look Ahead
-          </TabsTrigger>
-          <TabsTrigger value="health" className="gap-1.5">
-            <LayoutDashboard className="w-3.5 h-3.5" /> Health
-          </TabsTrigger>
+          <TabsTrigger value="lookahead" className="gap-1.5"><CalendarDays className="w-3.5 h-3.5" /> Look Ahead</TabsTrigger>
+          <TabsTrigger value="health" className="gap-1.5"><LayoutDashboard className="w-3.5 h-3.5" /> Health</TabsTrigger>
         </TabsList>
 
-        {/* Gantt + Task List */}
+        {/* ── Gantt ── */}
         <TabsContent value="gantt" className="flex-1 flex border rounded-lg overflow-hidden bg-card mt-2">
-          <button
-            onClick={() => setTaskListCollapsed(!taskListCollapsed)}
+          <button onClick={() => setTaskListCollapsed(!taskListCollapsed)}
             className="flex items-center justify-center w-8 bg-muted/30 hover:bg-muted transition-colors border-r flex-shrink-0"
-            title={taskListCollapsed ? 'Show task list' : 'Hide task list'}
-          >
-            {taskListCollapsed
-              ? <PanelLeftOpen className="w-4 h-4 text-muted-foreground" />
-              : <PanelLeftClose className="w-4 h-4 text-muted-foreground" />}
+            title={taskListCollapsed ? 'Show task list' : 'Hide task list'}>
+            {taskListCollapsed ? <PanelLeftOpen className="w-4 h-4 text-muted-foreground" /> : <PanelLeftClose className="w-4 h-4 text-muted-foreground" />}
           </button>
 
           {!taskListCollapsed && (
             <div className="w-[640px] xl:w-[720px] flex-shrink-0 overflow-hidden">
               <TaskList
                 tasks={tasks}
+                visibleTasks={visibleTasks}
                 scheduledMap={scheduledMap}
+                expandedIds={expandedIds}
+                onToggleExpand={onToggleExpand}
                 onTaskClick={setSelectedTask}
                 scrollRef={taskScrollRef}
                 onScroll={() => ganttScrollRef.current && syncScroll(taskScrollRef.current, ganttScrollRef.current)}
@@ -296,6 +356,7 @@ export default function Programme() {
 
           <GanttChart
             tasks={tasks}
+            visibleTasks={visibleTasks}
             scheduledMap={scheduledMap}
             zoom={zoom}
             scrollRef={ganttScrollRef}
@@ -305,12 +366,10 @@ export default function Programme() {
           />
         </TabsContent>
 
-        {/* Look Ahead */}
         <TabsContent value="lookahead" className="flex-1 overflow-hidden border rounded-lg bg-card mt-2">
           <LookAhead tasks={tasks} scheduledMap={scheduledMap} />
         </TabsContent>
 
-        {/* Health dashboard */}
         <TabsContent value="health" className="flex-1 overflow-hidden border rounded-lg bg-card mt-2">
           <ProgrammeHealth tasks={tasks} scheduledMap={scheduledMap} />
         </TabsContent>
@@ -322,7 +381,30 @@ export default function Programme() {
         tasks={tasks}
         scheduledMap={scheduledMap}
         open={!!selectedTask}
-        onOpenChange={(open) => { if (!open) setSelectedTask(null); }}
+        onOpenChange={open => { if (!open) setSelectedTask(null); }}
+      />
+
+      {/* Import progress modal */}
+      <ProgressModal
+        open={!!importProgress}
+        title="Importing Programme"
+        stage={importProgress?.stage}
+        stageOf={importProgress?.stageOf}
+        pct={importProgress?.pct || 0}
+        statusText={importProgress?.statusText}
+        error={importProgress?.error}
+        onRetry={() => { setImportProgress(null); setShowImportDialog(true); }}
+        onClose={() => { setImportProgress(null); setMppFile(null); }}
+      />
+
+      {/* Delete progress modal */}
+      <ProgressModal
+        open={!!deleteProgress}
+        title="Deleting Programme"
+        pct={deleteProgress?.pct || 0}
+        statusText={deleteProgress?.statusText}
+        error={deleteProgress?.error}
+        onClose={() => setDeleteProgress(null)}
       />
 
       {/* Delete confirm */}
@@ -334,38 +416,25 @@ export default function Programme() {
               This will permanently delete all {tasks.length} task{tasks.length !== 1 ? 's' : ''} in this project. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogAction
-            onClick={handleDeleteAllTasks}
-            disabled={deleting}
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-          >
-            {deleting ? 'Deleting...' : 'Delete All'}
+          <AlertDialogAction onClick={handleDeleteAllTasks} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+            Delete All
           </AlertDialogAction>
-          <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
         </AlertDialogContent>
       </AlertDialog>
 
       {/* Import dialog */}
-      <Dialog open={showUploadMPP} onOpenChange={setShowUploadMPP}>
+      <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader><DialogTitle>Import Schedule</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Import your schedule from MS Project or Excel. The imported schedule becomes the master plan — dates are not editable in ConstructIQ.
+              Import from MS Project or Excel. The imported schedule becomes the master plan — dates are read-only in ConstructIQ.
             </p>
             <div className="grid grid-cols-3 gap-2 text-xs">
-              <div className="rounded-md border p-2.5 space-y-1">
-                <p className="font-semibold">XML (recommended)</p>
-                <p className="text-muted-foreground">File → Save As → XML Format</p>
-              </div>
-              <div className="rounded-md border p-2.5 space-y-1">
-                <p className="font-semibold">Excel / CSV</p>
-                <p className="text-muted-foreground">Name, Start, End, Duration, WBS, %</p>
-              </div>
-              <div className="rounded-md border p-2.5 space-y-1">
-                <p className="font-semibold">MPX</p>
-                <p className="text-muted-foreground">File → Save As → MPX</p>
-              </div>
+              <div className="rounded-md border p-2.5 space-y-1"><p className="font-semibold">XML (recommended)</p><p className="text-muted-foreground">File → Save As → XML Format</p></div>
+              <div className="rounded-md border p-2.5 space-y-1"><p className="font-semibold">Excel / CSV</p><p className="text-muted-foreground">Name, Start, End, Duration, WBS, %</p></div>
+              <div className="rounded-md border p-2.5 space-y-1"><p className="font-semibold">MPX</p><p className="text-muted-foreground">File → Save As → MPX</p></div>
             </div>
             <div>
               <Label>Select Project *</Label>
@@ -381,9 +450,9 @@ export default function Programme() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setShowUploadMPP(false); setMppFile(null); }}>Cancel</Button>
-            <Button onClick={handleMPPUpload} disabled={!mppFile || uploading || !selectedProjectId || selectedProjectId === 'all'}>
-              {uploading ? 'Importing...' : 'Import Schedule'}
+            <Button variant="outline" onClick={() => { setShowImportDialog(false); setMppFile(null); }}>Cancel</Button>
+            <Button onClick={handleMPPUpload} disabled={!mppFile || !selectedProjectId || selectedProjectId === 'all'}>
+              Import Schedule
             </Button>
           </DialogFooter>
         </DialogContent>

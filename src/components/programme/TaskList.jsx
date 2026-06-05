@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { ChevronRight, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format, differenceInDays } from 'date-fns';
@@ -12,146 +12,30 @@ const levelColors = [
   'border-l-purple-500',
 ];
 
-export default function TaskList({ tasks, scheduledMap, onTaskClick, scrollRef, onScroll }) {
-  const [expandedIds, setExpandedIds] = useState(new Set(tasks.filter(t => !t.parent_id).map(t => t.id)));
-
+/**
+ * TaskList — read-only view.
+ * expandedIds and onToggleExpand are controlled by parent (Programme page)
+ * so GanttChart stays perfectly aligned.
+ */
+export default function TaskList({
+  tasks,
+  visibleTasks,   // pre-computed by parent via getVisibleTasks()
+  scheduledMap,
+  expandedIds,
+  onToggleExpand,
+  onTaskClick,
+  scrollRef,
+  onScroll,
+}) {
   const today = new Date();
-
-  const wbsCompare = (a, b) => {
-    const parse = (w) => (w || '').split('.').map(n => parseInt(n) || 0);
-    const aParts = parse(a.wbs), bParts = parse(b.wbs);
-    for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
-      const diff = (aParts[i] || 0) - (bParts[i] || 0);
-      if (diff !== 0) return diff;
-    }
-    return (a.sort_order || 0) - (b.sort_order || 0);
-  };
-
-  const flatTasksArray = useMemo(() => {
-    const result = [];
-    const addTask = (task) => {
-      result.push(task);
-      if (expandedIds.has(task.id)) {
-        const children = tasks.filter(t => t.parent_id === task.id).sort(wbsCompare);
-        children.forEach(addTask);
-      }
-    };
-    tasks.filter(t => !t.parent_id).sort(wbsCompare).forEach(addTask);
-    return result;
-  }, [tasks, expandedIds]);
-
-  const toggleExpand = (id) => {
-    setExpandedIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  };
 
   const getVariance = (task) => {
     const resolved = scheduledMap?.get(task.id);
     const plannedEnd = resolved?.finishStr || task.end_date;
-    const actualFinish = task.actual_finish;
     if (!plannedEnd) return null;
-    if (actualFinish) {
-      return differenceInDays(new Date(plannedEnd), new Date(actualFinish));
-    }
+    if (task.actual_finish) return differenceInDays(new Date(plannedEnd), new Date(task.actual_finish));
     if (task.percent_complete === 100) return null;
-    // Compare today vs planned end for in-progress tasks
     return differenceInDays(new Date(plannedEnd), today);
-  };
-
-  const renderTask = (task) => {
-    const children = tasks.filter(t => t.parent_id === task.id).sort(wbsCompare);
-    const hasChildren = children.length > 0;
-    const isSummary = hasChildren;
-    const isExpanded = expandedIds.has(task.id);
-    const isMilestone = task.is_milestone || task.duration === 0;
-    const resolved = scheduledMap?.get(task.id);
-    const isCritical = resolved?.isCritical || false;
-    const depth = (task.level || 0);
-
-    const plannedStart = resolved?.startStr || task.start_date;
-    const plannedEnd = resolved?.finishStr || task.end_date;
-    const percentComplete = isSummary
-      ? (resolved?.rolledProgress ?? task.percent_complete ?? 0)
-      : (task.percent_complete || 0);
-
-    const variance = getVariance(task);
-    const varianceLabel = variance === null ? '—'
-      : variance > 0 ? <span className="text-emerald-600 font-mono text-[10px]">+{variance}d</span>
-      : variance < 0 ? <span className="text-red-500 font-mono text-[10px]">{variance}d</span>
-      : <span className="text-muted-foreground font-mono text-[10px]">0d</span>;
-
-    return (
-      <React.Fragment key={task.id}>
-        <div
-          style={{ height: ROW_HEIGHT, paddingLeft: `${8 + depth * 16}px`, gridTemplateColumns: '52px 24px 1fr 60px 70px 70px 70px 70px 64px' }}
-          className={cn(
-            "grid items-center w-full border-b border-border/20 hover:bg-muted/40 transition-colors cursor-pointer px-2 group",
-            isCritical && 'bg-red-50/30 dark:bg-red-950/10',
-            `border-l-2`,
-            isCritical ? 'border-l-red-500' : (levelColors[task.level || 0] || 'border-l-muted'),
-          )}
-          onClick={() => onTaskClick?.(task)}
-        >
-          {/* WBS */}
-          <span className="text-[10px] font-mono text-muted-foreground text-center">{task.wbs || '—'}</span>
-
-          {/* Expand toggle */}
-          <div className="flex items-center justify-center">
-            {hasChildren ? (
-              <button className="w-5 h-5 flex items-center justify-center hover:bg-muted rounded"
-                onClick={e => { e.stopPropagation(); toggleExpand(task.id); }}>
-                {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-              </button>
-            ) : <div className="w-5" />}
-          </div>
-
-          {/* Name */}
-          <span className={cn(
-            "text-xs truncate px-1",
-            isSummary && "font-semibold",
-            isMilestone && "text-indigo-600 dark:text-indigo-400",
-            isCritical && "text-red-700 dark:text-red-400",
-          )}>
-            {task.name}
-          </span>
-
-          {/* % Complete */}
-          <div className="flex items-center gap-1 px-1">
-            <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-              <div className="h-full bg-primary rounded-full" style={{ width: `${percentComplete}%` }} />
-            </div>
-            <span className="text-[10px] text-muted-foreground w-7 text-right">{percentComplete}%</span>
-          </div>
-
-          {/* Planned Start */}
-          <span className="text-[10px] font-mono text-muted-foreground text-center">
-            {plannedStart ? format(new Date(plannedStart), 'dd/MM/yy') : '—'}
-          </span>
-
-          {/* Planned Finish */}
-          <span className="text-[10px] font-mono text-muted-foreground text-center">
-            {plannedEnd ? format(new Date(plannedEnd), 'dd/MM/yy') : '—'}
-          </span>
-
-          {/* Actual Start */}
-          <span className="text-[10px] font-mono text-center text-blue-600 dark:text-blue-400">
-            {task.actual_start ? format(new Date(task.actual_start), 'dd/MM/yy') : '—'}
-          </span>
-
-          {/* Actual Finish */}
-          <span className="text-[10px] font-mono text-center text-emerald-600 dark:text-emerald-400">
-            {task.actual_finish ? format(new Date(task.actual_finish), 'dd/MM/yy') : '—'}
-          </span>
-
-          {/* Variance */}
-          <div className="text-center">{varianceLabel}</div>
-        </div>
-        {hasChildren && isExpanded && children.sort(wbsCompare).map(child => renderTask(child))}
-      </React.Fragment>
-    );
   };
 
   return (
@@ -178,13 +62,90 @@ export default function TaskList({ tasks, scheduledMap, onTaskClick, scrollRef, 
         <span className="text-center">Variance</span>
       </div>
 
-      {/* Rows */}
+      {/* Rows — flat list from pre-computed visibleTasks */}
       <div className="flex-1 overflow-y-auto" ref={scrollRef} onScroll={onScroll}>
-        {flatTasksArray.map(task => renderTask(task))}
+        {visibleTasks.map(task => {
+          const hasChildren = tasks.some(t => t.parent_id === task.id);
+          const isSummary = hasChildren;
+          const isExpanded = expandedIds.has(task.id);
+          const isMilestone = task.is_milestone || task.duration === 0;
+          const resolved = scheduledMap?.get(task.id);
+          const isCritical = resolved?.isCritical || false;
+          const depth = task.level || 0;
+
+          const plannedStart = resolved?.startStr || task.start_date;
+          const plannedEnd = resolved?.finishStr || task.end_date;
+          const percentComplete = isSummary
+            ? (resolved?.rolledProgress ?? task.percent_complete ?? 0)
+            : (task.percent_complete || 0);
+
+          const variance = getVariance(task);
+          const varianceEl = variance === null ? '—'
+            : variance > 0 ? <span className="text-emerald-600 font-mono text-[10px]">+{variance}d</span>
+            : variance < 0 ? <span className="text-red-500 font-mono text-[10px]">{variance}d</span>
+            : <span className="text-muted-foreground font-mono text-[10px]">0d</span>;
+
+          return (
+            <div
+              key={task.id}
+              style={{
+                height: ROW_HEIGHT,
+                paddingLeft: `${8 + depth * 16}px`,
+                gridTemplateColumns: '52px 24px 1fr 60px 70px 70px 70px 70px 64px',
+              }}
+              className={cn(
+                'grid items-center w-full border-b border-border/20 hover:bg-muted/40 transition-colors cursor-pointer px-2 border-l-2',
+                isCritical ? 'border-l-red-500 bg-red-50/30 dark:bg-red-950/10' : (levelColors[depth] || 'border-l-muted'),
+              )}
+              onClick={() => onTaskClick?.(task)}
+            >
+              <span className="text-[10px] font-mono text-muted-foreground text-center">{task.wbs || '—'}</span>
+
+              <div className="flex items-center justify-center">
+                {hasChildren ? (
+                  <button
+                    className="w-5 h-5 flex items-center justify-center hover:bg-muted rounded"
+                    onClick={e => { e.stopPropagation(); onToggleExpand(task.id); }}
+                  >
+                    {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                  </button>
+                ) : <div className="w-5" />}
+              </div>
+
+              <span className={cn(
+                'text-xs truncate px-1',
+                isSummary && 'font-semibold',
+                isMilestone && 'text-indigo-600 dark:text-indigo-400',
+                isCritical && 'text-red-700 dark:text-red-400',
+              )}>
+                {task.name}
+              </span>
+
+              <div className="flex items-center gap-1 px-1">
+                <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                  <div className="h-full bg-primary rounded-full" style={{ width: `${percentComplete}%` }} />
+                </div>
+                <span className="text-[10px] text-muted-foreground w-7 text-right">{percentComplete}%</span>
+              </div>
+
+              <span className="text-[10px] font-mono text-muted-foreground text-center">
+                {plannedStart ? format(new Date(plannedStart), 'dd/MM/yy') : '—'}
+              </span>
+              <span className="text-[10px] font-mono text-muted-foreground text-center">
+                {plannedEnd ? format(new Date(plannedEnd), 'dd/MM/yy') : '—'}
+              </span>
+              <span className="text-[10px] font-mono text-center text-blue-600 dark:text-blue-400">
+                {task.actual_start ? format(new Date(task.actual_start), 'dd/MM/yy') : '—'}
+              </span>
+              <span className="text-[10px] font-mono text-center text-emerald-600 dark:text-emerald-400">
+                {task.actual_finish ? format(new Date(task.actual_finish), 'dd/MM/yy') : '—'}
+              </span>
+              <div className="text-center">{varianceEl}</div>
+            </div>
+          );
+        })}
         {tasks.length === 0 && (
-          <div className="text-center py-12 text-sm text-muted-foreground">
-            Import a schedule to get started
-          </div>
+          <div className="text-center py-12 text-sm text-muted-foreground">Import a schedule to get started</div>
         )}
       </div>
     </div>
