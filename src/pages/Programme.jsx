@@ -27,6 +27,7 @@ import NetworkDiagram from '@/components/programme/NetworkDiagram';
 import { parseXML, parseMPX, parseExcelCSV } from '@/lib/scheduleImportParsers';
 import { runScheduleEngine } from '@/lib/scheduling/scheduleEngine';
 import { buildBaselineMap } from '@/lib/scheduling/baselineEngine.js';
+import { validateScheduleIntegrity, applyScheduleUpdate } from '@/lib/scheduleUpdateService';
 
 const ZOOM_LEVELS = ['year', 'quarter', 'month', 'week', 'day'];
 
@@ -73,8 +74,9 @@ export default function Programme() {
   const handleUndo = async () => {
     if (!canUndo) return;
     const entry = history[historyIndex];
+    const updateFn = (id, data) => base44.entities.Task.update(id, data);
     for (const op of entry.undo) {
-      await base44.entities.Task.update(op.id, op.data);
+      await applyScheduleUpdate(op.id, op.data, tasks, updateFn, projectStart);
     }
     setHistoryIndex(prev => prev - 1);
     queryClient.invalidateQueries({ queryKey: ['tasks'] });
@@ -83,8 +85,9 @@ export default function Programme() {
   const handleRedo = async () => {
     if (!canRedo) return;
     const entry = history[historyIndex + 1];
+    const updateFn = (id, data) => base44.entities.Task.update(id, data);
     for (const op of entry.redo) {
-      await base44.entities.Task.update(op.id, op.data);
+      await applyScheduleUpdate(op.id, op.data, tasks, updateFn, projectStart);
     }
     setHistoryIndex(prev => prev + 1);
     queryClient.invalidateQueries({ queryKey: ['tasks'] });
@@ -224,7 +227,7 @@ export default function Programme() {
         await base44.entities.Task.update(id, payload);
       }
 
-      // Re-schedule after import
+      // Re-schedule after import — engine becomes the single source of truth
       const taskListForEngine = created.map((ct, i) => {
         const u = updates.find(u => u.id === ct.id);
         return { ...ct, predecessors: u?.predecessors || ct.predecessors || [], parent_id: u?.parent_id || ct.parent_id || null };
@@ -235,19 +238,26 @@ export default function Programme() {
         return !min || t.start_date < min ? t.start_date : min;
       }, null) || new Date().toISOString().split('T')[0];
 
+      // Validate before normalizing
+      const validation = validateScheduleIntegrity(taskListForEngine);
+      if (!validation.valid) {
+        console.warn('Schedule integrity warnings after import:', validation.errors);
+      }
+
       const scheduled = runScheduleEngine(taskListForEngine, pStart);
 
+      // Persist all engine-calculated dates in parallel (normalize source of truth)
+      const normPatches = [];
       for (const task of taskListForEngine) {
         const resolved = scheduled.get(task.id);
         if (!resolved) continue;
         if (resolved.startStr !== task.start_date || resolved.finishStr !== task.end_date || resolved.durationDays !== task.duration) {
-          await base44.entities.Task.update(task.id, {
-            start_date: resolved.startStr,
-            end_date: resolved.finishStr,
-            duration: resolved.durationDays,
-          });
+          normPatches.push({ id: task.id, start_date: resolved.startStr, end_date: resolved.finishStr, duration: resolved.durationDays });
         }
       }
+      await Promise.all(normPatches.map(p =>
+        base44.entities.Task.update(p.id, { start_date: p.start_date, end_date: p.end_date, duration: p.duration })
+      ));
 
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       setShowUploadMPP(false);
@@ -423,7 +433,8 @@ export default function Programme() {
       {/* Task edit panel */}
       <TaskEditPanel
         task={selectedTask}
-        tasks={accessibleTasks}
+        tasks={tasks}
+        allTasks={accessibleTasks}
         open={!!selectedTask}
         onOpenChange={(open) => { if (!open) setSelectedTask(null); }}
         onPushHistory={pushHistory}

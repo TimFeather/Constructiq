@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { ChevronRight, ChevronDown, Plus, Minus } from 'lucide-react';
+import { ChevronRight, ChevronDown, Plus, Minus, Loader2 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,7 @@ import { format } from 'date-fns';
 import { flattenTasks } from '@/lib/flattenTasks';
 import { indentTask, outdentTask, computeWBS } from '@/lib/wbsUtils';
 import TaskContextMenu from './TaskContextMenu';
+import { updateTaskDuration, updateTaskStartDate, updateTaskProgress, updateTaskFull } from '@/lib/scheduleUpdateService';
 
 export const ROW_HEIGHT = 40;
 
@@ -25,17 +26,27 @@ export default function TaskList({ tasks, allTasks, scheduledMap, onTaskClick, o
   const [editValues, setEditValues] = useState({});
   const [adjustingId, setAdjustingId] = useState(null);
   const [adjustingCompletionId, setAdjustingCompletionId] = useState(null);
+  const [isCascading, setIsCascading] = useState(false);
   const queryClient = useQueryClient();
 
-  // Use pre-computed scheduledMap from parent — no calculations here
+  const effectiveAllTasks = allTasks || tasks;
+  const updateFn = (id, data) => base44.entities.Task.update(id, data);
+
+  const invalidateTasks = () => {
+    queryClient.invalidateQueries({ queryKey: ['tasks'] });
+  };
+
+  // Use pre-computed scheduledMap from parent — engine is the single source of truth
   const getResolvedDates = (task) => {
     const resolved = scheduledMap?.get(task.id);
+    // No fallback to raw task dates — if engine data is missing, show placeholder
     return {
-      start: resolved?.startStr || task.start_date || '—',
-      end: resolved?.finishStr || task.end_date || '—',
-      duration: resolved?.durationDays || task.duration || 0,
+      start: resolved?.startStr ?? null,
+      end: resolved?.finishStr ?? null,
+      duration: resolved?.durationDays ?? task.duration ?? 0,
       isCritical: resolved?.isCritical || false,
       totalFloat: resolved?.totalFloat ?? null,
+      isPending: !resolved,
     };
   };
 
@@ -63,31 +74,36 @@ export default function TaskList({ tasks, allTasks, scheduledMap, onTaskClick, o
   }, [tasks, expandedIds]);
 
   const adjustCompletion = async (task, delta) => {
-    if (adjustingCompletionId === task.id) return;
+    if (adjustingCompletionId === task.id || isCascading) return;
     const newPct = Math.min(100, Math.max(0, (task.percent_complete || 0) + delta));
     setAdjustingCompletionId(task.id);
-    onPushHistory?.(
-      [{ id: task.id, data: { percent_complete: task.percent_complete || 0 } }],
-      [{ id: task.id, data: { percent_complete: newPct } }],
-    );
-    await base44.entities.Task.update(task.id, { percent_complete: newPct });
-    queryClient.invalidateQueries({ queryKey: ['tasks'] });
-    setAdjustingCompletionId(null);
+    try {
+      onPushHistory?.(
+        [{ id: task.id, data: { percent_complete: task.percent_complete || 0 } }],
+        [{ id: task.id, data: { percent_complete: newPct } }],
+      );
+      await updateTaskProgress(task.id, newPct, effectiveAllTasks, updateFn, projectStart);
+      invalidateTasks();
+    } finally {
+      setAdjustingCompletionId(null);
+    }
   };
 
   const adjustDays = async (task, delta) => {
-    if (adjustingId === task.id) return;
+    if (adjustingId === task.id || isCascading) return;
     setAdjustingId(task.id);
+    setIsCascading(true);
     try {
       const newDuration = Math.max(1, (task.duration || 1) + delta);
       onPushHistory?.(
-        [{ id: task.id, data: { duration: task.duration } }],
+        [{ id: task.id, data: { duration: task.duration, start_date: task.start_date, end_date: task.end_date } }],
         [{ id: task.id, data: { duration: newDuration } }],
       );
-      await base44.entities.Task.update(task.id, { duration: newDuration });
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      await updateTaskDuration(task.id, newDuration, effectiveAllTasks, updateFn, projectStart);
+      invalidateTasks();
     } finally {
       setAdjustingId(null);
+      setIsCascading(false);
     }
   };
 
@@ -165,21 +181,27 @@ export default function TaskList({ tasks, allTasks, scheduledMap, onTaskClick, o
 
   const commitEdit = async (taskId) => {
     const v = editValues;
+    const newDuration = Math.max(1, parseInt(v.duration) || 1);
     const finalData = {
       name: v.name,
       start_date: v.start_date,
-      duration: Math.max(1, parseInt(v.duration) || 1),
+      duration: newDuration,
     };
-    const originalTask = tasks.find(t => t.id === taskId);
+    const originalTask = effectiveAllTasks.find(t => t.id === taskId);
     if (originalTask && onPushHistory) {
-      const { name, start_date, duration } = originalTask;
+      const { name, start_date, duration, end_date } = originalTask;
       onPushHistory(
-        [{ id: taskId, data: { name, start_date, duration } }],
+        [{ id: taskId, data: { name, start_date, end_date, duration } }],
         [{ id: taskId, data: finalData }],
       );
     }
-    await base44.entities.Task.update(taskId, finalData);
-    queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    setIsCascading(true);
+    try {
+      await updateTaskFull(taskId, finalData, effectiveAllTasks, updateFn, projectStart);
+      invalidateTasks();
+    } finally {
+      setIsCascading(false);
+    }
     setEditingId(null);
   };
 
@@ -196,7 +218,7 @@ export default function TaskList({ tasks, allTasks, scheduledMap, onTaskClick, o
     const percentComplete = isSummary
       ? (scheduledMap?.get(task.id)?.rolledProgress ?? task.percent_complete ?? 0)
       : (task.percent_complete || 0);
-    const hasPendingUpdate = resolved.start !== (task.start_date || '—') || resolved.end !== (task.end_date || '—');
+    const hasPendingUpdate = false; // Engine is source of truth — no divergence possible
 
     const rowContent = (
       <div
@@ -268,11 +290,11 @@ export default function TaskList({ tasks, allTasks, scheduledMap, onTaskClick, o
               )}
             </div>
 
-            <span className="text-[10px] font-mono text-muted-foreground text-center flex items-center justify-center h-full">
-              {resolved.start !== '—' ? format(new Date(resolved.start), 'dd/MM/yy') : '—'}
+            <span className={cn("text-[10px] font-mono text-center flex items-center justify-center h-full", resolved.isPending ? "text-muted-foreground/40" : "text-muted-foreground")}>
+              {resolved.start ? format(new Date(resolved.start), 'dd/MM/yy') : '–'}
             </span>
-            <span className="text-[10px] font-mono text-muted-foreground text-center flex items-center justify-center h-full">
-              {resolved.end !== '—' ? format(new Date(resolved.end), 'dd/MM/yy') : '—'}
+            <span className={cn("text-[10px] font-mono text-center flex items-center justify-center h-full", resolved.isPending ? "text-muted-foreground/40" : "text-muted-foreground")}>
+              {resolved.end ? format(new Date(resolved.end), 'dd/MM/yy') : '–'}
             </span>
 
             <div className="flex items-center justify-center gap-0.5 h-full px-1">
@@ -316,6 +338,12 @@ export default function TaskList({ tasks, allTasks, scheduledMap, onTaskClick, o
 
   return (
     <div className="border-r bg-card h-full flex flex-col">
+      {isCascading && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 dark:bg-blue-950/30 border-b border-blue-200 dark:border-blue-800 text-sm text-blue-700 dark:text-blue-300 flex-shrink-0">
+          <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+          Updating schedule and dependencies...
+        </div>
+      )}
       <div className="flex items-center justify-between px-3 border-b bg-muted/30 h-10">
         <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Task List</span>
         {canEdit && (

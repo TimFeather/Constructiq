@@ -42,16 +42,20 @@ export default function GanttChart({
   // ─── Timeline bounds ────────────────────────────────────────────────────────
   const { minDate, maxDate, totalDays, dateHeaders } = useMemo(() => {
     const dates = [];
+    // Use only engine-calculated dates for timeline bounds
     if (scheduledMap) {
       scheduledMap.forEach(r => {
         if (r.start) dates.push(r.start);
         if (r.finish) dates.push(r.finish);
       });
     }
-    tasks.forEach(t => {
-      if (t.start_date) dates.push(new Date(t.start_date));
-      if (t.end_date) dates.push(new Date(t.end_date));
-    });
+    // Fallback for tasks not yet in the engine (e.g. just created)
+    if (dates.length === 0) {
+      tasks.forEach(t => {
+        if (t.start_date) dates.push(new Date(t.start_date));
+        if (t.end_date) dates.push(new Date(t.end_date));
+      });
+    }
 
     if (dates.length === 0) {
       const today = new Date();
@@ -123,9 +127,10 @@ export default function GanttChart({
   // ─── Bar geometry helper ─────────────────────────────────────────────────────
   const getBar = useCallback((task) => {
     const resolved = scheduledMap?.get(task.id);
-    const startDate = resolved?.start || (task.start_date ? new Date(task.start_date) : null);
-    const endDate = resolved?.finish || (task.end_date ? new Date(task.end_date) : null);
-    if (!startDate || !endDate) return null;
+    // Only use engine-calculated dates — no silent fallback to raw task dates
+    const startDate = resolved?.start ?? null;
+    const endDate = resolved?.finish ?? null;
+    if (!startDate || !endDate) return null; // Missing = not yet scheduled, skip render
 
     const left = Math.round(differenceInDays(startDate, minDate) * dayWidth);
     const isMilestone = task.is_milestone || task.duration === 0;

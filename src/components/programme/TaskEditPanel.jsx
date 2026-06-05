@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { wouldCreateCycle } from '@/lib/scheduling/scheduleEngine';
+import { updateTaskFull } from '@/lib/scheduleUpdateService';
+import { useToast } from '@/components/ui/use-toast';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,10 +31,12 @@ const CONSTRAINT_TYPES = [
   { value: 'FNLT', label: 'FNLT — Finish No Later Than' },
 ];
 
-export default function TaskEditPanel({ task, tasks = [], open, onOpenChange, onPushHistory, projectStart }) {
+export default function TaskEditPanel({ task, tasks = [], open, onOpenChange, onPushHistory, projectStart, allTasks }) {
   const [form, setForm] = useState({});
   const [cycleError, setCycleError] = useState(null);
+  const [saveError, setSaveError] = useState(null);
   const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   useEffect(() => {
     if (task) {
@@ -50,13 +54,22 @@ export default function TaskEditPanel({ task, tasks = [], open, onOpenChange, on
     }
   }, [task]);
 
+  const effectiveTasks = allTasks || tasks;
+
   const updateMutation = useMutation({
     mutationFn: async (data) => {
-      await base44.entities.Task.update(task.id, data);
+      setSaveError(null);
+      const updateFn = (id, patch) => base44.entities.Task.update(id, patch);
+      await updateTaskFull(task.id, data, effectiveTasks, updateFn, projectStart);
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks', effectiveTasks[0]?.project_id] });
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      toast({ title: 'Task saved and schedule updated', duration: 3000 });
       onOpenChange(false);
+    },
+    onError: (err) => {
+      setSaveError(err.message || 'Failed to save task');
     }
   });
 
@@ -88,6 +101,7 @@ export default function TaskEditPanel({ task, tasks = [], open, onOpenChange, on
 
 
   const handleSave = () => {
+    // eslint-disable-next-line no-unused-vars
     const { id, created_date, updated_date, created_by, ...data } = form;
     // Normalise predecessors to canonical schema
     data.predecessors = (form.predecessors || []).map(p => ({
@@ -98,12 +112,13 @@ export default function TaskEditPanel({ task, tasks = [], open, onOpenChange, on
       lag_days: Math.round((p.lag_hours || 0) / 8),
       is_elapsed: p.is_elapsed || false,
     }));
-    // Record undo snapshot: revert to original task state
+    // Record undo snapshot
     if (onPushHistory && task) {
+      // eslint-disable-next-line no-unused-vars
       const { id: _id, created_date: _cd, updated_date: _ud, created_by: _cb, ...originalData } = task;
       onPushHistory(
-        [{ id: task.id, data: originalData }],  // undo: restore original
-        [{ id: task.id, data }],                  // redo: re-apply new data
+        [{ id: task.id, data: originalData }],
+        [{ id: task.id, data }],
       );
     }
     updateMutation.mutate(data);
@@ -388,6 +403,13 @@ export default function TaskEditPanel({ task, tasks = [], open, onOpenChange, on
           </div>
         </div>
 
+        {saveError && (
+          <div className="flex items-start gap-2 text-destructive text-xs mt-4 bg-destructive/10 rounded p-2">
+            <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+            {saveError}
+          </div>
+        )}
+
         <SheetFooter className="mt-6 flex justify-between">
           <Button variant="destructive" onClick={() => deleteMutation.mutate()} className="gap-1" disabled={deleteMutation.isPending}>
             <Trash2 className="w-4 h-4" /> Delete
@@ -395,7 +417,7 @@ export default function TaskEditPanel({ task, tasks = [], open, onOpenChange, on
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
             <Button onClick={handleSave} disabled={updateMutation.isPending || !!cycleError}>
-              {updateMutation.isPending ? 'Saving…' : 'Save'}
+              {updateMutation.isPending ? 'Cascading…' : 'Save'}
             </Button>
           </div>
         </SheetFooter>
