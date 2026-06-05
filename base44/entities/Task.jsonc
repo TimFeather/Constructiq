@@ -12,7 +12,7 @@
     },
     "wbs": {
       "type": "string",
-      "description": "WBS number (auto-generated)"
+      "description": "WBS number (from imported schedule)"
     },
     "level": {
       "type": "number",
@@ -29,33 +29,20 @@
     "start_date": {
       "type": "string",
       "format": "date",
-      "description": "Task start date"
+      "description": "Planned start date (from imported schedule)"
     },
     "end_date": {
       "type": "string",
       "format": "date",
-      "description": "Task end date"
+      "description": "Planned end date (from imported schedule)"
     },
     "duration": {
       "type": "number",
-      "description": "Duration in days"
-    },
-    "percent_complete": {
-      "type": "number",
-      "description": "Percentage complete (0-100)",
-      "default": 0
-    },
-    "assignee_email": {
-      "type": "string",
-      "description": "Assigned user email"
-    },
-    "assignee_name": {
-      "type": "string",
-      "description": "Assigned user name"
+      "description": "Planned duration in days (from imported schedule)"
     },
     "predecessors": {
       "type": "array",
-      "description": "Predecessor task IDs with lag",
+      "description": "Predecessor task IDs with lag (from imported schedule)",
       "items": {
         "type": "object",
         "properties": {
@@ -69,18 +56,51 @@
         }
       }
     },
+    "is_milestone": {
+      "type": "boolean",
+      "description": "True if task is a milestone"
+    },
+    "percent_complete": {
+      "type": "number",
+      "description": "Percentage complete (0-100)",
+      "default": 0
+    },
+    "actual_start": {
+      "type": "string",
+      "format": "date",
+      "description": "Actual start date"
+    },
+    "actual_finish": {
+      "type": "string",
+      "format": "date",
+      "description": "Actual finish date"
+    },
+    "status_notes": {
+      "type": "string",
+      "description": "General status notes"
+    },
+    "delay_notes": {
+      "type": "string",
+      "description": "Notes about any delays"
+    },
+    "assignee_name": {
+      "type": "string",
+      "description": "Assigned person name"
+    },
+    "assignee_email": {
+      "type": "string",
+      "description": "Assigned person email"
+    },
     "constraint": {
       "type": "object",
-      "description": "Scheduling constraint from MS Project",
+      "description": "Scheduling constraint from imported schedule",
       "properties": {
         "type": {
-          "type": "string",
-          "description": "ASAP, ALAP, MSO, MFO, SNET, SNLT, FNET, FNLT"
+          "type": "string"
         },
         "date": {
           "type": "string",
-          "format": "date",
-          "description": "Constraint date if applicable"
+          "format": "date"
         }
       }
     }
