@@ -86,14 +86,6 @@ export default function Programme() {
     });
   }, []);
 
-  const expandAll = useCallback(() => {
-    setExpandedIds(new Set(tasks.map(t => t.id)));
-  }, [tasks]);
-
-  const collapseAll = useCallback(() => {
-    setExpandedIds(new Set());
-  }, []);
-
   // ─── Data fetching ───────────────────────────────────────────────────────────
   const { data: allProjectsRaw = [], isLoading: isLoadingProjects } = useQuery({
     queryKey: ['projects'],
@@ -126,6 +118,14 @@ export default function Programme() {
   const tasks = selectedProjectId === 'all'
     ? accessibleTasks
     : accessibleTasks.filter(t => t.project_id === selectedProjectId);
+
+  const expandAll = useCallback(() => {
+    setExpandedIds(new Set(tasks.map(t => t.id)));
+  }, [tasks]);
+
+  const collapseAll = useCallback(() => {
+    setExpandedIds(new Set());
+  }, []);
 
   // Seed expandedIds when tasks first load (expand root tasks)
   useEffect(() => {
