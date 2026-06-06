@@ -5,7 +5,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Upload, Download, Trash2, FileText, Loader2, AlertTriangle, X } from 'lucide-react';
+import { Upload, Download, FileText, Loader2, AlertTriangle, X } from 'lucide-react';
+import DocTable from './DocTable';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 
@@ -166,7 +167,10 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
           const response = await fetch(doc.file_url);
           const blob = await response.blob();
           const ext = doc.file_url.split('.').pop().split('?')[0];
-          folder.file(`${doc.name || 'document'}.${ext}`, blob);
+          const filePath = doc.folder_path
+            ? `${doc.folder_path}${doc.name || 'document'}.${ext}`
+            : `${doc.name || 'document'}.${ext}`;
+          folder.file(filePath, blob);
         } catch (_e) { /* skip failed files */ }
       }
 
@@ -260,68 +264,7 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
           )}
         </div>
       ) : (
-        <div className="border rounded-lg overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50">
-              <tr>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase">Name</th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase w-44">Category</th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase w-20 hidden sm:table-cell">Type</th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase w-28 hidden md:table-cell">Uploaded</th>
-                <th className="w-20"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {docs.map((doc, idx) => (
-                <tr key={idx} className="hover:bg-muted/30 transition-colors">
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <span className="text-base">{FILE_ICONS[getExt(doc.name)] || '📎'}</span>
-                      <span className="font-medium text-sm truncate max-w-[200px]">{doc.name}</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    {canManage ? (
-                      <Select value={doc.category || 'Other'} onValueChange={v => handleCategoryChange(idx, v)}>
-                        <SelectTrigger className="h-7 text-xs w-40"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">{doc.category || 'Other'}</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 hidden sm:table-cell">
-                    <span className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono">
-                      {doc.file_type || getExt(doc.name).toUpperCase()}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 hidden md:table-cell">
-                    <span className="text-xs text-muted-foreground">
-                      {doc.uploaded_at ? format(new Date(doc.uploaded_at), 'dd MMM yyyy') : '—'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-1 justify-end">
-                      <a href={doc.file_url} target="_blank" rel="noopener noreferrer">
-                        <Button variant="ghost" size="icon" className="h-7 w-7" title="Download">
-                          <Download className="w-3.5 h-3.5" />
-                        </Button>
-                      </a>
-                      {canManage && (
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
-                          onClick={() => handleDelete(idx)}>
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DocTable docs={docs} canManage={canManage} onCategoryChange={handleCategoryChange} onDelete={handleDelete} />
       )}
 
       <Dialog open={showUpload} onOpenChange={setShowUpload}>
