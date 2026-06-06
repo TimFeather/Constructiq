@@ -34,31 +34,69 @@ const STATUS_STYLES = {
 
 const emptyForm = { full_name: '', business_name: '', email: '', phone: '', trade: '' };
 
-// Upsert a contact into TenderContact directory
+/**
+ * CRITICAL FIX 4, 5, 6: Upsert a contact into TenderContact directory.
+ * - Search by email (case-insensitive) first, then name+business as fallback
+ * - BLOCKING: throws on failure so the caller can show a user-visible error
+ * - Verifies the record persists after create/update
+ */
 async function upsertContact(contacts, form, queryClient) {
-  if (!form.full_name) return;
-  const existing = contacts.find(c => c.email?.toLowerCase() === form.email?.toLowerCase() && form.email);
-  try {
-    if (existing) {
-      await base44.entities.TenderContact.update(existing.id, {
-        full_name:     form.full_name,
-        business_name: form.business_name || existing.business_name || '',
-        phone:         form.phone         || existing.phone         || '',
-        trade:         form.trade         || existing.trade         || '',
-      });
-    } else {
-      await base44.entities.TenderContact.create({
-        full_name:     form.full_name,
-        business_name: form.business_name || '',
-        email:         form.email         || '',
-        phone:         form.phone         || '',
-        trade:         form.trade         || '',
-      });
-    }
-    queryClient.invalidateQueries({ queryKey: ['tenderContacts'] });
-  } catch (err) {
-    console.warn('TenderContact upsert failed:', err?.message);
+  if (!form.full_name) return null;
+
+  // CRITICAL FIX 6: Deduplicate — email match first, then name+business fallback
+  const emailLower = form.email?.toLowerCase();
+  let existing = emailLower
+    ? contacts.find(c => c.email?.toLowerCase() === emailLower)
+    : null;
+
+  if (!existing && form.full_name && form.business_name) {
+    existing = contacts.find(
+      c => c.full_name?.toLowerCase() === form.full_name.toLowerCase() &&
+           c.business_name?.toLowerCase() === form.business_name.toLowerCase()
+    );
   }
+
+  let result;
+
+  if (existing) {
+    console.log(`[upsertContact] UPDATE id=${existing.id} email=${form.email}`);
+    result = await base44.entities.TenderContact.update(existing.id, {
+      full_name:     form.full_name,
+      business_name: form.business_name || existing.business_name || '',
+      phone:         form.phone         || existing.phone         || '',
+      trade:         form.trade         || existing.trade         || '',
+    });
+    // Verify update persisted — fetch by id
+    const verify = await base44.entities.TenderContact.filter({ id: existing.id }).catch(() => []);
+    if (!verify?.length) {
+      throw new Error(`TenderContact update verification failed for id=${existing.id}`);
+    }
+    console.log(`[upsertContact] UPDATE VERIFIED id=${existing.id}`);
+  } else {
+    console.log(`[upsertContact] CREATE email=${form.email} name=${form.full_name}`);
+    result = await base44.entities.TenderContact.create({
+      full_name:     form.full_name,
+      business_name: form.business_name || '',
+      email:         form.email         || '',
+      phone:         form.phone         || '',
+      trade:         form.trade         || '',
+    });
+
+    // CRITICAL FIX 5: Verify the contact actually persisted
+    if (!result?.id) {
+      throw new Error('TenderContact create returned no id');
+    }
+    if (form.email) {
+      const verify = await base44.entities.TenderContact.filter({ email: form.email }).catch(() => []);
+      if (!verify?.length) {
+        throw new Error(`TenderContact verification failed — record not found after create (email=${form.email})`);
+      }
+      console.log(`[upsertContact] CREATE VERIFIED id=${result.id} email=${form.email}`);
+    }
+  }
+
+  queryClient.invalidateQueries({ queryKey: ['tenderContacts'] });
+  return result;
 }
 
 export default function InviteeManager({ tender, onUpdate, canManage }) {
@@ -66,13 +104,11 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // Manual add form
   const [form, setForm] = useState(emptyForm);
   const [nameSearch, setNameSearch] = useState('');
   const [nameSuggestions, setNameSuggestions] = useState([]);
   const nameDebounce = useRef(null);
 
-  // Existing subcontractor search panel
   const [showSearch, setShowSearch] = useState(false);
   const [searchQ, setSearchQ] = useState('');
   const [searchResults, setSearchResults] = useState([]);
@@ -166,10 +202,33 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
       toast({ title: 'Already added', description: `${form.email} is already in the invitee list`, duration: 3000 });
       return;
     }
-    const newInvitee = { ...form, trade: form.trade === 'NONE' ? '' : (form.trade || ''), id: uuidv4(), token: uuidv4(), status: 'Pending', invited_at: null, submission: null };
+
+    const newInvitee = {
+      ...form,
+      trade:      form.trade === 'NONE' ? '' : (form.trade || ''),
+      id:         uuidv4(),
+      token:      uuidv4(),
+      status:     'Pending',
+      invited_at: null,
+      submission: null,
+    };
     await onUpdate({ invitees: [...invitees, newInvitee] });
-    // Always attempt upsert — entity RLS enforces write permissions
-    await upsertContact(contacts, form, queryClient);
+
+    // CRITICAL FIX 4: TenderContact upsert is BLOCKING with user-visible error
+    try {
+      await upsertContact(contacts, form, queryClient);
+      toast({ title: `${form.full_name} added`, description: 'Contact saved to database', duration: 2500 });
+    } catch (err) {
+      console.error('[InviteeManager] TenderContact upsert failed:', err?.message);
+      // CRITICAL FIX 4: User must know the save failed
+      toast({
+        title: 'Contact Save Failed',
+        description: err?.message || 'Could not save contact to database',
+        variant: 'destructive',
+        duration: 8000,
+      });
+    }
+
     setForm(emptyForm);
     setNameSearch('');
     setNameSuggestions([]);
@@ -215,50 +274,58 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
 
       let sent = 0;
       let failed = 0;
+      let sendErrors = [];
 
       if (toEmail.length > 0) {
-        try {
-          const result = await base44.functions.invoke('sendTenderInvitations', {
-            tenderId:   tender.id,
-            tenderInfo: {
-              title:                tender.title,
-              tender_number:        tender.tender_number        || '',
-              location:             tender.location             || '',
-              closing_date:         tender.closing_date         || '',
-              description:          tender.description          || '',
-              trade_packages:       tender.trade_packages       || [],
-              client_name:          tender.client_name          || '',
-              architect_name:       tender.architect_name       || '',
-              project_manager_name: tender.project_manager_name || '',
-            },
-            invitees: toEmail.map(inv => ({
-              id:        inv.id,
-              email:     inv.email,
-              full_name: inv.full_name,
-              token:     inv.token,
-            })),
-            appUrl: window.location.origin,
-          });
-          sent   = result.data?.sent   ?? 0;
-          failed = result.data?.failed ?? 0;
-          if (result.data?.errors?.length > 0) console.warn('partial failures:', result.data.errors);
-        } catch (emailErr) {
-          console.error('Failed to call sendTenderInvitations:', emailErr);
-          failed = toEmail.length;
-        }
+        const result = await base44.functions.invoke('sendTenderInvitations', {
+          tenderId:   tender.id,
+          tenderInfo: {
+            title:                tender.title,
+            tender_number:        tender.tender_number        || '',
+            location:             tender.location             || '',
+            closing_date:         tender.closing_date         || '',
+            description:          tender.description          || '',
+            trade_packages:       tender.trade_packages       || [],
+            client_name:          tender.client_name          || '',
+            architect_name:       tender.architect_name       || '',
+            project_manager_name: tender.project_manager_name || '',
+          },
+          invitees: toEmail.map(inv => ({
+            id:        inv.id,
+            email:     inv.email,
+            full_name: inv.full_name,
+            token:     inv.token,
+          })),
+          appUrl: window.location.origin,
+        });
+        sent       = result.data?.sent   ?? 0;
+        failed     = result.data?.failed ?? 0;
+        sendErrors = result.data?.errors ?? [];
+        if (sendErrors.length > 0) console.error('[issueTender] partial failures:', sendErrors);
       }
 
-      if (sent > 0) {
-        toast({
-          title: `Tender issued — ${sent} email${sent !== 1 ? 's' : ''} sent`,
-          description: failed > 0 ? `${failed} failed to send` : undefined,
-          duration: 5000,
-        });
-      } else if (toEmail.length === 0) {
+      if (toEmail.length === 0) {
         toast({ title: 'Tender status updated', description: 'No new invitees to email', duration: 4000 });
+      } else if (sent > 0 && failed === 0) {
+        toast({ title: `Tender issued — ${sent} invitation${sent !== 1 ? 's' : ''} sent`, duration: 5000 });
+      } else if (sent > 0 && failed > 0) {
+        toast({
+          title: `${sent} sent, ${failed} failed`,
+          description: sendErrors.slice(0, 3).join('; '),
+          variant: 'destructive',
+          duration: 10000,
+        });
       } else {
-        toast({ title: 'Tender saved but no emails were sent', description: 'Check invitees have valid email addresses', variant: 'destructive', duration: 8000 });
+        toast({
+          title: 'No invitations sent',
+          description: sendErrors.length > 0 ? sendErrors.slice(0, 3).join('; ') : 'Check invitees have valid email addresses and invitation records',
+          variant: 'destructive',
+          duration: 10000,
+        });
       }
+    } catch (err) {
+      console.error('[issueTender] fatal error:', err?.message);
+      toast({ title: 'Issue Tender Failed', description: err?.message, variant: 'destructive', duration: 10000 });
     } finally {
       setIssuing(false);
       setShowIssueConfirm(false);
@@ -419,7 +486,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
                 </div>
               </div>
               <p className="text-xs text-muted-foreground">
-                {(user?.role === 'admin' || user?.role === 'pricing') ? 'Contact will be saved to the subcontractor database.' : 'Contact will be added to this tender only.'}
+                Contact will be saved to the subcontractor database.
               </p>
               <Button onClick={addInvitee} disabled={!form.full_name} className="gap-2" size="sm">
                 <Plus className="w-4 h-4" /> Add Invitee
