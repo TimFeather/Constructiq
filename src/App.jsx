@@ -1,7 +1,7 @@
 import { Toaster } from "@/components/ui/toaster"
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
-import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Route, Routes, Navigate, useLocation } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
@@ -34,6 +34,17 @@ const TendersRoute = ({ children }) => {
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
+  const location = useLocation();
+
+  // Public routes — bypass all auth checks entirely
+  const isPublicRoute = location.pathname.startsWith('/tender-submit/');
+  if (isPublicRoute) {
+    return (
+      <Routes>
+        <Route path="/tender-submit/:token" element={<TenderSubmit />} />
+      </Routes>
+    );
+  }
 
   if (isLoadingPublicSettings || isLoadingAuth) {
     return (
@@ -77,7 +88,6 @@ const AuthenticatedApp = () => {
         </Route>
       </Route>
 
-      <Route path="/tender-submit/:token" element={<TenderSubmit />} />
       <Route path="*" element={<PageNotFound />} />
     </Routes>
   );
