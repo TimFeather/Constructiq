@@ -19,16 +19,10 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Invalid or expired link' }, { status: 404 });
     }
 
-    // Tender.get() throws on 404 — wrap to handle gracefully
-    let tender = null;
-    try {
-      tender = await base44.asServiceRole.entities.Tender.get(invitation.tender_id);
-    } catch (getErr) {
-      console.error(`[tenderPublicApi] Tender.get failed for id=${invitation.tender_id}:`, getErr?.message);
-    }
+    const tender = await base44.asServiceRole.entities.Tender.get(invitation.tender_id);
     if (!tender) {
       return Response.json(
-        { error: 'This tender is no longer available. Please contact the sender for a new invitation.' },
+        { error: `Tender not found (id: ${invitation.tender_id})` },
         { status: 404 }
       );
     }

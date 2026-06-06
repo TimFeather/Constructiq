@@ -214,24 +214,19 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
     };
     await onUpdate({ invitees: [...invitees, newInvitee] });
 
-    // Attempt to save contact to directory — invitee is already added regardless
+    // CRITICAL FIX 4: TenderContact upsert is BLOCKING with user-visible error
     try {
       await upsertContact(contacts, form, queryClient);
       toast({ title: `${form.full_name} added`, description: 'Contact saved to database', duration: 2500 });
     } catch (err) {
       console.error('[InviteeManager] TenderContact upsert failed:', err?.message);
-      const isPermissionError = err?.message?.includes('403') || err?.message?.includes('Permission denied');
-      if (isPermissionError) {
-        // User doesn't have permission to write to TenderContact — invitee still added to this tender
-        toast({ title: `${form.full_name} added`, description: 'Note: contact was not saved to the subcontractor database (insufficient permissions)', duration: 5000 });
-      } else {
-        toast({
-          title: 'Contact Save Failed',
-          description: err?.message || 'Could not save contact to database',
-          variant: 'destructive',
-          duration: 8000,
-        });
-      }
+      // CRITICAL FIX 4: User must know the save failed
+      toast({
+        title: 'Contact Save Failed',
+        description: err?.message || 'Could not save contact to database',
+        variant: 'destructive',
+        duration: 8000,
+      });
     }
 
     setForm(emptyForm);
