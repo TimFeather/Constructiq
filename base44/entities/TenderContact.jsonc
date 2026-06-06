@@ -30,7 +30,8 @@
         "role": {
           "$in": [
             "admin",
-            "pricing"
+            "pricing",
+            "internal"
           ]
         }
       }
@@ -40,7 +41,8 @@
         "role": {
           "$in": [
             "admin",
-            "pricing"
+            "pricing",
+            "internal"
           ]
         }
       }
@@ -50,7 +52,8 @@
         "role": {
           "$in": [
             "admin",
-            "pricing"
+            "pricing",
+            "internal"
           ]
         }
       }

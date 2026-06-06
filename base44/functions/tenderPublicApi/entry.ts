@@ -19,10 +19,7 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Invalid or expired link' }, { status: 404 });
     }
 
-    const tenders = await base44.asServiceRole.entities.Tender.filter(
-      { id: invitation.tender_id }, '-created_date', 1
-    );
-    const tender = tenders[0];
+    const tender = await base44.asServiceRole.entities.Tender.get(invitation.tender_id);
     if (!tender) {
       return Response.json(
         { error: `Tender not found (id: ${invitation.tender_id})` },
