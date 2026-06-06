@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Upload, Download, FileText, Loader2, AlertTriangle, X } from 'lucide-react';
+import { Upload, Download, FileText, Loader2, AlertTriangle, X, FolderOpen } from 'lucide-react';
 import DocTable from './DocTable';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -31,40 +31,69 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
   const [downloadingAll, setDownloadingAll] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
   const [uploadError, setUploadError] = useState(null);
+  const folderInputRef = useRef(null);
 
   const docs = tender.documents || [];
 
-  const uploadFiles = async (files) => {
-    if (!files.length) return;
+  // Unified upload: accepts array of { file, folder_path }
+  const uploadFilesWithPaths = async (filesWithPaths) => {
+    if (!filesWithPaths.length) return;
     setUploading(true);
-    setUploadProgress({ current: 0, total: files.length });
+    setUploadError(null);
+    setUploadProgress({ current: 0, total: filesWithPaths.length });
     const newDocs = [];
-    let i = 0;
-    for (const file of files) {
-      const { file_url } = await base44.integrations.Core.UploadFile({ file });
-      newDocs.push({
-        name: file.name.replace(/\.[^.]+$/, ''),
-        file_url,
-        file_type: (file.name.split('.').pop() || 'File').toUpperCase(),
-        category: 'Other',
-        uploaded_at: new Date().toISOString(),
-      });
-      i++;
-      setUploadProgress({ current: i, total: files.length });
+    const errors = [];
+    let uploaded = 0;
+    for (const { file, folder_path } of filesWithPaths) {
+      try {
+        const { file_url } = await base44.integrations.Core.UploadFile({ file });
+        newDocs.push({
+          name: file.name.replace(/\.[^.]+$/, ''),
+          file_url,
+          file_type: (file.name.split('.').pop() || 'File').toUpperCase(),
+          category: 'Other',
+          folder_path: folder_path || '',
+          uploaded_at: new Date().toISOString(),
+        });
+        uploaded++;
+        setUploadProgress({ current: uploaded, total: filesWithPaths.length });
+      } catch (err) {
+        errors.push(`${file.name}: ${err.message}`);
+      }
     }
-    await onUpdate({ documents: [...docs, ...newDocs] });
+    if (newDocs.length) await onUpdate({ documents: [...docs, ...newDocs] });
     setUploading(false);
     setUploadProgress({ current: 0, total: 0 });
+    if (errors.length) setUploadError(`${uploaded} uploaded, ${errors.length} failed: ${errors[0]}`);
   };
 
-  const collectFiles = async (entry, path = '') => {
+  // "Select Folder" button handler — uses webkitRelativePath
+  const handleFolderSelect = async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (!files.length) return;
+    const filesWithPaths = files
+      .filter(f => ALLOWED_EXTS.includes(getExt(f.name)))
+      .map(file => {
+        // webkitRelativePath = "RootFolder/SubFolder/file.pdf"
+        // folder_path = "RootFolder/SubFolder/" (drop the filename)
+        const rel = file.webkitRelativePath || file.name;
+        const parts = rel.split('/');
+        const folder_path = parts.length > 1 ? parts.slice(0, -1).join('/') + '/' : '';
+        return { file, folder_path };
+      });
+    await uploadFilesWithPaths(filesWithPaths);
+  };
+
+  const collectFiles = async (entry, folderPath = '') => {
     const results = [];
     if (entry.isFile) {
       const file = await new Promise(res => entry.file(res));
-      if (ALLOWED_EXTS.includes(getExt(file.name))) results.push({ file, path });
+      if (ALLOWED_EXTS.includes(getExt(file.name))) {
+        results.push({ file, folder_path: folderPath });
+      }
     } else if (entry.isDirectory) {
       const reader = entry.createReader();
-      // readEntries returns max 100 per call — must loop until empty
       const entries = [];
       let batch;
       do {
@@ -72,7 +101,7 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
         entries.push(...batch);
       } while (batch.length > 0);
       for (const child of entries) {
-        const sub = await collectFiles(child, `${path}${entry.name}/`);
+        const sub = await collectFiles(child, `${folderPath}${entry.name}/`);
         results.push(...sub);
       }
     }
@@ -82,7 +111,6 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
   const handleDrop = async (e) => {
     e.preventDefault();
     setIsDragOver(false);
-    setUploadError(null);
     if (!canManage) return;
 
     const items = Array.from(e.dataTransfer.items || []);
@@ -97,42 +125,12 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
         }
       }
     } else {
-      // Fallback: plain file drop
       allFiles = Array.from(e.dataTransfer.files)
         .filter(f => ALLOWED_EXTS.includes(getExt(f.name)))
-        .map(file => ({ file, path: '' }));
+        .map(file => ({ file, folder_path: '' }));
     }
 
-    if (!allFiles.length) return;
-
-    setUploading(true);
-    setUploadProgress({ current: 0, total: allFiles.length });
-    const newDocs = [];
-    const errors = [];
-    let uploaded = 0;
-
-    for (const { file, path } of allFiles) {
-      try {
-        const { file_url } = await base44.integrations.Core.UploadFile({ file });
-        newDocs.push({
-          name: file.name.replace(/\.[^.]+$/, ''),
-          file_url,
-          file_type: (file.name.split('.').pop() || 'File').toUpperCase(),
-          category: 'Other',
-          folder_path: path || '',
-          uploaded_at: new Date().toISOString(),
-        });
-        uploaded++;
-        setUploadProgress({ current: uploaded, total: allFiles.length });
-      } catch (err) {
-        errors.push(`${file.name}: ${err.message}`);
-      }
-    }
-
-    if (newDocs.length) await onUpdate({ documents: [...docs, ...newDocs] });
-    setUploading(false);
-    setUploadProgress({ current: 0, total: 0 });
-    if (errors.length) setUploadError(`${uploaded} uploaded, ${errors.length} failed: ${errors[0]}`);
+    await uploadFilesWithPaths(allFiles);
   };
 
   const handleUpload = async () => {
@@ -213,10 +211,21 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
         </div>
       )}
 
+      {/* Hidden folder input */}
+      <input
+        ref={folderInputRef}
+        type="file"
+        webkitdirectory=""
+        directory=""
+        multiple
+        className="hidden"
+        onChange={handleFolderSelect}
+      />
+
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <p className="text-sm text-muted-foreground">
           {docs.length} document{docs.length !== 1 ? 's' : ''}
-          {canManage && <span className="ml-2 text-xs">· drag &amp; drop files anywhere</span>}
+          {canManage && <span className="ml-2 text-xs">· drag &amp; drop files or folders</span>}
         </p>
         <div className="flex items-center gap-2">
           {docs.length > 0 && (
@@ -226,9 +235,14 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
             </Button>
           )}
           {canManage && (
-            <Button onClick={() => setShowUpload(true)} disabled={uploading} className="gap-2" size="sm">
-              <Upload className="w-4 h-4" /> {uploading ? 'Uploading...' : 'Upload Document'}
-            </Button>
+            <>
+              <Button onClick={() => folderInputRef.current?.click()} disabled={uploading} variant="outline" className="gap-2" size="sm">
+                <FolderOpen className="w-4 h-4" /> Select Folder
+              </Button>
+              <Button onClick={() => setShowUpload(true)} disabled={uploading} className="gap-2" size="sm">
+                <Upload className="w-4 h-4" /> Upload File
+              </Button>
+            </>
           )}
         </div>
       </div>
