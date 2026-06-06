@@ -126,6 +126,10 @@
           "category": {
             "type": "string"
           },
+          "folder_path": {
+            "type": "string",
+            "description": "Relative folder path e.g. 'TenderPackage/Architectural/' \u2014 empty string means root"
+          },
           "uploaded_at": {
             "type": "string"
           }
