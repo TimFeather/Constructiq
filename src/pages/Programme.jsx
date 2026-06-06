@@ -33,6 +33,7 @@ import { getVisibleTasks } from '@/lib/programme/visibleTasks';
 import { bulkOperationState } from '@/lib/bulkOperationState';
 import { retry429 } from '@/lib/retry429';
 import TaskInlineEditor from '@/components/programme/TaskInlineEditor';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 const ZOOM_LEVELS = ['year', 'quarter', 'month', 'week', 'day'];
 const DELETE_CHUNK = 150;
@@ -41,6 +42,7 @@ const IMPORT_STAGES = ['Reading file', 'Parsing schedule', 'Creating tasks', 'Li
 export default function Programme() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
+  const isMobile = useIsMobile();
   const { toast } = useToast();
 
   const urlParams = new URLSearchParams(window.location.search);
@@ -423,6 +425,14 @@ export default function Programme() {
       />
 
       <Tabs defaultValue="gantt" className="flex-1 flex flex-col overflow-hidden">
+        {isMobile && (
+          <div className="flex items-center gap-2 py-2 border-b bg-muted/20 overflow-x-auto flex-shrink-0">
+            <Button size="sm" variant="outline" onClick={expandAll} className="flex-shrink-0 h-8 text-xs gap-1"><ChevronsUpDown className="w-3 h-3" /> Expand All</Button>
+            <Button size="sm" variant="outline" onClick={collapseAll} className="flex-shrink-0 h-8 text-xs gap-1"><ChevronsDownUp className="w-3 h-3" /> Collapse</Button>
+            <Button size="sm" variant="outline" onClick={() => cycleZoom('out')} className="flex-shrink-0 h-8"><ZoomOut className="w-3.5 h-3.5" /></Button>
+            <Button size="sm" variant="outline" onClick={() => cycleZoom('in')} className="flex-shrink-0 h-8"><ZoomIn className="w-3.5 h-3.5" /></Button>
+          </div>
+        )}
         <div className="overflow-x-auto flex-shrink-0"><TabsList className="flex w-max">
           <TabsTrigger value="gantt">Gantt Chart</TabsTrigger>
           <TabsTrigger value="lookahead" className="gap-1.5"><CalendarDays className="w-3.5 h-3.5" /> Look Ahead</TabsTrigger>
@@ -431,14 +441,8 @@ export default function Programme() {
 
         {/* ── Gantt ── */}
         <TabsContent value="gantt" className="flex-1 flex border rounded-lg overflow-hidden bg-card mt-2">
-          <button onClick={() => setTaskListCollapsed(!taskListCollapsed)}
-            className="flex items-center justify-center w-8 bg-muted/30 hover:bg-muted transition-colors border-r flex-shrink-0"
-            title={taskListCollapsed ? 'Show task list' : 'Hide task list'}>
-            {taskListCollapsed ? <PanelLeftOpen className="w-4 h-4 text-muted-foreground" /> : <PanelLeftClose className="w-4 h-4 text-muted-foreground" />}
-          </button>
-
-          {!taskListCollapsed && (
-            <div className="w-[520px] xl:w-[620px] flex-shrink-0 overflow-hidden">
+          {isMobile ? (
+            <div className="flex-1 overflow-hidden">
               <TaskList
                 tasks={tasks}
                 visibleTasks={visibleTasks}
@@ -448,29 +452,53 @@ export default function Programme() {
                 onTaskClick={setSelectedTask}
                 onEditTask={setEditingTask}
                 scrollRef={taskScrollRef}
-                onScroll={() => {
-                  if (taskScrollRef.current && ganttScrollRef.current) {
-                    syncScroll(taskScrollRef.current, ganttScrollRef.current);
-                  }
-                }}
+                onScroll={() => {}}
               />
             </div>
-          )}
+          ) : (
+            <>
+              <button onClick={() => setTaskListCollapsed(!taskListCollapsed)}
+                className="flex items-center justify-center w-8 bg-muted/30 hover:bg-muted transition-colors border-r flex-shrink-0"
+                title={taskListCollapsed ? 'Show task list' : 'Hide task list'}>
+                {taskListCollapsed ? <PanelLeftOpen className="w-4 h-4 text-muted-foreground" /> : <PanelLeftClose className="w-4 h-4 text-muted-foreground" />}
+              </button>
 
-          <GanttChart
-            tasks={tasks}
-            visibleTasks={visibleTasks}
-            scheduledMap={scheduledMap}
-            zoom={zoom}
-            scrollRef={ganttScrollRef}
-            onScroll={() => {
-              if (taskScrollRef.current && ganttScrollRef.current) {
-                syncScroll(ganttScrollRef.current, taskScrollRef.current);
-              }
-            }}
-            baselineMap={null}
-            onTaskClick={setSelectedTask}
-          />
+              {!taskListCollapsed && (
+                <div className="w-[520px] xl:w-[620px] flex-shrink-0 overflow-hidden">
+                  <TaskList
+                    tasks={tasks}
+                    visibleTasks={visibleTasks}
+                    scheduledMap={scheduledMap}
+                    expandedIds={expandedIds}
+                    onToggleExpand={onToggleExpand}
+                    onTaskClick={setSelectedTask}
+                    onEditTask={setEditingTask}
+                    scrollRef={taskScrollRef}
+                    onScroll={() => {
+                      if (taskScrollRef.current && ganttScrollRef.current) {
+                        syncScroll(taskScrollRef.current, ganttScrollRef.current);
+                      }
+                    }}
+                  />
+                </div>
+              )}
+
+              <GanttChart
+                tasks={tasks}
+                visibleTasks={visibleTasks}
+                scheduledMap={scheduledMap}
+                zoom={zoom}
+                scrollRef={ganttScrollRef}
+                onScroll={() => {
+                  if (taskScrollRef.current && ganttScrollRef.current) {
+                    syncScroll(ganttScrollRef.current, taskScrollRef.current);
+                  }
+                }}
+                baselineMap={null}
+                onTaskClick={setSelectedTask}
+              />
+            </>
+          )}
         </TabsContent>
 
         <TabsContent value="lookahead" className="flex-1 overflow-hidden">

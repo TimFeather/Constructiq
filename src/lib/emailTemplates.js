@@ -103,6 +103,22 @@ export const DEFAULT_TEMPLATES = {
 <p>We appreciate the time and effort you put into your submission and hope to have the opportunity to work with you in the future.</p>
 <p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br>{sender_name}<br>{company_name}</p>`,
   },
+  user_invite: {
+    name: 'User Invite to ConstructIQ',
+    subject: "You've been invited to ConstructIQ",
+    body_html: `
+<p>Hi <strong>{name}</strong>,</p>
+<p>You have been invited to join <strong>ConstructIQ</strong> by <strong>{invited_by}</strong>.</p>
+{project_context}
+<p style="margin-top:24px;">
+  <a href="{invite_link}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#fff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">
+    Accept Invitation &amp; Register
+  </a>
+</p>
+<p style="font-size:13px;color:#6b7280;margin-top:8px;">
+  If you did not expect this invitation, you can safely ignore this email.
+</p>`,
+  },
 };
 
 export const TEMPLATE_VARIABLES = {
@@ -167,6 +183,12 @@ export const TEMPLATE_VARIABLES = {
     { key: 'tender_number', desc: 'Tender reference' },
     { key: 'sender_name', desc: 'Your name' },
     { key: 'company_name', desc: 'Your company name' },
+  ],
+  user_invite: [
+    { key: 'name', desc: 'Invitee full name or email' },
+    { key: 'invited_by', desc: 'Name of the person sending the invite' },
+    { key: 'project_context', desc: 'Optional project name paragraph' },
+    { key: 'invite_link', desc: 'Registration link' },
   ],
 };
 

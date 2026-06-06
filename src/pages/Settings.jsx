@@ -146,6 +146,7 @@ export default function Settings() {
     { key: 'tender_outcome_unsuccessful', label: 'Tender Outcome — Unsuccessful (We Lost)' },
     { key: 'tender_sub_awarded', label: 'Sub Awarded' },
     { key: 'tender_sub_unsuccessful', label: 'Sub Not Selected' },
+    { key: 'user_invite', label: 'User Invite' },
   ];
 
   return (

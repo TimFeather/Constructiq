@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Upload, Download, Trash2, FileText } from 'lucide-react';
+import { Upload, Download, Trash2, FileText, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 
@@ -16,6 +16,8 @@ const FILE_ICONS = {
   png: '🖼', jpg: '🖼', jpeg: '🖼', dwg: '📐', dxf: '📐', zip: '🗜',
 };
 
+const ALLOWED_EXTS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'dwg', 'dxf', 'png', 'jpg', 'jpeg', 'zip'];
+
 function getExt(name) {
   return (name || '').split('.').pop()?.toLowerCase() || '';
 }
@@ -25,13 +27,17 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
   const [uploadForm, setUploadForm] = useState({ name: '', category: 'Plans', file: null });
   const [uploading, setUploading] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [downloadingAll, setDownloadingAll] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
 
   const docs = tender.documents || [];
 
   const uploadFiles = async (files) => {
     if (!files.length) return;
     setUploading(true);
+    setUploadProgress({ current: 0, total: files.length });
     const newDocs = [];
+    let i = 0;
     for (const file of files) {
       const { file_url } = await base44.integrations.Core.UploadFile({ file });
       newDocs.push({
@@ -41,19 +47,19 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
         category: 'Other',
         uploaded_at: new Date().toISOString(),
       });
+      i++;
+      setUploadProgress({ current: i, total: files.length });
     }
     await onUpdate({ documents: [...docs, ...newDocs] });
     setUploading(false);
+    setUploadProgress({ current: 0, total: 0 });
   };
 
   const handleDrop = async (e) => {
     e.preventDefault();
     setIsDragOver(false);
     if (!canManage) return;
-    const files = Array.from(e.dataTransfer.files).filter(f => {
-      const ext = getExt(f.name);
-      return ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'dwg', 'dxf', 'png', 'jpg', 'jpeg', 'zip'].includes(ext);
-    });
+    const files = Array.from(e.dataTransfer.files).filter(f => ALLOWED_EXTS.includes(getExt(f.name)));
     await uploadFiles(files);
   };
 
@@ -82,6 +88,37 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
     await onUpdate({ documents: docs.map((d, i) => i === idx ? { ...d, category } : d) });
   };
 
+  const handleDownloadAll = async () => {
+    setDownloadingAll(true);
+    try {
+      const JSZip = (await import('https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm')).default;
+      const zip = new JSZip();
+      const folder = zip.folder(tender.title || 'Tender Documents');
+
+      for (const doc of docs) {
+        if (!doc.file_url) continue;
+        try {
+          const response = await fetch(doc.file_url);
+          const blob = await response.blob();
+          const ext = doc.file_url.split('.').pop().split('?')[0];
+          folder.file(`${doc.name || 'document'}.${ext}`, blob);
+        } catch (_e) { /* skip failed files */ }
+      }
+
+      const content = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(content);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${tender.tender_number || 'TDR'} - ${tender.title || 'Documents'}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('Download failed: ' + err.message);
+    } finally {
+      setDownloadingAll(false);
+    }
+  };
+
   return (
     <div
       onDragOver={(e) => { e.preventDefault(); if (canManage) setIsDragOver(true); }}
@@ -101,17 +138,41 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
         </div>
       )}
 
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <p className="text-sm text-muted-foreground">
           {docs.length} document{docs.length !== 1 ? 's' : ''}
           {canManage && <span className="ml-2 text-xs">· drag &amp; drop files anywhere</span>}
         </p>
-        {canManage && (
-          <Button onClick={() => setShowUpload(true)} disabled={uploading} className="gap-2" size="sm">
-            <Upload className="w-4 h-4" /> {uploading ? 'Uploading...' : 'Upload Document'}
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {docs.length > 0 && (
+            <Button onClick={handleDownloadAll} disabled={downloadingAll} variant="outline" size="sm" className="gap-2">
+              {downloadingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+              {downloadingAll ? 'Preparing...' : `Download All (${docs.length})`}
+            </Button>
+          )}
+          {canManage && (
+            <Button onClick={() => setShowUpload(true)} disabled={uploading} className="gap-2" size="sm">
+              <Upload className="w-4 h-4" /> {uploading ? 'Uploading...' : 'Upload Document'}
+            </Button>
+          )}
+        </div>
       </div>
+
+      {/* Upload progress */}
+      {uploadProgress.total > 0 && (
+        <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="flex items-center gap-2 text-sm text-blue-800 mb-2">
+            <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+            Uploading {uploadProgress.current} of {uploadProgress.total} files...
+          </div>
+          <div className="w-full bg-blue-200 rounded-full h-1.5">
+            <div
+              className="bg-blue-600 h-1.5 rounded-full transition-all"
+              style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
+            />
+          </div>
+        </div>
+      )}
 
       {docs.length === 0 ? (
         <div className={cn(

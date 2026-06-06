@@ -3,7 +3,7 @@ import { ChevronRight, ChevronDown, Pencil } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format, differenceInDays } from 'date-fns';
 
-export const ROW_HEIGHT = 40;
+export const ROW_HEIGHT = 32;
 
 const levelColors = [
   'border-l-primary',
@@ -11,6 +11,8 @@ const levelColors = [
   'border-l-amber-500',
   'border-l-purple-500',
 ];
+
+const COLS = '44px 20px 1fr 52px 64px 64px 72px';
 
 /**
  * TaskList — read-only view.
@@ -50,16 +52,14 @@ export default function TaskList({
       {/* Column headers */}
       <div
         className="grid items-center border-b text-[10px] font-medium text-muted-foreground uppercase tracking-wider bg-muted/30 px-2 h-9 flex-shrink-0"
-        style={{ gridTemplateColumns: '52px 24px 1fr 60px 70px 70px 70px 70px 64px' }}
+        style={{ gridTemplateColumns: COLS }}
       >
         <span className="text-center">WBS</span>
         <div />
         <span className="px-1">Name</span>
-        <span className="text-center">Progress</span>
+        <span className="text-center">%</span>
         <span className="text-center">Pln Start</span>
         <span className="text-center">Pln End</span>
-        <span className="text-center">Act Start</span>
-        <span className="text-center">Act End</span>
         <span className="text-center">Variance</span>
       </div>
 
@@ -92,7 +92,7 @@ export default function TaskList({
               style={{
                 height: ROW_HEIGHT,
                 paddingLeft: `${8 + depth * 16}px`,
-                gridTemplateColumns: '52px 24px 1fr 60px 70px 70px 70px 70px 64px',
+                gridTemplateColumns: COLS,
               }}
               className={cn(
                 'relative group grid items-center w-full border-b border-border/20 hover:bg-muted/40 transition-colors cursor-pointer px-2 border-l-2',
@@ -102,7 +102,7 @@ export default function TaskList({
             >
               <span className="text-[10px] font-mono text-muted-foreground text-center">{task.wbs || '—'}</span>
 
-                      <div className="flex items-center justify-center">
+              <div className="flex items-center justify-center">
                 {hasChildren ? (
                   <button
                     className="w-5 h-5 flex items-center justify-center hover:bg-muted rounded"
@@ -122,11 +122,11 @@ export default function TaskList({
                 {task.name}
               </span>
 
-              <div className="flex items-center gap-1 px-1">
-                <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+              <div className="flex items-center gap-0.5 px-1">
+                <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
                   <div className="h-full bg-primary rounded-full" style={{ width: `${percentComplete}%` }} />
                 </div>
-                <span className="text-[10px] text-muted-foreground w-7 text-right">{percentComplete}%</span>
+                <span className="text-[9px] text-muted-foreground w-5 text-right">{percentComplete}%</span>
               </div>
 
               <span className="text-[10px] font-mono text-muted-foreground text-center">
@@ -135,13 +135,8 @@ export default function TaskList({
               <span className="text-[10px] font-mono text-muted-foreground text-center">
                 {plannedEnd ? format(new Date(plannedEnd), 'dd/MM/yy') : '—'}
               </span>
-              <span className="text-[10px] font-mono text-center text-blue-600 dark:text-blue-400">
-                {task.actual_start ? format(new Date(task.actual_start), 'dd/MM/yy') : '—'}
-              </span>
-              <span className="text-[10px] font-mono text-center text-emerald-600 dark:text-emerald-400">
-                {task.actual_finish ? format(new Date(task.actual_finish), 'dd/MM/yy') : '—'}
-              </span>
               <div className="text-center">{varianceEl}</div>
+
               {onEditTask && (
                 <button
                   className="absolute right-1 opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center hover:bg-primary/10 rounded transition-opacity"
