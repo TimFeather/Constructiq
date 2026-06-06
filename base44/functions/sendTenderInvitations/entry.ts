@@ -43,6 +43,19 @@ Deno.serve(async (req) => {
 
     console.log(`sendTenderInvitations: tenderId=${tenderId}, invitees=${inviteesToEmail.length}`);
 
+    // Verify the tender is findable before sending emails
+    const verifyTenders = await base44.asServiceRole.entities.Tender.filter(
+      { id: tenderId }, '-created_date', 1
+    );
+    if (!verifyTenders[0]) {
+      console.error(`CRITICAL: tenderId=${tenderId} not found in Tender entity. Invitations cancelled.`);
+      return Response.json({
+        error: `Tender not found (id: ${tenderId}). Please reload the page and try again.`,
+        sent: 0, failed: inviteesToEmail.length,
+      }, { status: 404 });
+    }
+    console.log(`Tender verified: ${verifyTenders[0].title} (${tenderId}`);
+
     // Fetch branding + email templates
     const [templates, brandings] = await Promise.all([
       base44.asServiceRole.entities.EmailTemplate.list(),
@@ -161,6 +174,7 @@ Deno.serve(async (req) => {
               status:         'Sent',
               sent_date:      sentDate,
             });
+            console.log(`TenderInvitation created: token=${inv.token} tender_id=${tenderId}`);
           }
         } catch (dbErr) {
           // Non-blocking — email was sent, DB record is supplementary

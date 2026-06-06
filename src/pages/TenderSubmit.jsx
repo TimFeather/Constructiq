@@ -99,8 +99,16 @@ export default function TenderSubmit() {
         <Card className="max-w-md w-full">
           <CardContent className="p-8 text-center">
             <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-            <h2 className="text-lg font-semibold mb-2">Invalid Link</h2>
-            <p className="text-sm text-muted-foreground">{error}</p>
+            <h2 className="text-lg font-semibold mb-2">
+              {error?.includes('closed') ? 'Tender Closed' :
+               error?.includes('expired') ? 'Link Expired' :
+               error?.includes('longer accepting') ? 'Submissions Closed' :
+               'Invalid Link'}
+            </h2>
+            <p className="text-sm text-muted-foreground mb-4">{error}</p>
+            <p className="text-sm text-muted-foreground">
+              If you believe this is an error, please contact the sender directly and ask them to resend your invitation link.
+            </p>
           </CardContent>
         </Card>
       </div>

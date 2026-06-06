@@ -60,8 +60,12 @@ export default function TenderDetail() {
   const { data: tender, isLoading, refetch } = useQuery({
     queryKey: ['tender', id],
     queryFn: async () => {
-      const results = await base44.entities.Tender.filter({ id });
-      return results[0] || null;
+      try {
+        return await base44.entities.Tender.get(id);
+      } catch (_e) {
+        const results = await base44.entities.Tender.filter({ id }, '-created_date', 1);
+        return results[0] || null;
+      }
     },
     refetchInterval: activeTab === 'submissions' ? 30000 : false,
     refetchIntervalInBackground: false,

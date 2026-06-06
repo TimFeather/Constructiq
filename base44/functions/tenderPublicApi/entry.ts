@@ -19,9 +19,15 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Invalid or expired link' }, { status: 404 });
     }
 
-    const tender = await base44.asServiceRole.entities.Tender.get(invitation.tender_id);
+    const tenders = await base44.asServiceRole.entities.Tender.filter(
+      { id: invitation.tender_id }, '-created_date', 1
+    );
+    const tender = tenders[0];
     if (!tender) {
-      return Response.json({ error: 'Tender not found' }, { status: 404 });
+      return Response.json(
+        { error: `Tender not found (id: ${invitation.tender_id})` },
+        { status: 404 }
+      );
     }
 
     const inviteeIndex = (tender.invitees || []).findIndex(inv => inv.token === token);
@@ -60,8 +66,12 @@ Deno.serve(async (req) => {
     }
 
     if (action === 'submit') {
-      if (tender.status !== 'Issued' && tender.status !== 'Closed') {
-        return Response.json({ error: 'This tender is no longer accepting submissions.' }, { status: 400 });
+      if (tender.status !== 'Issued') {
+        return Response.json({
+          error: tender.status === 'Closed'
+            ? 'This tender has been closed and is no longer accepting submissions.'
+            : 'This tender is no longer accepting submissions.',
+        }, { status: 400 });
       }
 
       if (tender.closing_date) {

@@ -32,7 +32,7 @@ const STATUS_STYLES = {
   Withdrawn:    'bg-gray-100 text-gray-600',
 };
 
-const emptyForm = { full_name: '', business_name: '', email: '', phone: '', trade: undefined };
+const emptyForm = { full_name: '', business_name: '', email: '', phone: '', trade: '' };
 
 // Upsert a contact into TenderContact directory
 async function upsertContact(contacts, form, queryClient) {
@@ -42,22 +42,22 @@ async function upsertContact(contacts, form, queryClient) {
     if (existing) {
       await base44.entities.TenderContact.update(existing.id, {
         full_name:     form.full_name,
-        business_name: form.business_name || existing.business_name,
-        phone:         form.phone         || existing.phone,
-        trade:         form.trade         || existing.trade || '',
+        business_name: form.business_name || existing.business_name || '',
+        phone:         form.phone         || existing.phone         || '',
+        trade:         form.trade         || existing.trade         || '',
       });
     } else {
       await base44.entities.TenderContact.create({
         full_name:     form.full_name,
-        business_name: form.business_name,
-        email:         form.email,
-        phone:         form.phone,
-        trade:         form.trade || '',
+        business_name: form.business_name || '',
+        email:         form.email         || '',
+        phone:         form.phone         || '',
+        trade:         form.trade         || '',
       });
     }
     queryClient.invalidateQueries({ queryKey: ['tenderContacts'] });
-  } catch (_err) {
-    // Directory save is non-blocking
+  } catch (err) {
+    console.warn('TenderContact upsert failed:', err?.message);
   }
 }
 
@@ -83,7 +83,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
 
   const { data: contacts = [] } = useQuery({
     queryKey: ['tenderContacts'],
-    queryFn: () => base44.entities.TenderContact.list('-created_date', 500),
+    queryFn: () => base44.entities.TenderContact.list('-created_date', 500).catch(() => []),
   });
 
   const invitees = tender.invitees || [];
@@ -110,7 +110,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
   };
 
   const selectNameSuggestion = (c) => {
-    setForm({ full_name: c.full_name || '', business_name: c.business_name || '', email: c.email || '', phone: c.phone || '', trade: c.trade || undefined });
+    setForm({ full_name: c.full_name || '', business_name: c.business_name || '', email: c.email || '', phone: c.phone || '', trade: c.trade || '' });
     setNameSearch(c.full_name || '');
     setNameSuggestions([]);
   };
@@ -166,10 +166,10 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
       toast({ title: 'Already added', description: `${form.email} is already in the invitee list`, duration: 3000 });
       return;
     }
-    const newInvitee = { ...form, trade: form.trade === '__none__' ? '' : (form.trade || ''), id: uuidv4(), token: uuidv4(), status: 'Pending', invited_at: null, submission: null };
+    const newInvitee = { ...form, trade: form.trade === 'NONE' ? '' : (form.trade || ''), id: uuidv4(), token: uuidv4(), status: 'Pending', invited_at: null, submission: null };
     await onUpdate({ invitees: [...invitees, newInvitee] });
     // Only upsert into TenderContact directory if user has permission
-    if (user?.role === 'admin' || user?.role === 'pricing') {
+    if (['admin', 'pricing', 'internal'].includes(user?.role)) {
       await upsertContact(contacts, form, queryClient);
     }
     setForm(emptyForm);
@@ -411,10 +411,10 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
                 </div>
                 <div>
                   <Label className="text-xs">Trade</Label>
-                  <Select value={form.trade ?? ''} onValueChange={v => setForm(f => ({ ...f, trade: v === '__none__' ? undefined : v }))}>
+                  <Select value={form.trade || 'NONE'} onValueChange={v => setForm(f => ({ ...f, trade: v === 'NONE' ? '' : v }))}>
                     <SelectTrigger><SelectValue placeholder="Select trade" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="__none__">— No trade —</SelectItem>
+                      <SelectItem value="NONE"><span className="text-muted-foreground">— No trade —</span></SelectItem>
                       {TRADES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
                     </SelectContent>
                   </Select>
