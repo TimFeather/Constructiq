@@ -161,7 +161,7 @@ export default function SubmissionScorer({ tender, onUpdate, canManage }) {
   const [savingCriteria, setSavingCriteria] = useState(false);
 
   const invitees = tender.invitees || [];
-  const submitted = invitees.filter(i => i.submission?.submitted_at);
+  const submitted = invitees.filter(inv => !!inv.submission?.submitted_at);
 
   const totalWeight = criteria.reduce((s, c) => s + (c.weight_percent || 0), 0);
 
@@ -185,7 +185,7 @@ export default function SubmissionScorer({ tender, onUpdate, canManage }) {
 
   // Comparison data
   const chartData = submitted
-    .filter(i => i.submission?.lump_sum_price)
+    .filter(i => !!i.submission?.lump_sum_price)
     .sort((a, b) => a.submission.lump_sum_price - b.submission.lump_sum_price)
     .map((i, idx) => ({
       name: i.full_name || 'Unknown',

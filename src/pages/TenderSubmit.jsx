@@ -23,7 +23,6 @@ export default function TenderSubmit() {
 
   const [form, setForm] = useState({
     lump_sum_price: '',
-    price_breakdown: [],
     notes: '',
     uploaded_file_url: '',
     uploaded_file_name: '',
@@ -35,13 +34,6 @@ export default function TenderSubmit() {
       .then(res => {
         setTender(res.data.tender);
         setInvitee(res.data.invitee);
-        // Pre-fill price breakdown
-        if (res.data.tender.trade_packages?.length > 1) {
-          setForm(f => ({
-            ...f,
-            price_breakdown: res.data.tender.trade_packages.map(tp => ({ trade_package: tp, amount: '', notes: '' })),
-          }));
-        }
         if (res.data.invitee.submission?.submitted_at) {
           setSubmitted(true);
         }
@@ -50,7 +42,8 @@ export default function TenderSubmit() {
       .finally(() => setLoading(false));
   }, [token]);
 
-  const isOverdue = tender?.closing_date && isPast(parseISO(tender.closing_date));
+  const isOverdue = tender?.closing_date &&
+    isPast(parseISO(`${tender.closing_date.split('T')[0]}T23:59:59+12:00`));
 
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
@@ -69,18 +62,13 @@ export default function TenderSubmit() {
     setSubmitting(true);
     setSubmitError('');
     try {
-      const breakdownFinal = form.price_breakdown
-        .filter(b => b.amount)
-        .map(b => ({ ...b, amount: Number(b.amount) }));
-
       await base44.functions.invoke('tenderPublicApi', {
         action: 'submit',
         token,
         submission: {
-          lump_sum_price: Number(form.lump_sum_price),
-          price_breakdown: breakdownFinal,
-          notes: form.notes,
-          uploaded_file_url: form.uploaded_file_url,
+          lump_sum_price:     Number(form.lump_sum_price),
+          notes:              form.notes,
+          uploaded_file_url:  form.uploaded_file_url,
           uploaded_file_name: form.uploaded_file_name,
         },
       });
@@ -200,19 +188,7 @@ export default function TenderSubmit() {
           </Card>
         )}
 
-        {/* Trade packages */}
-        {tender.trade_packages?.length > 0 && (
-          <Card>
-            <CardHeader><CardTitle className="text-sm">Trade Packages Being Priced</CardTitle></CardHeader>
-            <CardContent>
-              <div className="flex flex-wrap gap-2">
-                {tender.trade_packages.map(t => (
-                  <span key={t} className="px-2.5 py-1 bg-primary/10 text-primary rounded-full text-xs font-medium">{t}</span>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
+
 
         {/* Documents */}
         {tender.documents?.length > 0 && (
@@ -256,46 +232,6 @@ export default function TenderSubmit() {
                   />
                 </div>
               </div>
-
-              {/* Price breakdown — only if multiple trade packages */}
-              {form.price_breakdown.length > 0 && (
-                <div>
-                  <Label>Price Breakdown by Trade Package (optional)</Label>
-                  <div className="space-y-3 mt-2">
-                    {form.price_breakdown.map((b, idx) => (
-                      <div key={idx} className="border rounded-lg p-4 space-y-3 bg-card">
-                        <p className="font-medium text-sm">{b.trade_package}</p>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <div>
-                            <label className="text-xs text-muted-foreground mb-1 block">Amount (NZD)</label>
-                            <Input
-                              type="number" min="0" step="0.01" placeholder="0.00"
-                              value={b.amount}
-                              onChange={e => setForm(f => ({
-                                ...f,
-                                price_breakdown: f.price_breakdown.map((x, i) => i === idx ? { ...x, amount: e.target.value } : x)
-                              }))}
-                              className="w-full"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-xs text-muted-foreground mb-1 block">Notes / qualifications</label>
-                            <Input
-                              placeholder="Optional"
-                              value={b.notes}
-                              onChange={e => setForm(f => ({
-                                ...f,
-                                price_breakdown: f.price_breakdown.map((x, i) => i === idx ? { ...x, notes: e.target.value } : x)
-                              }))}
-                              className="w-full"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
 
               <div>
                 <Label>Attach Pricing Document (optional)</Label>

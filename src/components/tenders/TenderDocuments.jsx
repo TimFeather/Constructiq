@@ -198,23 +198,28 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
     await startUpload(pkg, uploadState.duplicateAction || 'version');
   }
 
-  // ── Single file upload (unchanged functionality) ─────────────────────────
+  // ── Single file upload ───────────────────────────────────────────────────
   async function handleSingleUpload() {
     if (!uploadForm.file || !uploadForm.name) return;
     setSingleUploading(true);
-    const { file_url } = await base44.integrations.Core.UploadFile({ file: uploadForm.file });
-    const newDoc = {
-      name: uploadForm.name,
-      file_url,
-      file_type: uploadForm.file.name.split('.').pop()?.toUpperCase() || 'File',
-      category: uploadForm.category,
-      folder_path: '',
-      uploaded_at: new Date().toISOString(),
-    };
-    await onUpdate({ documents: [...docs, newDoc] });
-    setSingleUploading(false);
-    setShowUpload(false);
-    setUploadForm({ name: '', category: 'Plans', file: null });
+    try {
+      const { file_url } = await base44.integrations.Core.UploadFile({ file: uploadForm.file });
+      const newDoc = {
+        name:        uploadForm.name,
+        file_url,
+        file_type:   uploadForm.file.name.split('.').pop()?.toUpperCase() || 'File',
+        category:    uploadForm.category,
+        folder_path: '',
+        uploaded_at: new Date().toISOString(),
+      };
+      await onUpdate({ documents: [...docs, newDoc] });
+      setShowUpload(false);
+      setUploadForm({ name: '', category: 'Plans', file: null });
+    } catch (err) {
+      alert(`Upload failed: ${err.message || 'Please try again'}`);
+    } finally {
+      setSingleUploading(false);
+    }
   }
 
   async function handleDelete(idx) {

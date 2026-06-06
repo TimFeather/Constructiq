@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ArrowLeft, Save, X, Trash2, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Save, X, Trash2, AlertCircle, RefreshCw } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { useToast } from '@/components/ui/use-toast';
 import TenderDocuments from '@/components/tenders/TenderDocuments';
@@ -57,12 +57,14 @@ export default function TenderDetail() {
   const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
   const [pendingTab, setPendingTab] = useState(null);
 
-  const { data: tender, isLoading } = useQuery({
+  const { data: tender, isLoading, refetch } = useQuery({
     queryKey: ['tender', id],
     queryFn: async () => {
       const results = await base44.entities.Tender.filter({ id });
       return results[0] || null;
     },
+    refetchInterval: activeTab === 'submissions' ? 30000 : false,
+    refetchIntervalInBackground: false,
   });
 
   // Sync form when tender loads
@@ -477,6 +479,12 @@ export default function TenderDetail() {
 
         {/* Tab 4 — Submissions */}
         <TabsContent value="submissions">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold">Submissions Received</h3>
+            <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-2 text-xs">
+              <RefreshCw className="w-3.5 h-3.5" /> Refresh
+            </Button>
+          </div>
           <SubmissionScorer tender={tender} onUpdate={handleUpdate} canManage={canManage} />
         </TabsContent>
 

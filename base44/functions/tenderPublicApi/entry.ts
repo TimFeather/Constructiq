@@ -65,7 +65,10 @@ Deno.serve(async (req) => {
       }
 
       if (tender.closing_date) {
-        const closingMs = new Date(tender.closing_date).getTime();
+        // Treat closing_date as end of that day in NZT (UTC+12)
+        const dateOnly = tender.closing_date.split('T')[0];
+        const closingStr = `${dateOnly}T23:59:59+12:00`;
+        const closingMs = new Date(closingStr).getTime();
         if (!isNaN(closingMs) && Date.now() > closingMs) {
           return Response.json({ error: 'The closing date for this tender has passed.' }, { status: 400 });
         }
