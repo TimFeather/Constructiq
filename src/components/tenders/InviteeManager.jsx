@@ -153,13 +153,21 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
       let failed = 0;
 
       if (toEmail.length > 0) {
-        const result = await base44.functions.invoke('sendTenderInvitations', {
-          tenderId: tender.id,
-          inviteeIds: toEmail.map(i => i.id),
-          appUrl: window.location.origin,
-        });
-        sent = result.data?.sent ?? 0;
-        failed = result.data?.failed ?? 0;
+        try {
+          const result = await base44.functions.invoke('sendTenderInvitations', {
+            tenderId: tender.id,
+            inviteeIds: toEmail.map(i => i.id),
+            appUrl: window.location.origin,
+          });
+          sent = result.data?.sent ?? 0;
+          failed = result.data?.failed ?? 0;
+          if (result.data?.error) {
+            console.error('sendTenderInvitations error:', result.data.error);
+          }
+        } catch (emailErr) {
+          console.error('Failed to call sendTenderInvitations:', emailErr);
+          failed = toEmail.length;
+        }
       }
 
       if (sent > 0) {

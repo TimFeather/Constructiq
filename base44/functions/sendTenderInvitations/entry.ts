@@ -26,7 +26,7 @@ Deno.serve(async (req) => {
     const tender = tenderList[0];
 
     if (!tender) {
-      return Response.json({ error: 'Tender not found' }, { status: 404 });
+      return Response.json({ error: 'Tender not found', sent: 0, failed: 0 }, { status: 200 });
     }
 
     const branding = brandings[0] || {};
