@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import PageHeader from '@/components/shared/PageHeader';
 import EmptyState from '@/components/shared/EmptyState';
+import { useToast } from '@/components/ui/use-toast';
 import { format, differenceInDays, isPast, parseISO } from 'date-fns';
 
 const STATUS_STYLES = {
@@ -57,6 +58,7 @@ const STATUS_STYLES_LIST = {
 export default function Tenders() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [search, setSearch] = useState('');
   const [statusTab, setStatusTab] = useState('All');
   const queryClient = useQueryClient();
@@ -98,6 +100,14 @@ export default function Tenders() {
     onSuccess: (tender) => {
       queryClient.invalidateQueries({ queryKey: ['tenders'] });
       navigate(`/tenders/${tender.id}`);
+    },
+    onError: (err) => {
+      toast({
+        title: 'Failed to create tender',
+        description: err?.message || 'Permission denied. Make sure your account has the admin or pricing role.',
+        variant: 'destructive',
+        duration: 8000,
+      });
     },
   });
 
