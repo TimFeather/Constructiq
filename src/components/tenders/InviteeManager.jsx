@@ -32,7 +32,7 @@ const STATUS_STYLES = {
   Withdrawn:    'bg-gray-100 text-gray-600',
 };
 
-const emptyForm = { full_name: '', business_name: '', email: '', phone: '', trade: '' };
+const emptyForm = { full_name: '', business_name: '', email: '', phone: '', trade: undefined };
 
 // Upsert a contact into TenderContact directory
 async function upsertContact(contacts, form, queryClient) {
@@ -44,7 +44,7 @@ async function upsertContact(contacts, form, queryClient) {
         full_name:     form.full_name,
         business_name: form.business_name || existing.business_name,
         phone:         form.phone         || existing.phone,
-        trade:         form.trade         || existing.trade,
+        trade:         form.trade         || existing.trade || '',
       });
     } else {
       await base44.entities.TenderContact.create({
@@ -52,7 +52,7 @@ async function upsertContact(contacts, form, queryClient) {
         business_name: form.business_name,
         email:         form.email,
         phone:         form.phone,
-        trade:         form.trade,
+        trade:         form.trade || '',
       });
     }
     queryClient.invalidateQueries({ queryKey: ['tenderContacts'] });
@@ -110,7 +110,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
   };
 
   const selectNameSuggestion = (c) => {
-    setForm({ full_name: c.full_name || '', business_name: c.business_name || '', email: c.email || '', phone: c.phone || '', trade: c.trade || '' });
+    setForm({ full_name: c.full_name || '', business_name: c.business_name || '', email: c.email || '', phone: c.phone || '', trade: c.trade || undefined });
     setNameSearch(c.full_name || '');
     setNameSuggestions([]);
   };
@@ -166,7 +166,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
       toast({ title: 'Already added', description: `${form.email} is already in the invitee list`, duration: 3000 });
       return;
     }
-    const newInvitee = { ...form, id: uuidv4(), token: uuidv4(), status: 'Pending', invited_at: null, submission: null };
+    const newInvitee = { ...form, trade: form.trade === '__none__' ? '' : (form.trade || ''), id: uuidv4(), token: uuidv4(), status: 'Pending', invited_at: null, submission: null };
     await onUpdate({ invitees: [...invitees, newInvitee] });
     // Only upsert into TenderContact directory if user has permission
     if (user?.role === 'admin' || user?.role === 'pricing') {
@@ -411,9 +411,10 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
                 </div>
                 <div>
                   <Label className="text-xs">Trade</Label>
-                  <Select value={form.trade} onValueChange={v => setForm(f => ({ ...f, trade: v }))}>
+                  <Select value={form.trade ?? ''} onValueChange={v => setForm(f => ({ ...f, trade: v === '__none__' ? undefined : v }))}>
                     <SelectTrigger><SelectValue placeholder="Select trade" /></SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="__none__">— No trade —</SelectItem>
                       {TRADES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
                     </SelectContent>
                   </Select>
