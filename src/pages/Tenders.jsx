@@ -71,31 +71,9 @@ export default function Tenders() {
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      const existing = await base44.entities.Tender.list('-created_date', 500);
-      const nums = existing.map(t => parseInt((t.tender_number || '').replace(/\D/g, ''), 10)).filter(n => !isNaN(n));
-      const nextNum = nums.length > 0 ? Math.max(...nums) + 1 : 1;
-      const tenderNumber = `TDR-${String(nextNum).padStart(3, '0')}`;
-      const created = await base44.entities.Tender.create({
-        title: 'New Tender',
-        status: 'Draft',
-        tender_number: tenderNumber,
-        created_by_email: user?.email,
-        scoring_criteria: [
-          { criterion: 'Price', weight_percent: 40 },
-          { criterion: 'Experience', weight_percent: 20 },
-          { criterion: 'Programme', weight_percent: 15 },
-          { criterion: 'Methodology', weight_percent: 15 },
-          { criterion: 'Compliance', weight_percent: 10 },
-        ],
-      });
-      // Check for duplicate numbers and add suffix if needed
-      const all = await base44.entities.Tender.list('-created_date', 500);
-      const dupes = all.filter(t => t.tender_number === tenderNumber && t.id !== created.id);
-      if (dupes.length > 0) {
-        const suffix = String.fromCharCode(65 + dupes.length);
-        await base44.entities.Tender.update(created.id, { tender_number: `${tenderNumber}${suffix}` });
-      }
-      return created;
+      const res = await base44.functions.invoke('createTender', {});
+      if (res.data?.error) throw new Error(res.data.error);
+      return res.data.tender;
     },
     onSuccess: (tender) => {
       queryClient.invalidateQueries({ queryKey: ['tenders'] });
