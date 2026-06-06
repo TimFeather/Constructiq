@@ -84,14 +84,18 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
     if (saveToDirectory && form.full_name) {
       const existing = contacts.find(c => c.email?.toLowerCase() === form.email?.toLowerCase());
       if (!existing) {
-        await base44.entities.TenderContact.create({
-          full_name: form.full_name,
-          business_name: form.business_name,
-          email: form.email,
-          phone: form.phone,
-          trade: form.trade,
-        });
-        queryClient.invalidateQueries({ queryKey: ['tenderContacts'] });
+        try {
+          await base44.entities.TenderContact.create({
+            full_name: form.full_name,
+            business_name: form.business_name,
+            email: form.email,
+            phone: form.phone,
+            trade: form.trade,
+          });
+          queryClient.invalidateQueries({ queryKey: ['tenderContacts'] });
+        } catch (_err) {
+          // Saving to contacts directory is optional — invitee was already added above
+        }
       }
     }
 
