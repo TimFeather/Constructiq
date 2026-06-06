@@ -32,7 +32,7 @@ Deno.serve(async (req) => {
     const brandColour = branding.brand_colour || '#1a56db';
     const resend = new Resend(Deno.env.get('RESEND_API_KEY'));
     const fromName = branding.sender_name || branding.company_name || 'ConstructIQ';
-    const fromEmail = `${fromName} <onboarding@resend.dev>`;
+    const fromEmail = `${fromName} <tenders@totalhomesolutions.co.nz>`;
 
     // Resolve invitation template
     const tpl = templates.find(t => t.template_key === 'tender_invitation');
