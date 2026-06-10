@@ -99,7 +99,7 @@ export default function TenderDetail() {
   }, [form, tender]);
 
   const updateMutation = useMutation({
-    mutationFn: (data) => base44.entities.Tender.update(id, data),
+    mutationFn: (data) => base44.functions.invoke('updateTender', { tenderId: id, data }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tender', id] });
       queryClient.invalidateQueries({ queryKey: ['tenders'] });
@@ -107,7 +107,7 @@ export default function TenderDetail() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: () => base44.entities.Tender.delete(id),
+    mutationFn: () => base44.functions.invoke('updateTender', { tenderId: id, data: { _delete: true } }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tenders'] });
       navigate('/tenders');
