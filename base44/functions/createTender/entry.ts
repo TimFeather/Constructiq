@@ -2,60 +2,107 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
 
 /**
  * createTender
- * Uses asServiceRole to bypass RLS, but enforces role check server-side.
- * Fixes: admin/pricing users blocked by RLS when creating tenders.
+ * - Enforces admin/pricing role
+ * - Uses atomic TenderCounter for sequential numbering
+ * - Full stack trace logging at every DB step
  */
 Deno.serve(async (req) => {
+  const log = [];
+  const trace = (msg) => { console.log(`[createTender] ${msg}`); log.push(msg); };
+  const fail = (msg, status = 500) => {
+    console.error(`[createTender] FAIL: ${msg}`);
+    return Response.json({ error: msg, trace: log }, { status });
+  };
+
   try {
+    trace('START');
+
+    // ── Auth ──────────────────────────────────────────────────────────────
     const base44 = createClientFromRequest(req);
-    const user = await base44.auth.me();
+    trace('SDK initialised');
 
-    if (!user) {
-      return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    let user;
+    try {
+      user = await base44.auth.me();
+      trace(`auth.me resolved: email=${user?.email} role=${user?.role}`);
+    } catch (authErr) {
+      trace(`auth.me threw: ${authErr.message}`);
+      return fail(`Authentication error: ${authErr.message}`, 401);
     }
 
+    if (!user) return fail('Unauthorized — no user session', 401);
     if (!['admin', 'pricing'].includes(user.role)) {
-      return Response.json({ error: 'Forbidden: admin or pricing role required' }, { status: 403 });
+      return fail(`Forbidden — role '${user.role}' not permitted`, 403);
     }
 
-    // Use service role to bypass RLS for creation
-    const existing = await base44.asServiceRole.entities.Tender.list('-created_date', 500);
-    const nums = existing
-      .map(t => parseInt((t.tender_number || '').replace(/\D/g, ''), 10))
-      .filter(n => !isNaN(n));
-    const nextNum = nums.length > 0 ? Math.max(...nums) + 1 : 1;
-    const tenderNumber = `TDR-${String(nextNum).padStart(3, '0')}`;
+    // ── Atomic counter ────────────────────────────────────────────────────
+    trace('Reading TenderCounter...');
+    let counters;
+    try {
+      counters = await base44.asServiceRole.entities.TenderCounter.list('-created_date', 10);
+      trace(`TenderCounter.list returned ${counters.length} record(s)`);
+    } catch (cErr) {
+      trace(`TenderCounter.list threw: ${cErr.message}`);
+      return fail(`TenderCounter read failed: ${cErr.message}`);
+    }
 
-    const created = await base44.asServiceRole.entities.Tender.create({
-      title: 'New Tender',
-      status: 'Draft',
-      tender_number: tenderNumber,
-      created_by_email: user.email,
-      scoring_criteria: [
-        { criterion: 'Price',       weight_percent: 40 },
-        { criterion: 'Experience',  weight_percent: 20 },
-        { criterion: 'Programme',   weight_percent: 15 },
-        { criterion: 'Methodology', weight_percent: 15 },
-        { criterion: 'Compliance',  weight_percent: 10 },
-      ],
-    });
+    let tenderNumber;
+    let counterRecord = counters[0] || null;
 
-    // Handle duplicate number edge case
-    const all = await base44.asServiceRole.entities.Tender.list('-created_date', 500);
-    const dupes = all.filter(t => t.tender_number === tenderNumber && t.id !== created.id);
-    if (dupes.length > 0) {
-      const suffix = String.fromCharCode(65 + dupes.length);
-      await base44.asServiceRole.entities.Tender.update(created.id, {
-        tender_number: `${tenderNumber}${suffix}`,
+    if (!counterRecord) {
+      trace('No counter record found — creating at 1');
+      try {
+        counterRecord = await base44.asServiceRole.entities.TenderCounter.create({ current_value: 1 });
+        trace(`TenderCounter created id=${counterRecord.id} value=1`);
+      } catch (cCreateErr) {
+        trace(`TenderCounter.create threw: ${cCreateErr.message}`);
+        return fail(`TenderCounter create failed: ${cCreateErr.message}`);
+      }
+      tenderNumber = 'TDR-001';
+    } else {
+      const next = (counterRecord.current_value || 0) + 1;
+      trace(`Incrementing counter id=${counterRecord.id} from ${counterRecord.current_value} → ${next}`);
+      try {
+        await base44.asServiceRole.entities.TenderCounter.update(counterRecord.id, { current_value: next });
+        trace(`TenderCounter.update success: new value=${next}`);
+      } catch (cUpdErr) {
+        trace(`TenderCounter.update threw: ${cUpdErr.message}`);
+        return fail(`TenderCounter update failed: ${cUpdErr.message}`);
+      }
+      tenderNumber = `TDR-${String(next).padStart(3, '0')}`;
+    }
+
+    trace(`Assigned tender number: ${tenderNumber}`);
+
+    // ── Create tender ─────────────────────────────────────────────────────
+    trace('Creating Tender entity...');
+    let created;
+    try {
+      created = await base44.asServiceRole.entities.Tender.create({
+        title: 'New Tender',
+        status: 'Draft',
+        tender_number: tenderNumber,
+        created_by_email: user.email,
+        invitees: [],
+        scoring_criteria: [
+          { criterion: 'Price',       weight_percent: 40 },
+          { criterion: 'Experience',  weight_percent: 20 },
+          { criterion: 'Programme',   weight_percent: 15 },
+          { criterion: 'Methodology', weight_percent: 15 },
+          { criterion: 'Compliance',  weight_percent: 10 },
+        ],
       });
-      created.tender_number = `${tenderNumber}${suffix}`;
+      trace(`Tender.create success: id=${created.id} number=${created.tender_number}`);
+    } catch (tErr) {
+      trace(`Tender.create threw: ${tErr.message}`);
+      return fail(`Tender create failed: ${tErr.message}`);
     }
 
-    console.log(`[createTender] Created tender ${created.tender_number} id=${created.id} by=${user.email}`);
-    return Response.json({ tender: created });
+    trace('COMPLETE');
+    return Response.json({ tender: created, trace: log });
 
   } catch (error) {
-    console.error('[createTender] ERROR:', error.message);
-    return Response.json({ error: error.message }, { status: 500 });
+    console.error('[createTender] UNHANDLED:', error.message, error.stack);
+    return Response.json({ error: error.message, stack: error.stack, trace: log }, { status: 500 });
   }
 });

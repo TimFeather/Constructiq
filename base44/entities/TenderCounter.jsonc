@@ -1,0 +1,44 @@
+{
+  "name": "TenderCounter",
+  "type": "object",
+  "properties": {
+    "current_value": {
+      "type": "number",
+      "description": "Current highest tender number issued",
+      "default": 0
+    }
+  },
+  "required": [],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "admin",
+            "pricing"
+          ]
+        }
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "admin",
+            "pricing"
+          ]
+        }
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}
