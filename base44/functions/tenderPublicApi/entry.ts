@@ -13,13 +13,51 @@ Deno.serve(async (req) => {
 
     // O(1) token lookup via TenderInvitation entity
     const invitations = await base44.asServiceRole.entities.TenderInvitation.filter({ token });
-    const invitation = invitations[0];
+    let invitation = invitations[0];
+    let tender;
 
     if (!invitation) {
-      return Response.json({ error: 'Invalid or expired link' }, { status: 404 });
+      // Legacy fallback: token may exist on tender.invitees[] for pre-migration invitations
+      const tendersWithToken = await base44.asServiceRole.entities.Tender.filter({ 'invitees.token': token });
+      const legacyTender = tendersWithToken[0];
+      const legacyInvitee = legacyTender
+        ? (legacyTender.invitees || []).find(i => i.token === token)
+        : null;
+
+      if (!legacyInvitee) {
+        return Response.json({ error: 'Invalid or expired link — invitation not found' }, { status: 404 });
+      }
+
+      // Synthesize an invitation object from legacy data
+      invitation = {
+        id:            null,
+        tender_id:     legacyTender.id,
+        invitee_name:  legacyInvitee.full_name || '',
+        invitee_email: legacyInvitee.email     || '',
+        status:        legacyInvitee.status === 'Submitted' ? 'Submitted' : 'Sent',
+      };
+      tender = legacyTender;
+
+      // Auto-heal: create TenderInvitation so future lookups are fast
+      try {
+        const healed = await base44.asServiceRole.entities.TenderInvitation.create({
+          token,
+          tender_id:     legacyTender.id,
+          invitee_email: legacyInvitee.email     || '',
+          invitee_name:  legacyInvitee.full_name || '',
+          status:        invitation.status,
+          sent_date:     legacyInvitee.invited_at || new Date().toISOString(),
+        });
+        invitation.id = healed.id;
+        console.log(`[tenderPublicApi] Auto-healed TenderInvitation id=${healed.id} for legacy token`);
+      } catch (healErr) {
+        console.warn(`[tenderPublicApi] Auto-heal failed (non-critical):`, healErr?.message);
+      }
     }
 
-    const tender = await base44.asServiceRole.entities.Tender.get(invitation.tender_id);
+    if (!tender) {
+      tender = await base44.asServiceRole.entities.Tender.get(invitation.tender_id);
+    }
     if (!tender) {
       return Response.json(
         { error: `Tender not found (id: ${invitation.tender_id})` },
@@ -29,7 +67,7 @@ Deno.serve(async (req) => {
 
     if (action === 'get') {
       // Mark as Viewed if still Sent — track opened_date
-      if (invitation.status === 'Sent') {
+      if (invitation.status === 'Sent' && invitation.id) {
         await base44.asServiceRole.entities.TenderInvitation.update(invitation.id, {
           status: 'Viewed',
           opened_date: new Date().toISOString(),
