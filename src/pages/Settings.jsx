@@ -15,7 +15,7 @@ import { Save, Shield, Bell, Mail, Palette, Tag, RefreshCw, Trash2, FolderOpen, 
 import { useToast } from '@/components/ui/use-toast';
 import PageHeader from '@/components/shared/PageHeader';
 import { DEFAULT_TEMPLATES } from '@/lib/emailTemplates';
-import { isAdmin as checkAdmin } from '@/lib/permissions';
+import { isAdmin as checkAdmin, canAccess } from '@/lib/permissions';
 import UserManagement from '@/components/settings/UserManagement';
 import AppearanceSettings from '@/components/settings/AppearanceSettings';
 import RoleManager from '@/components/settings/RoleManager';
@@ -126,11 +126,12 @@ export default function Settings() {
 
   const isAdmin = checkAdmin(user);
 
-  if (!isAdmin && !['internal', 'pricing'].includes(user?.role)) {
+  // external users have no settings access
+  if (!canAccess(user, 'settings') || user?.role === 'external') {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
         <h2 className="text-lg font-semibold mb-2">Access Denied</h2>
-        <p className="text-sm text-muted-foreground">Settings are only accessible to administrators.</p>
+        <p className="text-sm text-muted-foreground">Settings are not available for your role.</p>
       </div>
     );
   }
@@ -179,7 +180,7 @@ export default function Settings() {
               <Mail className="w-3.5 h-3.5 mr-1" /> Email Templates
             </TabsTrigger>
           )}
-          {isAdmin && (
+          {(isAdmin || user?.role === 'pricing') && (
             <TabsTrigger value="subcontractors">
               Subcontractors
             </TabsTrigger>
@@ -392,7 +393,7 @@ export default function Settings() {
             </div>
           </TabsContent>
         )}
-        {isAdmin && (
+        {(isAdmin || user?.role === 'pricing') && (
           <TabsContent value="subcontractors">
             <SubcontractorDirectory />
           </TabsContent>

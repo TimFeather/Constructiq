@@ -3,11 +3,11 @@
  * Add new roles or module rules here — no need to touch individual pages.
  */
 
-// Role hierarchy for reference:
+// Role hierarchy:
 // admin    – full access to everything
-// pricing  – tenders + standard modules, no admin settings
-// internal – standard project modules (no tenders, no admin settings)
-// external – limited read-only access to assigned project modules
+// pricing  – tenders + all project modules + subcontractors, no admin settings
+// internal – project modules (assigned only), no tenders
+// external – read-only access to assigned project modules
 // (any other) – treated as external
 
 const MODULE_RULES = {
@@ -17,49 +17,62 @@ const MODULE_RULES = {
     delete:  ['admin'],
     manage:  ['admin'],
   },
+  // Projects: internal=RW Assigned, external=R Assigned, pricing=RW All, admin=RW All
   projects: {
     access: ['admin', 'pricing', 'internal', 'external'],
     edit:   ['admin', 'pricing', 'internal'],
-    delete: ['admin'],
+    delete: ['admin', 'pricing'],
     manage: ['admin', 'pricing', 'internal'],
   },
+  // Gantt/Programme: internal=RW Assigned, external=R Assigned, pricing=RW All, admin=RW All
+  programme: {
+    access: ['admin', 'pricing', 'internal', 'external'],
+    edit:   ['admin', 'pricing', 'internal'],
+    delete: ['admin', 'pricing'],
+    manage: ['admin', 'pricing', 'internal'],
+  },
+  // Documents: internal=RW Assigned, external=R Assigned, pricing=RW All, admin=RW All
   documents: {
     access: ['admin', 'pricing', 'internal', 'external'],
     edit:   ['admin', 'pricing', 'internal'],
-    delete: ['admin', 'internal'],
-    manage: ['admin', 'internal'],
+    delete: ['admin', 'pricing'],
+    manage: ['admin', 'pricing', 'internal'],
   },
+  // RFIs follow same pattern as documents
   rfis: {
     access:  ['admin', 'pricing', 'internal', 'external'],
     create:  ['admin', 'pricing', 'internal'],
     respond: ['admin', 'pricing', 'internal', 'external'],
-    edit:    ['admin', 'internal'],
-    delete:  ['admin', 'internal'],
-    manage:  ['admin', 'internal'],
+    edit:    ['admin', 'pricing', 'internal'],
+    delete:  ['admin', 'pricing'],
+    manage:  ['admin', 'pricing', 'internal'],
   },
-  programme: {
-    access: ['admin', 'pricing', 'internal', 'external'],
-    edit:   ['admin', 'pricing', 'internal'],
-    delete: ['admin', 'internal'],
-    manage: ['admin', 'internal'],
-  },
+  // Tenders: internal=No Access, external=No Access, pricing=RW All, admin=RW All
   tenders: {
     access: ['admin', 'pricing'],
     edit:   ['admin', 'pricing'],
-    delete: ['admin'],
+    delete: ['admin', 'pricing'],
     manage: ['admin', 'pricing'],
   },
+  // Subcontractors: internal=No Access, external=No Access, pricing=RW All, admin=RW All
+  subcontractors: {
+    access: ['admin', 'pricing'],
+    edit:   ['admin', 'pricing'],
+    delete: ['admin', 'pricing'],
+    manage: ['admin', 'pricing'],
+  },
+  // Settings: all roles see Profile + Notifications; pricing also sees Subcontractors; admin sees everything
   settings: {
-    access: ['admin', 'pricing', 'internal', 'external'], // profile tab visible to all
+    access: ['admin', 'pricing', 'internal', 'external'],
     edit:   ['admin', 'pricing', 'internal', 'external'],
     delete: ['admin'],
-    manage: ['admin'], // admin-only sections gated separately
+    manage: ['admin'],
   },
   team: {
     access: ['admin', 'pricing', 'internal'],
-    edit:   ['admin', 'internal'],
-    delete: ['admin'],
-    manage: ['admin'],
+    edit:   ['admin', 'pricing', 'internal'],
+    delete: ['admin', 'pricing'],
+    manage: ['admin', 'pricing'],
   },
   users: {
     access: ['admin'],

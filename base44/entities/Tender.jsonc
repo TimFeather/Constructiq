@@ -127,20 +127,16 @@
             "type": "string"
           },
           "folder_path": {
-            "type": "string",
-            "description": "Relative folder path e.g. 'Drawings/Architectural' \u2014 empty string means root"
+            "type": "string"
           },
           "folder_id": {
-            "type": "string",
-            "description": "ID of the Folder entity record for this document's folder"
+            "type": "string"
           },
           "relative_path": {
-            "type": "string",
-            "description": "Full relative path including filename e.g. 'Drawings/Architectural/A101.pdf'"
+            "type": "string"
           },
           "upload_batch_id": {
-            "type": "string",
-            "description": "Batch identifier for grouping files uploaded together"
+            "type": "string"
           },
           "uploaded_at": {
             "type": "string"
@@ -253,16 +249,6 @@
     "title"
   ],
   "rls": {
-    "create": {
-      "user_condition": {
-        "role": {
-          "$in": [
-            "admin",
-            "pricing"
-          ]
-        }
-      }
-    },
     "read": {
       "$or": [
         {
@@ -282,28 +268,6 @@
           }
         }
       ]
-    },
-    "update": {
-      "$or": [
-        {
-          "data.created_by_email": "{{user.email}}"
-        },
-        {
-          "user_condition": {
-            "role": {
-              "$in": [
-                "admin",
-                "pricing"
-              ]
-            }
-          }
-        }
-      ]
-    },
-    "delete": {
-      "user_condition": {
-        "role": "admin"
-      }
     }
   }
 }
