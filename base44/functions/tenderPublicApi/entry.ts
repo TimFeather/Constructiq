@@ -7,6 +7,8 @@ Deno.serve(async (req) => {
     const payload = await req.json();
     const { action, token, submission } = payload;
 
+    console.log(`[tenderPublicApi] action=${action} token=${token?.slice(0,8)}...`);
+
     if (!token) {
       return Response.json({ error: 'Token required' }, { status: 400 });
     }
@@ -16,10 +18,16 @@ Deno.serve(async (req) => {
     let invitation = invitations[0];
     let tender;
 
+    console.log(`[tenderPublicApi] invitation found=${!!invitation} id=${invitation?.id} tender_id=${invitation?.tender_id}`);
+
     if (!invitation) {
-      // Legacy fallback: token may exist on tender.invitees[] for pre-migration invitations
-      const tendersWithToken = await base44.asServiceRole.entities.Tender.filter({ 'invitees.token': token });
-      const legacyTender = tendersWithToken[0];
+      // Legacy fallback: scan recent issued/draft tenders for matching token in invitees[]
+      const recentTenders = await base44.asServiceRole.entities.Tender.filter(
+        { status: 'Issued' }, '-created_date', 200
+      );
+      const legacyTender = recentTenders.find(t =>
+        (t.invitees || []).some(i => i.token === token)
+      ) || null;
       const legacyInvitee = legacyTender
         ? (legacyTender.invitees || []).find(i => i.token === token)
         : null;
@@ -56,15 +64,36 @@ Deno.serve(async (req) => {
     }
 
     if (!tender) {
-      tender = await base44.asServiceRole.entities.Tender.get(invitation.tender_id);
+      const tenderResults = await base44.asServiceRole.entities.Tender.filter(
+        { id: invitation.tender_id }, '-created_date', 1
+      );
+      tender = tenderResults[0] || null;
     }
+
+    console.log(`[tenderPublicApi] tender found=${!!tender} id=${tender?.id} status=${tender?.status}`);
+
     if (!tender) {
       return Response.json(
-        { error: `Tender not found (id: ${invitation.tender_id})` },
+        { error: `Tender not found (id: ${invitation.tender_id}). Please ask the sender to resend your invitation.` },
         { status: 404 }
       );
     }
 
+    // ── UPLOAD action (unauthenticated file upload via service role) ──────────
+    if (action === 'upload') {
+      const { fileName, fileData, fileType } = payload;
+      if (!fileName || !fileData) {
+        return Response.json({ error: 'fileName and fileData required' }, { status: 400 });
+      }
+      const binary = Uint8Array.from(atob(fileData), c => c.charCodeAt(0));
+      const blob = new Blob([binary], { type: fileType || 'application/octet-stream' });
+      const { file_url } = await base44.asServiceRole.integrations.Core.UploadFile(
+        { file: blob, filename: fileName }
+      );
+      return Response.json({ file_url });
+    }
+
+    // ── GET action ────────────────────────────────────────────────────────────
     if (action === 'get') {
       // Mark as Viewed if still Sent — track opened_date
       if (invitation.status === 'Sent' && invitation.id) {
@@ -99,6 +128,7 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ── SUBMIT action ─────────────────────────────────────────────────────────
     if (action === 'submit') {
       if (tender.status !== 'Issued') {
         return Response.json({
@@ -109,7 +139,6 @@ Deno.serve(async (req) => {
       }
 
       if (tender.closing_date) {
-        // Treat closing_date as end of that day in NZT (UTC+12)
         const dateOnly = tender.closing_date.split('T')[0];
         const closingStr = `${dateOnly}T23:59:59+12:00`;
         const closingMs = new Date(closingStr).getTime();
@@ -245,6 +274,7 @@ Deno.serve(async (req) => {
 
     return Response.json({ error: 'Invalid action' }, { status: 400 });
   } catch (error) {
+    console.error('[tenderPublicApi] FATAL:', error.message, error.stack);
     return Response.json({ error: error.message }, { status: 500 });
   }
 });

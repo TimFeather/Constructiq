@@ -50,8 +50,23 @@ export default function TenderSubmit() {
     if (!file) return;
     setUploading(true);
     try {
-      const { file_url } = await base44.integrations.Core.UploadFile({ file });
-      setForm(f => ({ ...f, uploaded_file_url: file_url, uploaded_file_name: file.name }));
+      // Convert file to base64 and upload via backend (no auth token needed on public page)
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const res = await base44.functions.invoke('tenderPublicApi', {
+        action: 'upload',
+        token,
+        fileName: file.name,
+        fileData: base64,
+        fileType: file.type,
+      });
+      setForm(f => ({ ...f, uploaded_file_url: res.data.file_url, uploaded_file_name: file.name }));
+    } catch (err) {
+      setSubmitError(`File upload failed: ${err?.message || 'Please try again'}`);
     } finally {
       setUploading(false);
     }
@@ -100,14 +115,15 @@ export default function TenderSubmit() {
           <CardContent className="p-8 text-center">
             <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
             <h2 className="text-lg font-semibold mb-2">
-              {error?.includes('closed') ? 'Tender Closed' :
-               error?.includes('expired') ? 'Link Expired' :
-               error?.includes('longer accepting') ? 'Submissions Closed' :
-               'Invalid Link'}
+              {error?.toLowerCase().includes('closed')    ? 'Tender Closed'         :
+               error?.toLowerCase().includes('passed')    ? 'Closing Date Passed'   :
+               error?.toLowerCase().includes('accepting') ? 'Submissions Closed'    :
+               error?.toLowerCase().includes('not found') ? 'Invitation Not Found'  :
+                                                            'Invalid Link'}
             </h2>
             <p className="text-sm text-muted-foreground mb-4">{error}</p>
             <p className="text-sm text-muted-foreground">
-              If you believe this is an error, please contact the sender directly and ask them to resend your invitation link.
+              If you believe this is an error, please contact the person who sent you this invitation and ask them to resend the link.
             </p>
           </CardContent>
         </Card>
