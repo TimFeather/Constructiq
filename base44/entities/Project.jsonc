@@ -77,13 +77,19 @@
         "role": {
           "$in": [
             "admin",
-            "internal"
+            "internal",
+            "pricing"
           ]
         }
       }
     },
     "read": {
       "$or": [
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        },
         {
           "created_by_id": "{{user.id}}"
         },
@@ -94,7 +100,6 @@
           "user_condition": {
             "role": {
               "$in": [
-                "admin",
                 "internal",
                 "pricing"
               ]
@@ -106,22 +111,17 @@
     "update": {
       "$or": [
         {
+          "user_condition": {
+            "role": "admin"
+          }
+        },
+        {
           "created_by_id": "{{user.id}}"
         },
         {
           "data.team.user_email": "{{user.email}}",
           "user_condition": {
-            "role": {
-              "$in": [
-                "admin",
-                "internal"
-              ]
-            }
-          }
-        },
-        {
-          "user_condition": {
-            "role": "admin"
+            "role": "internal"
           }
         }
       ]

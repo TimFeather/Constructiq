@@ -124,10 +124,14 @@ Deno.serve(async (req) => {
 
       // Update TenderInvitation — source of truth
       const submittedAt = new Date().toISOString();
-      await base44.asServiceRole.entities.TenderInvitation.update(invitation.id, {
-        status: 'Submitted',
-        submitted_date: submittedAt,
-      });
+      if (invitation.id) {
+        await base44.asServiceRole.entities.TenderInvitation.update(invitation.id, {
+          status: 'Submitted',
+          submitted_date: submittedAt,
+        });
+      } else {
+        console.warn('[tenderPublicApi] submit: invitation.id is null (legacy auto-heal failed) — skipping TenderInvitation update');
+      }
 
       // Legacy bridge: also update Tender.invitees[] for scoring UI compatibility
       const invitees = tender.invitees || [];
