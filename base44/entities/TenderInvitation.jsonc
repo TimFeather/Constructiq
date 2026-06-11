@@ -23,12 +23,13 @@
     "status": {
       "type": "string",
       "enum": [
+        "Pending",
         "Sent",
         "Viewed",
         "Submitted",
         "Cancelled"
       ],
-      "default": "Sent"
+      "default": "Pending"
     },
     "sent_date": {
       "type": "string",
@@ -48,17 +49,6 @@
     "tender_id"
   ],
   "rls": {
-    "create": {
-      "user_condition": {
-        "role": {
-          "$in": [
-            "admin",
-            "pricing",
-            "internal"
-          ]
-        }
-      }
-    },
     "read": {
       "user_condition": {
         "role": {
