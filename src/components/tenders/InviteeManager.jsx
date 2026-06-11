@@ -164,17 +164,17 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
     console.log(`[addInvitee] START name=${full_name} email=${email} tender=${tender.id} token=${token}`);
 
     try {
-      // Create TenderInvitation — this is the ONLY write required
-      const record = await base44.entities.TenderInvitation.create({
+      // Route through backend function to bypass RLS
+      const result = await base44.functions.invoke('manageTenderInvitation', {
+        action:       'create',
+        tenderId:     tender.id,
         token,
-        tender_id:     tender.id,
-        invitee_email: email || '',
-        invitee_name:  full_name || '',
-        status:        'Pending',
-        sent_date:     null,
+        inviteeName:  full_name || '',
+        inviteeEmail: email || '',
       });
+      const record = result.data?.invitation;
 
-      if (!record?.id) throw new Error('TenderInvitation create returned no id');
+      if (!record?.id) throw new Error('manageTenderInvitation returned no invitation id');
       console.log(`[addInvitee] TenderInvitation CREATED id=${record.id}`);
       await refetchInvitations();
       setAdding(false);
@@ -226,7 +226,10 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
   const removeInvitee = async (inv) => {
     console.log(`[removeInvitee] id=${inv.id} token=${inv.token} email=${inv.invitee_email}`);
     try {
-      await base44.entities.TenderInvitation.delete(inv.id);
+      await base44.functions.invoke('manageTenderInvitation', {
+        action:       'delete',
+        invitationId: inv.id,
+      });
       console.log(`[removeInvitee] Deleted id=${inv.id}`);
       await refetchInvitations();
     } catch (err) {
