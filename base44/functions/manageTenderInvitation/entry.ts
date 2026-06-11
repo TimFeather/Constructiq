@@ -59,7 +59,7 @@ Deno.serve(async (req) => {
 
     // ── CREATE ───────────────────────────────────────────────────────────────
     if (action === 'create') {
-      const { tenderId, token, inviteeName, inviteeEmail } = body;
+      const { tenderId, token, inviteeName, inviteeEmail, businessName, phone, trade } = body;
 
       if (!tenderId) return fail('tenderId is required', 400);
       if (!token)    return fail('token is required', 400);
@@ -112,6 +112,50 @@ Deno.serve(async (req) => {
         trace(`TenderInvitation CREATED id=${record.id}`);
       } catch (e) {
         return fail(`TenderInvitation create failed: ${e.message}`);
+      }
+
+      // ── Upsert TenderContact (non-fatal) ───────────────────────────────────
+      if (inviteeName) {
+        try {
+          const emailLower = inviteeEmail?.toLowerCase();
+          let existingContacts = [];
+          try {
+            existingContacts = await sr.entities.TenderContact.list('-created_date', 500);
+          } catch (e) {
+            trace(`TenderContact list failed (continuing): ${e.message}`);
+          }
+
+          let existing = emailLower
+            ? existingContacts.find(c => c.email?.toLowerCase() === emailLower)
+            : null;
+          if (!existing && inviteeName && businessName) {
+            existing = existingContacts.find(
+              c => c.full_name?.toLowerCase() === inviteeName.toLowerCase() &&
+                   c.business_name?.toLowerCase() === (businessName || '').toLowerCase()
+            );
+          }
+
+          if (existing) {
+            await sr.entities.TenderContact.update(existing.id, {
+              full_name:     inviteeName,
+              business_name: businessName || existing.business_name || '',
+              phone:         phone        || existing.phone         || '',
+              trade:         trade        || existing.trade         || '',
+            });
+            trace(`TenderContact UPDATED id=${existing.id}`);
+          } else {
+            const contact = await sr.entities.TenderContact.create({
+              full_name:     inviteeName,
+              business_name: businessName || '',
+              email:         inviteeEmail  || '',
+              phone:         phone         || '',
+              trade:         trade         || '',
+            });
+            trace(`TenderContact CREATED id=${contact.id}`);
+          }
+        } catch (e) {
+          trace(`TenderContact upsert failed (non-fatal): ${e.message}`);
+        }
       }
 
       return Response.json({ success: true, invitation: record, trace: log });

@@ -37,40 +37,6 @@ const STATUS_STYLES = {
 
 const emptyForm = { full_name: '', business_name: '', email: '', phone: '', trade: '' };
 
-/** Upsert into TenderContact directory. Non-fatal — logs on failure. */
-async function upsertContact(contacts, form, queryClient) {
-  if (!form.full_name) return;
-
-  const emailLower = form.email?.toLowerCase();
-  let existing = emailLower ? contacts.find(c => c.email?.toLowerCase() === emailLower) : null;
-  if (!existing && form.full_name && form.business_name) {
-    existing = contacts.find(
-      c => c.full_name?.toLowerCase() === form.full_name.toLowerCase() &&
-           c.business_name?.toLowerCase() === form.business_name.toLowerCase()
-    );
-  }
-
-  if (existing) {
-    await base44.entities.TenderContact.update(existing.id, {
-      full_name:     form.full_name,
-      business_name: form.business_name || existing.business_name || '',
-      phone:         form.phone         || existing.phone         || '',
-      trade:         form.trade         || existing.trade         || '',
-    });
-    console.log(`[upsertContact] UPDATED id=${existing.id}`);
-  } else {
-    const result = await base44.entities.TenderContact.create({
-      full_name:     form.full_name,
-      business_name: form.business_name || '',
-      email:         form.email         || '',
-      phone:         form.phone         || '',
-      trade:         form.trade         || '',
-    });
-    if (!result?.id) throw new Error('TenderContact create returned no id');
-    console.log(`[upsertContact] CREATED id=${result.id}`);
-  }
-  queryClient.invalidateQueries({ queryKey: ['tenderContacts'] });
-}
 
 export default function InviteeManager({ tender, onUpdate, canManage }) {
   const { toast }        = useToast();
@@ -161,26 +127,26 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
 
     setAdding(true);
     const token = crypto.randomUUID();
-    console.log(`[addInvitee] START name=${full_name} email=${email} tender=${tender.id} token=${token}`);
 
     try {
-      // Route through backend function to bypass RLS
       const result = await base44.functions.invoke('manageTenderInvitation', {
         action:       'create',
         tenderId:     tender.id,
         token,
-        inviteeName:  full_name || '',
-        inviteeEmail: email || '',
+        inviteeName:  full_name     || '',
+        inviteeEmail: email         || '',
+        businessName: business_name || '',
+        phone:        phone         || '',
+        trade:        trade         || '',
       });
       const record = result.data?.invitation;
-
       if (!record?.id) throw new Error('manageTenderInvitation returned no invitation id');
-      console.log(`[addInvitee] TenderInvitation CREATED id=${record.id}`);
       await refetchInvitations();
+      queryClient.invalidateQueries({ queryKey: ['tenderContacts'] });
       setAdding(false);
       return true;
     } catch (err) {
-      console.error(`[addInvitee] TenderInvitation create FAILED:`, err?.message, err?.stack);
+      console.error(`[addInvitee] FAILED:`, err?.message);
       toast({
         title: 'Failed to add invitee',
         description: err?.message || 'TenderInvitation create failed',
@@ -208,14 +174,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
       trade: form.trade === 'NONE' ? '' : (form.trade || ''),
     });
     if (success) {
-      // Upsert into TenderContact directory (non-fatal)
-      try {
-        await upsertContact(contacts, form, queryClient);
-        toast({ title: `${form.full_name} added`, description: 'Saved to subcontractor database', duration: 2500 });
-      } catch (contactErr) {
-        console.warn('[addInvitee] TenderContact upsert failed:', contactErr?.message);
-        toast({ title: `${form.full_name} added`, description: 'Note: contact directory save failed', duration: 4000 });
-      }
+      toast({ title: `${form.full_name} added`, description: 'Saved to subcontractor database', duration: 2500 });
       setForm(emptyForm);
       setNameSearch('');
       setNameSuggestions([]);
