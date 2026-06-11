@@ -81,10 +81,10 @@ Deno.serve(async (req) => {
 
       trace(`All ${invitations.length} TenderInvitation(s) deleted`);
 
-      // 2. Delete the Tender record itself
+      // 2. Delete the Tender record itself (user-scoped: admin bypasses RLS via role)
       trace(`Deleting Tender id=${tenderId}...`);
       try {
-        await base44.asServiceRole.entities.Tender.delete(tenderId);
+        await base44.entities.Tender.delete(tenderId);
         trace(`Tender id=${tenderId} deleted OK`);
       } catch (tDelErr) {
         trace(`Tender.delete threw: ${tDelErr.message}`);
@@ -99,7 +99,7 @@ Deno.serve(async (req) => {
     trace(`UPDATE tender id=${tenderId} fields=${Object.keys(updateData).join(',')}`);
     let updated;
     try {
-      updated = await base44.asServiceRole.entities.Tender.update(tenderId, updateData);
+      updated = await base44.entities.Tender.update(tenderId, updateData);
       trace(`Tender.update success id=${tenderId}`);
     } catch (updErr) {
       trace(`Tender.update threw: ${updErr.message}`);
