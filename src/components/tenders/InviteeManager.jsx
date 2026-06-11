@@ -1,3 +1,10 @@
+/**
+ * InviteeManager — Phase 1 refactor
+ *
+ * SOURCE OF TRUTH: TenderInvitation only.
+ * Tender.invitees[] is NOT read or written here.
+ * All invitee state is owned by TenderInvitation records.
+ */
 import React, { useState, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
@@ -7,15 +14,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { Users, Plus, Trash2, Send, UserCheck, Search, AlertCircle } from 'lucide-react';
+import { Users, Plus, Trash2, Send, UserCheck, Search } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
-
-function uuidv4() {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-    const r = Math.random() * 16 | 0;
-    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
-  });
-}
 
 const TRADES = [
   'Electrical', 'Plumbing', 'HVAC', 'Carpentry', 'Masonry',
@@ -28,28 +28,21 @@ const STATUS_STYLES = {
   Sent:         'bg-blue-100 text-blue-700',
   Viewed:       'bg-cyan-100 text-cyan-700',
   Submitted:    'bg-green-100 text-green-700',
+  Cancelled:    'bg-gray-100 text-gray-500',
+  // legacy compat
+  Invited:      'bg-blue-100 text-blue-700',
   Awarded:      'bg-emerald-100 text-emerald-700',
   Unsuccessful: 'bg-red-100 text-red-700',
-  Cancelled:    'bg-gray-100 text-gray-500',
-  // legacy
-  Invited:      'bg-blue-100 text-blue-700',
-  Withdrawn:    'bg-gray-100 text-gray-600',
 };
 
 const emptyForm = { full_name: '', business_name: '', email: '', phone: '', trade: '' };
 
-/**
- * Upsert a TenderContact record (subcontractor directory).
- * Throws on failure so the caller can show a user-visible error.
- */
+/** Upsert into TenderContact directory. Non-fatal — logs on failure. */
 async function upsertContact(contacts, form, queryClient) {
-  if (!form.full_name) return null;
+  if (!form.full_name) return;
 
   const emailLower = form.email?.toLowerCase();
-  let existing = emailLower
-    ? contacts.find(c => c.email?.toLowerCase() === emailLower)
-    : null;
-
+  let existing = emailLower ? contacts.find(c => c.email?.toLowerCase() === emailLower) : null;
   if (!existing && form.full_name && form.business_name) {
     existing = contacts.find(
       c => c.full_name?.toLowerCase() === form.full_name.toLowerCase() &&
@@ -57,10 +50,8 @@ async function upsertContact(contacts, form, queryClient) {
     );
   }
 
-  let result;
   if (existing) {
-    console.log(`[upsertContact] UPDATE id=${existing.id} email=${form.email}`);
-    result = await base44.entities.TenderContact.update(existing.id, {
+    await base44.entities.TenderContact.update(existing.id, {
       full_name:     form.full_name,
       business_name: form.business_name || existing.business_name || '',
       phone:         form.phone         || existing.phone         || '',
@@ -68,8 +59,7 @@ async function upsertContact(contacts, form, queryClient) {
     });
     console.log(`[upsertContact] UPDATED id=${existing.id}`);
   } else {
-    console.log(`[upsertContact] CREATE email=${form.email} name=${form.full_name}`);
-    result = await base44.entities.TenderContact.create({
+    const result = await base44.entities.TenderContact.create({
       full_name:     form.full_name,
       business_name: form.business_name || '',
       email:         form.email         || '',
@@ -77,114 +67,42 @@ async function upsertContact(contacts, form, queryClient) {
       trade:         form.trade         || '',
     });
     if (!result?.id) throw new Error('TenderContact create returned no id');
-    console.log(`[upsertContact] CREATED id=${result.id} email=${form.email}`);
+    console.log(`[upsertContact] CREATED id=${result.id}`);
   }
-
   queryClient.invalidateQueries({ queryKey: ['tenderContacts'] });
-  return result;
-}
-
-/**
- * Create a TenderInvitation record (source of truth for the invitation).
- * Throws on failure.
- */
-async function createTenderInvitation({ tender_id, token, email, full_name }) {
-  console.log(`[createTenderInvitation] tender_id=${tender_id} email=${email} token=${token}`);
-
-  // Check if one already exists for this token
-  const existing = await base44.entities.TenderInvitation.filter({ token });
-  if (existing?.length > 0) {
-    console.log(`[createTenderInvitation] Already exists id=${existing[0].id} — skipping`);
-    return existing[0];
-  }
-
-  const record = await base44.entities.TenderInvitation.create({
-    token,
-    tender_id,
-    invitee_email: email || '',
-    invitee_name:  full_name || '',
-    status:        'Pending',
-    sent_date:     null,
-  });
-
-  if (!record?.id) throw new Error('TenderInvitation create returned no id');
-  console.log(`[createTenderInvitation] CREATED id=${record.id}`);
-  return record;
 }
 
 export default function InviteeManager({ tender, onUpdate, canManage }) {
-  const { user } = useAuth();
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
+  const { toast }        = useToast();
+  const queryClient      = useQueryClient();
 
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm]             = useState(emptyForm);
   const [nameSearch, setNameSearch] = useState('');
   const [nameSuggestions, setNameSuggestions] = useState([]);
   const nameDebounce = useRef(null);
 
-  const [showSearch, setShowSearch] = useState(false);
-  const [searchQ, setSearchQ] = useState('');
+  const [showSearch, setShowSearch]     = useState(false);
+  const [searchQ, setSearchQ]           = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const searchDebounce = useRef(null);
 
   const [showIssueConfirm, setShowIssueConfirm] = useState(false);
-  const [issuing, setIssuing] = useState(false);
-  const [addingInvitee, setAddingInvitee] = useState(false);
+  const [issuing, setIssuing]     = useState(false);
+  const [adding, setAdding]       = useState(false);
 
-  // ── Source of truth: TenderInvitation ──────────────────────────────────
-  const { data: tenderInvitations = [], refetch: refetchInvitations } = useQuery({
+  // ── PRIMARY DATA SOURCE: TenderInvitation ────────────────────────────────
+  const { data: invitations = [], refetch: refetchInvitations } = useQuery({
     queryKey: ['tenderInvitations', tender.id],
     queryFn: () => base44.entities.TenderInvitation.filter({ tender_id: tender.id }),
     enabled: !!tender.id,
   });
-
-  // Build combined invitee list:
-  // Primary: TenderInvitation records
-  // Fallback: legacy Tender.invitees[] for any not yet migrated
-  const legacyInvitees = tender.invitees || [];
-  const invitations = tenderInvitations;
-
-  // Merge: use TenderInvitation as primary; supplement with legacy invitees that have no TenderInvitation
-  const invitationTokens = new Set(invitations.map(i => i.token));
-  const legacyOnly = legacyInvitees.filter(inv => inv.token && !invitationTokens.has(inv.token));
-
-  // Build a unified display list
-  const displayInvitees = [
-    ...invitations.map(inv => ({
-      _source: 'invitation',
-      _invitationId: inv.id,
-      id:            inv.token, // use token as stable key
-      token:         inv.token,
-      full_name:     inv.invitee_name || '',
-      email:         inv.invitee_email || '',
-      status:        inv.status || 'Pending',
-      // submission data from legacy array if present
-      submission:    legacyInvitees.find(l => l.token === inv.token)?.submission || null,
-      business_name: legacyInvitees.find(l => l.token === inv.token)?.business_name || '',
-      trade:         legacyInvitees.find(l => l.token === inv.token)?.trade || '',
-      phone:         legacyInvitees.find(l => l.token === inv.token)?.phone || '',
-    })),
-    ...legacyOnly.map(inv => ({
-      _source: 'legacy',
-      _invitationId: null,
-      id:            inv.id || inv.token,
-      token:         inv.token,
-      full_name:     inv.full_name || '',
-      email:         inv.email || '',
-      status:        inv.status || 'Pending',
-      submission:    inv.submission || null,
-      business_name: inv.business_name || '',
-      trade:         inv.trade || '',
-      phone:         inv.phone || '',
-    })),
-  ];
 
   const { data: contacts = [] } = useQuery({
     queryKey: ['tenderContacts'],
     queryFn: () => base44.entities.TenderContact.list('-created_date', 500).catch(() => []),
   });
 
-  // ── Name field autocomplete ─────────────────────────────────────────────
+  // ── Name autocomplete ─────────────────────────────────────────────────────
   const handleNameInput = (val) => {
     setNameSearch(val);
     setForm(f => ({ ...f, full_name: val }));
@@ -205,13 +123,13 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
     }, 300);
   };
 
-  const selectNameSuggestion = (c) => {
+  const selectSuggestion = (c) => {
     setForm({ full_name: c.full_name || '', business_name: c.business_name || '', email: c.email || '', phone: c.phone || '', trade: c.trade || '' });
     setNameSearch(c.full_name || '');
     setNameSuggestions([]);
   };
 
-  // ── Existing subcontractor search ───────────────────────────────────────
+  // ── Subcontractor search ──────────────────────────────────────────────────
   const handleSearchInput = (val) => {
     setSearchQ(val);
     clearTimeout(searchDebounce.current);
@@ -232,95 +150,71 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
     }, 300);
   };
 
-  // ── Core: add an invitee (both paths call this) ─────────────────────────
-  const addInviteeCore = async (inviteeData) => {
-    const emailLower = inviteeData.email?.toLowerCase();
-    const alreadyAdded = emailLower && displayInvitees.some(i => i.email?.toLowerCase() === emailLower);
+  // ── Core add logic ────────────────────────────────────────────────────────
+  const addInviteeCore = async ({ full_name, business_name, email, phone, trade }) => {
+    const emailLower = email?.toLowerCase();
+    const alreadyAdded = emailLower && invitations.some(i => i.invitee_email?.toLowerCase() === emailLower);
     if (alreadyAdded) {
-      toast({ title: 'Already added', description: `${inviteeData.email} is already in the invitee list`, duration: 3000 });
+      toast({ title: 'Already added', description: `${email} is already in the invitee list`, duration: 3000 });
       return false;
     }
 
-    setAddingInvitee(true);
-    const token = uuidv4();
-    const newLegacyEntry = {
-      ...inviteeData,
-      id:         uuidv4(),
-      token,
-      status:     'Pending',
-      invited_at: null,
-      submission: null,
-    };
+    setAdding(true);
+    const token = crypto.randomUUID();
+    console.log(`[addInvitee] START name=${full_name} email=${email} tender=${tender.id} token=${token}`);
 
-    console.log(`[addInvitee] START name=${inviteeData.full_name} email=${inviteeData.email} tender=${tender.id}`);
-
-    // Step 1: Create TenderInvitation (source of truth)
     try {
-      await createTenderInvitation({
-        tender_id:  tender.id,
+      // Create TenderInvitation — this is the ONLY write required
+      const record = await base44.entities.TenderInvitation.create({
         token,
-        email:      inviteeData.email || '',
-        full_name:  inviteeData.full_name || '',
+        tender_id:     tender.id,
+        invitee_email: email || '',
+        invitee_name:  full_name || '',
+        status:        'Pending',
+        sent_date:     null,
       });
-      console.log(`[addInvitee] TenderInvitation created OK`);
-    } catch (invErr) {
-      console.error(`[addInvitee] TenderInvitation create FAILED:`, invErr?.message);
+
+      if (!record?.id) throw new Error('TenderInvitation create returned no id');
+      console.log(`[addInvitee] TenderInvitation CREATED id=${record.id}`);
+      await refetchInvitations();
+      setAdding(false);
+      return true;
+    } catch (err) {
+      console.error(`[addInvitee] TenderInvitation create FAILED:`, err?.message, err?.stack);
       toast({
         title: 'Failed to add invitee',
-        description: `TenderInvitation error: ${invErr?.message}`,
+        description: err?.message || 'TenderInvitation create failed',
         variant: 'destructive',
         duration: 8000,
       });
-      setAddingInvitee(false);
+      setAdding(false);
       return false;
     }
-
-    // Step 2: Update Tender.invitees[] (legacy sync — best effort)
-    try {
-      const currentLegacy = tender.invitees || [];
-      await onUpdate({ invitees: [...currentLegacy, newLegacyEntry] });
-      console.log(`[addInvitee] Tender.invitees[] legacy sync OK`);
-    } catch (syncErr) {
-      console.warn(`[addInvitee] Tender.invitees[] legacy sync FAILED (non-fatal):`, syncErr?.message);
-      // Non-fatal: TenderInvitation is the source of truth
-    }
-
-    // Step 3: Refresh invitation list
-    refetchInvitations();
-    setAddingInvitee(false);
-    return true;
   };
 
   const addFromSearch = async (c) => {
     const success = await addInviteeCore({
-      full_name:     c.full_name,
-      business_name: c.business_name || '',
-      email:         c.email || '',
-      phone:         c.phone || '',
-      trade:         c.trade || '',
+      full_name: c.full_name, business_name: c.business_name || '',
+      email: c.email || '', phone: c.phone || '', trade: c.trade || '',
     });
     if (success) toast({ title: `${c.full_name} added`, duration: 2500 });
   };
 
   const addInvitee = async () => {
     if (!form.full_name) return;
-
     const success = await addInviteeCore({
-      full_name:     form.full_name,
-      business_name: form.business_name || '',
-      email:         form.email || '',
-      phone:         form.phone || '',
-      trade:         form.trade === 'NONE' ? '' : (form.trade || ''),
+      full_name: form.full_name, business_name: form.business_name || '',
+      email: form.email || '', phone: form.phone || '',
+      trade: form.trade === 'NONE' ? '' : (form.trade || ''),
     });
-
     if (success) {
-      // Also upsert into TenderContact directory (best effort)
+      // Upsert into TenderContact directory (non-fatal)
       try {
         await upsertContact(contacts, form, queryClient);
         toast({ title: `${form.full_name} added`, description: 'Saved to subcontractor database', duration: 2500 });
       } catch (contactErr) {
-        console.warn('[addInvitee] TenderContact upsert failed (non-fatal):', contactErr?.message);
-        toast({ title: `${form.full_name} added`, description: 'Note: could not save to subcontractor database', duration: 4000 });
+        console.warn('[addInvitee] TenderContact upsert failed:', contactErr?.message);
+        toast({ title: `${form.full_name} added`, description: 'Note: contact directory save failed', duration: 4000 });
       }
       setForm(emptyForm);
       setNameSearch('');
@@ -328,75 +222,48 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
     }
   };
 
-  // ── Remove invitee ──────────────────────────────────────────────────────
+  // ── Remove invitee ────────────────────────────────────────────────────────
   const removeInvitee = async (inv) => {
-    console.log(`[removeInvitee] token=${inv.token} source=${inv._source}`);
-
-    // Delete TenderInvitation if it exists
-    if (inv._invitationId) {
-      try {
-        await base44.entities.TenderInvitation.delete(inv._invitationId);
-        console.log(`[removeInvitee] TenderInvitation id=${inv._invitationId} deleted`);
-      } catch (delErr) {
-        console.error(`[removeInvitee] TenderInvitation delete failed:`, delErr?.message);
-        toast({ title: 'Remove failed', description: delErr?.message, variant: 'destructive', duration: 5000 });
-        return;
-      }
-    }
-
-    // Remove from Tender.invitees[] legacy array
-    const updated = (tender.invitees || []).filter(i => i.token !== inv.token && i.id !== inv.id);
+    console.log(`[removeInvitee] id=${inv.id} token=${inv.token} email=${inv.invitee_email}`);
     try {
-      await onUpdate({ invitees: updated });
-    } catch (syncErr) {
-      console.warn('[removeInvitee] legacy sync failed (non-fatal):', syncErr?.message);
+      await base44.entities.TenderInvitation.delete(inv.id);
+      console.log(`[removeInvitee] Deleted id=${inv.id}`);
+      await refetchInvitations();
+    } catch (err) {
+      console.error(`[removeInvitee] FAILED id=${inv.id}:`, err?.message);
+      toast({ title: 'Remove failed', description: err?.message, variant: 'destructive', duration: 5000 });
     }
-
-    refetchInvitations();
   };
 
-  // ── Issue tender ────────────────────────────────────────────────────────
-  const pendingInvitees = displayInvitees.filter(inv => !inv.status || inv.status === 'Pending');
+  // ── Issue tender ──────────────────────────────────────────────────────────
+  const pendingInvitees  = invitations.filter(inv => !inv.status || inv.status === 'Pending');
+  const emailableCount   = invitations.filter(i => i.invitee_email).length;
+  const newInviteesCount = pendingInvitees.filter(i => i.invitee_email).length;
+  const showIssueButton  = canManage && invitations.length > 0 &&
+    (tender.status === 'Draft' || (tender.status === 'Issued' && pendingInvitees.length > 0));
 
   const issueTender = async () => {
     setIssuing(true);
     try {
-      // Build the updated legacy invitees array with Invited status + timestamps
-      const now = new Date().toISOString();
-      const updatedLegacyInvitees = (tender.invitees || []).map(inv => {
-        const isPending = !inv.invited_at || inv.status === 'Pending';
-        return {
-          ...inv,
-          token:      inv.token || uuidv4(),
-          status:     isPending ? 'Invited' : inv.status,
-          invited_at: isPending ? now : inv.invited_at,
-        };
-      });
-
+      // Update tender status first
       try {
+        const now = new Date().toISOString();
         await onUpdate({
-          invitees:   updatedLegacyInvitees,
           status:     'Issued',
           issue_date: tender.issue_date || now.split('T')[0],
         });
       } catch (saveErr) {
-        toast({ title: 'Failed to save tender — emails not sent', description: saveErr?.message, variant: 'destructive', duration: 8000 });
+        console.error('[issueTender] tender status update failed:', saveErr?.message, saveErr?.stack);
+        toast({ title: 'Failed to update tender status', description: saveErr?.message, variant: 'destructive', duration: 8000 });
         return;
       }
 
-      // Send invitations to pending invitees that have emails
-      const toEmail = displayInvitees.filter(inv => {
-        const isPending = !inv.status || inv.status === 'Pending';
-        return inv.email && isPending;
-      });
-
-      let sent = 0;
-      let failed = 0;
-      let sendErrors = [];
+      const toEmail = pendingInvitees.filter(inv => inv.invitee_email);
+      let sent = 0, failed = 0, sendErrors = [];
 
       if (toEmail.length > 0) {
         const result = await base44.functions.invoke('sendTenderInvitations', {
-          tenderId:   tender.id,
+          tenderId: tender.id,
           tenderInfo: {
             title:                tender.title,
             tender_number:        tender.tender_number        || '',
@@ -410,8 +277,8 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
           },
           invitees: toEmail.map(inv => ({
             id:        inv.id,
-            email:     inv.email,
-            full_name: inv.full_name,
+            email:     inv.invitee_email,
+            full_name: inv.invitee_name,
             token:     inv.token,
           })),
           appUrl: window.location.origin,
@@ -422,19 +289,19 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
         if (sendErrors.length > 0) console.error('[issueTender] partial failures:', sendErrors);
       }
 
-      refetchInvitations();
+      await refetchInvitations();
 
       if (toEmail.length === 0) {
         toast({ title: 'Tender status updated', description: 'No pending invitees to email', duration: 4000 });
       } else if (sent > 0 && failed === 0) {
         toast({ title: `Tender issued — ${sent} invitation${sent !== 1 ? 's' : ''} sent`, duration: 5000 });
-      } else if (sent > 0 && failed > 0) {
+      } else if (sent > 0) {
         toast({ title: `${sent} sent, ${failed} failed`, description: sendErrors.slice(0, 3).join('; '), variant: 'destructive', duration: 10000 });
       } else {
-        toast({ title: 'No invitations sent', description: sendErrors.length > 0 ? sendErrors.slice(0, 3).join('; ') : 'Check invitees have valid emails', variant: 'destructive', duration: 10000 });
+        toast({ title: 'No invitations sent', description: sendErrors.slice(0, 3).join('; ') || 'Check invitees have valid emails', variant: 'destructive', duration: 10000 });
       }
     } catch (err) {
-      console.error('[issueTender] fatal error:', err?.message);
+      console.error('[issueTender] FATAL:', err?.message, err?.stack);
       toast({ title: 'Issue Tender Failed', description: err?.message, variant: 'destructive', duration: 10000 });
     } finally {
       setIssuing(false);
@@ -442,14 +309,9 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
     }
   };
 
-  const emailableInvitees = displayInvitees.filter(i => i.email);
-  const newInviteesCount  = pendingInvitees.filter(i => i.email).length;
-  const showIssueButton   = canManage && displayInvitees.length > 0 &&
-    (tender.status === 'Draft' || (tender.status === 'Issued' && pendingInvitees.length > 0));
-
   return (
     <div className="space-y-6">
-      {/* Issue / Re-issue button */}
+      {/* Issue button */}
       {showIssueButton && (
         <div className="flex items-center justify-between p-4 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-800">
           <div>
@@ -459,7 +321,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
             <p className="text-xs text-blue-700 dark:text-blue-300">
               {tender.status === 'Issued'
                 ? `${pendingInvitees.length} new invitee${pendingInvitees.length !== 1 ? 's' : ''} will receive an invitation email`
-                : `${displayInvitees.length} invitee${displayInvitees.length !== 1 ? 's' : ''} added · ${emailableInvitees.length} with email addresses`}
+                : `${invitations.length} invitee${invitations.length !== 1 ? 's' : ''} · ${emailableCount} with email addresses`}
             </p>
           </div>
           <Button onClick={() => setShowIssueConfirm(true)} className="gap-2 bg-blue-600 hover:bg-blue-700">
@@ -480,23 +342,18 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
             </Button>
           </div>
 
-          {/* Add from database panel */}
           {showSearch && (
             <div className="border rounded-lg p-4 space-y-3">
               <p className="text-sm font-semibold text-muted-foreground">Search subcontractor database</p>
-              <Input
-                autoFocus
-                value={searchQ}
-                onChange={e => handleSearchInput(e.target.value)}
-                placeholder="Search by name, business, email or trade…"
-              />
+              <Input autoFocus value={searchQ} onChange={e => handleSearchInput(e.target.value)}
+                placeholder="Search by name, business, email or trade…" />
               {searchQ.length >= 1 && searchResults.length === 0 && (
                 <p className="text-sm text-muted-foreground text-center py-3">No matches found</p>
               )}
               {searchResults.length > 0 && (
                 <div className="space-y-1 max-h-64 overflow-y-auto">
                   {searchResults.map(c => {
-                    const alreadyAdded = displayInvitees.some(i => i.email?.toLowerCase() === c.email?.toLowerCase());
+                    const added = invitations.some(i => i.invitee_email?.toLowerCase() === c.email?.toLowerCase());
                     return (
                       <div key={c.id} className="flex items-center justify-between p-3 border rounded-md hover:bg-muted/40 transition-colors">
                         <div className="min-w-0 flex-1">
@@ -508,9 +365,8 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
                           <p className="text-xs text-muted-foreground mt-0.5">{[c.email, c.phone].filter(Boolean).join(' · ')}</p>
                         </div>
                         <Button size="sm" variant="outline" className="ml-3 flex-shrink-0 gap-1"
-                          onClick={() => addFromSearch(c)}
-                          disabled={alreadyAdded || addingInvitee}>
-                          {alreadyAdded ? 'Added' : addingInvitee ? '…' : <><Plus className="w-3.5 h-3.5" /> Add</>}
+                          onClick={() => addFromSearch(c)} disabled={added || adding}>
+                          {added ? 'Added' : adding ? '…' : <><Plus className="w-3.5 h-3.5" /> Add</>}
                         </Button>
                       </div>
                     );
@@ -525,24 +381,19 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
             </div>
           )}
 
-          {/* Manual add form */}
           {!showSearch && (
             <div className="border rounded-lg p-4 space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="relative sm:col-span-2">
                   <Label className="text-xs">Full Name *</Label>
-                  <Input
-                    value={nameSearch}
-                    onChange={e => handleNameInput(e.target.value)}
-                    placeholder="Search contacts or enter name…"
-                    autoComplete="off"
-                  />
+                  <Input value={nameSearch} onChange={e => handleNameInput(e.target.value)}
+                    placeholder="Search contacts or enter name…" autoComplete="off" />
                   {nameSuggestions.length > 0 && (
                     <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-card border rounded-md shadow-lg max-h-44 overflow-y-auto">
                       {nameSuggestions.map(c => (
                         <button key={c.id} type="button"
                           className="w-full text-left px-3 py-2 text-sm hover:bg-muted/60 flex items-center gap-2"
-                          onClick={() => selectNameSuggestion(c)}>
+                          onClick={() => selectSuggestion(c)}>
                           <UserCheck className="w-3.5 h-3.5 text-green-600 flex-shrink-0" />
                           <span className="font-medium">{c.full_name}</span>
                           {c.business_name && <span className="text-muted-foreground text-xs">{c.business_name}</span>}
@@ -576,47 +427,40 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
                 </div>
               </div>
               <p className="text-xs text-muted-foreground">Contact will be saved to the subcontractor database.</p>
-              <Button onClick={addInvitee} disabled={!form.full_name || addingInvitee} className="gap-2" size="sm">
-                <Plus className="w-4 h-4" /> {addingInvitee ? 'Adding…' : 'Add Invitee'}
+              <Button onClick={addInvitee} disabled={!form.full_name || adding} className="gap-2" size="sm">
+                <Plus className="w-4 h-4" /> {adding ? 'Adding…' : 'Add Invitee'}
               </Button>
             </div>
           )}
         </div>
       )}
 
-      {/* Invitee list */}
-      {displayInvitees.length === 0 ? (
+      {/* Invitee list — sourced entirely from TenderInvitation */}
+      {invitations.length === 0 ? (
         <div className="text-center py-10 text-muted-foreground">
           <Users className="w-10 h-10 mx-auto mb-3 opacity-30" />
           <p className="text-sm">No invitees added yet</p>
         </div>
       ) : (
         <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium text-muted-foreground">{displayInvitees.length} Invitee{displayInvitees.length !== 1 ? 's' : ''}</p>
-          </div>
-          {displayInvitees.map(inv => (
-            <div key={inv.token || inv.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/30 transition-colors">
+          <p className="text-sm font-medium text-muted-foreground">{invitations.length} Invitee{invitations.length !== 1 ? 's' : ''}</p>
+          {invitations.map(inv => (
+            <div key={inv.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/30 transition-colors">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-medium text-sm">{inv.full_name}</span>
-                  {inv.business_name && <span className="text-xs text-muted-foreground">{inv.business_name}</span>}
+                  <span className="font-medium text-sm">{inv.invitee_name || '—'}</span>
                   {inv.status && (
                     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[inv.status] || 'bg-gray-100 text-gray-700'}`}>
                       {inv.status}
                     </span>
                   )}
-                  {inv._source === 'legacy' && (
-                    <span className="text-xs text-amber-600 flex items-center gap-0.5">
-                      <AlertCircle className="w-3 h-3" /> legacy
-                    </span>
-                  )}
                 </div>
                 <div className="text-xs text-muted-foreground mt-0.5">
-                  {[inv.trade, inv.email, inv.phone].filter(Boolean).join(' · ')}
+                  {inv.invitee_email || 'No email'}
+                  {inv.sent_date && <span className="ml-2 opacity-60">Sent {new Date(inv.sent_date).toLocaleDateString()}</span>}
                 </div>
               </div>
-              {canManage && (!inv.status || inv.status === 'Pending' || inv.status === 'Sent' || inv.status === 'Invited') && (
+              {canManage && (!inv.status || inv.status === 'Pending' || inv.status === 'Sent') && (
                 <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive flex-shrink-0"
                   onClick={() => removeInvitee(inv)}>
                   <Trash2 className="w-4 h-4" />
@@ -635,7 +479,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
             <AlertDialogDescription>
               {tender.status === 'Issued'
                 ? `Send invitation emails to ${newInviteesCount} new invitee${newInviteesCount !== 1 ? 's' : ''}? Previously invited subcontractors will not receive another email.`
-                : `Send tender invitation to ${emailableInvitees.length} subcontractor${emailableInvitees.length !== 1 ? 's' : ''} with email addresses? This will set the tender status to Issued.`}
+                : `Send tender invitation to ${emailableCount} subcontractor${emailableCount !== 1 ? 's' : ''} with email addresses? This will set the tender status to Issued.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="flex justify-end gap-2 mt-2">
