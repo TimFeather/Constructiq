@@ -268,26 +268,6 @@
           }
         }
       ]
-    },
-    "update": {
-      "user_condition": {
-        "role": {
-          "$in": [
-            "admin",
-            "pricing"
-          ]
-        }
-      }
-    },
-    "delete": {
-      "user_condition": {
-        "role": {
-          "$in": [
-            "admin",
-            "pricing"
-          ]
-        }
-      }
     }
   }
 }
