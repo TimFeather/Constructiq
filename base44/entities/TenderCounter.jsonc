@@ -16,47 +16,5 @@
       "description": "ISO datetime when the lock was acquired."
     }
   },
-  "required": [],
-  "rls": {
-    "create": {
-      "user_condition": {
-        "role": {
-          "$in": [
-            "admin",
-            "pricing"
-          ]
-        }
-      }
-    },
-    "read": {
-      "user_condition": {
-        "role": {
-          "$in": [
-            "admin",
-            "pricing"
-          ]
-        }
-      }
-    },
-    "update": {
-      "user_condition": {
-        "role": {
-          "$in": [
-            "admin",
-            "pricing"
-          ]
-        }
-      }
-    },
-    "delete": {
-      "user_condition": {
-        "role": {
-          "$in": [
-            "admin",
-            "pricing"
-          ]
-        }
-      }
-    }
-  }
+  "required": []
 }
