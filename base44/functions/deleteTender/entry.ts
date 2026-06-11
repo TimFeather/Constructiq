@@ -44,16 +44,8 @@ Deno.serve(async (req) => {
     if (!tenderId) return fail('tenderId is required', 400);
     trace(`DELETE tender id=${tenderId}`);
 
-    // Step 1 — Load tender (verify it exists)
-    trace('Loading tender...');
-    let tender;
-    try {
-      tender = await base44.asServiceRole.entities.Tender.get(tenderId);
-      trace(`Tender found: number=${tender.tender_number} status=${tender.status}`);
-    } catch (e) {
-      trace(`Tender.get threw: ${e.message}`);
-      return fail(`Tender not found: ${e.message}`, 404);
-    }
+    // Step 1 — Skip existence check; proceed directly (service-role .get() blocked by RLS on Tender)
+    trace(`Proceeding with delete for tender id=${tenderId}`);
 
     // Step 2 — Delete all TenderInvitation records
     trace('Fetching TenderInvitation records...');
