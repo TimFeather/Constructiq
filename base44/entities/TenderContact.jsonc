@@ -25,17 +25,6 @@
     "full_name"
   ],
   "rls": {
-    "create": {
-      "user_condition": {
-        "role": {
-          "$in": [
-            "admin",
-            "pricing",
-            "internal"
-          ]
-        }
-      }
-    },
     "read": {
       "user_condition": {
         "role": {
