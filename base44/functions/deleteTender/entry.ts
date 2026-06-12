@@ -3,97 +3,76 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
 /**
  * deleteTender
  *
- * Cascading delete: TenderInvitation → Folder → Tender
- * All operations via service role to bypass entity RLS.
+ * Cascading delete:
+ *   TenderSubmission → TenderInvitation → TenderInvitee → Folder → Tender
  */
 Deno.serve(async (req) => {
   const log = [];
   const trace = (msg) => { console.log(`[deleteTender] ${msg}`); log.push(msg); };
-  const fail = (msg, status = 500) => {
+  const fail  = (msg, status = 500) => {
     console.error(`[deleteTender] FAIL: ${msg}`);
     return Response.json({ error: msg, trace: log }, { status });
   };
 
   try {
     trace('START');
-
     const base44 = createClientFromRequest(req);
     const sr = base44.asServiceRole;
-    trace('SDK initialised');
 
-    // ── Auth ──────────────────────────────────────────────────────────────────
     let user;
     try {
       user = await base44.auth.me();
-      trace(`auth.me: email=${user?.email} role=${user?.role}`);
-    } catch (e) {
-      return fail(`Auth error: ${e.message}`, 401);
-    }
+      trace(`auth: email=${user?.email} role=${user?.role}`);
+    } catch (e) { return fail(`Auth error: ${e.message}`, 401); }
 
     if (!user) return fail('Unauthorized', 401);
     if (!['admin', 'pricing'].includes(user.role)) {
-      return fail(`Forbidden — role '${user.role}' not permitted`, 403);
+      return fail(`Forbidden — role '${user.role}'`, 403);
     }
 
     let body;
-    try {
-      body = await req.json();
-    } catch (e) {
-      return fail(`Invalid body: ${e.message}`, 400);
-    }
+    try { body = await req.json(); }
+    catch (e) { return fail(`Invalid body: ${e.message}`, 400); }
 
     const { tenderId } = body;
     if (!tenderId) return fail('tenderId is required', 400);
-    trace(`DELETE tender id=${tenderId}`);
+    trace(`DELETE tender=${tenderId}`);
 
-    // Step 1 — Delete all TenderInvitation records
-    trace('Fetching TenderInvitation records...');
-    let invitations;
-    try {
-      invitations = await sr.entities.TenderInvitation.filter({ tender_id: tenderId });
-      trace(`TenderInvitation count: ${invitations.length}`);
-    } catch (e) {
-      return fail(`TenderInvitation fetch failed: ${e.message}`);
-    }
-
-    for (const inv of invitations) {
-      trace(`Deleting TenderInvitation id=${inv.id}`);
-      try {
-        await sr.entities.TenderInvitation.delete(inv.id);
-        trace(`TenderInvitation id=${inv.id} deleted`);
-      } catch (e) {
-        return fail(`TenderInvitation delete failed id=${inv.id}: ${e.message}`);
+    const deleteAll = async (entityName, records) => {
+      for (const r of records) {
+        try {
+          await sr.entities[entityName].delete(r.id);
+        } catch (e) {
+          trace(`${entityName} delete failed id=${r.id} (non-fatal): ${e.message}`);
+        }
       }
-    }
-    trace(`All ${invitations.length} TenderInvitation(s) deleted`);
+      trace(`${records.length} ${entityName}(s) deleted`);
+    };
 
-    // Step 2 — Delete Folder records
-    trace('Fetching Folder records...');
-    let folders = [];
-    try {
-      folders = await sr.entities.Folder.filter({ tender_id: tenderId });
-      trace(`Folder count: ${folders.length}`);
-    } catch (e) {
-      trace(`Folder.filter failed (non-fatal): ${e.message}`);
-    }
+    // Step 1 — TenderSubmission
+    const submissions = await sr.entities.TenderSubmission.filter({ tender_id: tenderId }).catch(() => []);
+    trace(`TenderSubmission count: ${submissions.length}`);
+    await deleteAll('TenderSubmission', submissions);
 
-    for (const folder of folders) {
-      try {
-        await sr.entities.Folder.delete(folder.id);
-      } catch (e) {
-        trace(`Folder delete failed id=${folder.id} (non-fatal): ${e.message}`);
-      }
-    }
-    trace(`All ${folders.length} Folder(s) deleted`);
+    // Step 2 — TenderInvitation
+    const invitations = await sr.entities.TenderInvitation.filter({ tender_id: tenderId }).catch(() => []);
+    trace(`TenderInvitation count: ${invitations.length}`);
+    await deleteAll('TenderInvitation', invitations);
 
-    // Step 3 — Delete the Tender record (user-scoped: role RLS allows admin/pricing to delete)
+    // Step 3 — TenderInvitee
+    const invitees = await sr.entities.TenderInvitee.filter({ tender_id: tenderId }).catch(() => []);
+    trace(`TenderInvitee count: ${invitees.length}`);
+    await deleteAll('TenderInvitee', invitees);
+
+    // Step 4 — Folder
+    const folders = await sr.entities.Folder.filter({ tender_id: tenderId }).catch(() => []);
+    trace(`Folder count: ${folders.length}`);
+    await deleteAll('Folder', folders);
+
+    // Step 5 — Tender
     trace(`Deleting Tender id=${tenderId}...`);
-    try {
-      await base44.entities.Tender.delete(tenderId);
-      trace(`Tender id=${tenderId} deleted`);
-    } catch (e) {
-      return fail(`Tender delete failed: ${e.message}`);
-    }
+    await base44.entities.Tender.delete(tenderId);
+    trace('Tender deleted');
 
     trace('DELETE COMPLETE');
     return Response.json({ success: true, trace: log });

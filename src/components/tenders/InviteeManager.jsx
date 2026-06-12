@@ -1,14 +1,13 @@
 /**
- * InviteeManager — Phase 1 refactor
+ * InviteeManager
  *
- * SOURCE OF TRUTH: TenderInvitation only.
- * Tender.invitees[] is NOT read or written here.
- * All invitee state is owned by TenderInvitation records.
+ * Source of truth: TenderInvitee entity only.
+ * No direct writes to TenderContact (handled server-side via manageTenderInvitee).
+ * No tokens or invitations created here — those happen at issue time via sendTenderInvitations.
  */
 import React, { useState, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
-import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -24,48 +23,43 @@ const TRADES = [
 ];
 
 const STATUS_STYLES = {
-  Pending:      'bg-gray-100 text-gray-600',
-  Sent:         'bg-blue-100 text-blue-700',
-  Viewed:       'bg-cyan-100 text-cyan-700',
-  Submitted:    'bg-green-100 text-green-700',
-  Cancelled:    'bg-gray-100 text-gray-500',
-  // legacy compat
-  Invited:      'bg-blue-100 text-blue-700',
-  Awarded:      'bg-emerald-100 text-emerald-700',
-  Unsuccessful: 'bg-red-100 text-red-700',
+  Draft:      'bg-gray-100 text-gray-600',
+  Invited:    'bg-blue-100 text-blue-700',
+  Viewed:     'bg-cyan-100 text-cyan-700',
+  Submitted:  'bg-green-100 text-green-700',
+  Declined:   'bg-red-100 text-red-600',
 };
 
 const emptyForm = { full_name: '', business_name: '', email: '', phone: '', trade: '' };
 
-
 export default function InviteeManager({ tender, onUpdate, canManage }) {
-  const { toast }        = useToast();
-  const queryClient      = useQueryClient();
+  const { toast }   = useToast();
+  const queryClient = useQueryClient();
 
   const [form, setForm]             = useState(emptyForm);
   const [nameSearch, setNameSearch] = useState('');
   const [nameSuggestions, setNameSuggestions] = useState([]);
   const nameDebounce = useRef(null);
 
-  const [showSearch, setShowSearch]     = useState(false);
-  const [searchQ, setSearchQ]           = useState('');
+  const [showSearch, setShowSearch]       = useState(false);
+  const [searchQ, setSearchQ]             = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const searchDebounce = useRef(null);
 
   const [showIssueConfirm, setShowIssueConfirm] = useState(false);
-  const [issuing, setIssuing]     = useState(false);
-  const [adding, setAdding]       = useState(false);
+  const [issuing, setIssuing] = useState(false);
+  const [adding, setAdding]   = useState(false);
 
-  // ── PRIMARY DATA SOURCE: TenderInvitation ────────────────────────────────
-  const { data: invitations = [], refetch: refetchInvitations } = useQuery({
-    queryKey: ['tenderInvitations', tender.id],
-    queryFn: () => base44.entities.TenderInvitation.filter({ tender_id: tender.id }),
-    enabled: !!tender.id,
+  // ── Primary data: TenderInvitee ───────────────────────────────────────────
+  const { data: invitees = [], refetch: refetchInvitees } = useQuery({
+    queryKey: ['tenderInvitees', tender.id],
+    queryFn:  () => base44.entities.TenderInvitee.filter({ tender_id: tender.id }),
+    enabled:  !!tender.id,
   });
 
   const { data: contacts = [] } = useQuery({
     queryKey: ['tenderContacts'],
-    queryFn: () => base44.entities.TenderContact.list('-created_date', 500).catch(() => []),
+    queryFn:  () => base44.entities.TenderContact.list('-created_date', 500).catch(() => []),
   });
 
   // ── Name autocomplete ─────────────────────────────────────────────────────
@@ -116,65 +110,48 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
     }, 300);
   };
 
-  // ── Core add logic ────────────────────────────────────────────────────────
+  // ── Add invitee ───────────────────────────────────────────────────────────
   const addInviteeCore = async ({ full_name, business_name, email, phone, trade }) => {
+    if (!full_name) return false;
+
     const emailLower = email?.toLowerCase();
-    const alreadyAdded = emailLower && invitations.some(i => i.invitee_email?.toLowerCase() === emailLower);
-    if (alreadyAdded) {
+    if (emailLower && invitees.some(i => i.email?.toLowerCase() === emailLower)) {
       toast({ title: 'Already added', description: `${email} is already in the invitee list`, duration: 3000 });
       return false;
     }
 
     setAdding(true);
-    const token = crypto.randomUUID();
-
     try {
-      const result = await base44.functions.invoke('manageTenderInvitation', {
+      const result = await base44.functions.invoke('manageTenderInvitee', {
         action:       'create',
         tenderId:     tender.id,
-        token,
-        inviteeName:  full_name     || '',
-        inviteeEmail: email         || '',
+        fullName:     full_name,
         businessName: business_name || '',
+        email:        email         || '',
         phone:        phone         || '',
         trade:        trade         || '',
       });
-      const record = result.data?.invitation;
-      if (!record?.id) throw new Error('manageTenderInvitation returned no invitation id');
-      await refetchInvitations();
+      if (!result.data?.invitee?.id) throw new Error('No invitee id returned');
+      await refetchInvitees();
       queryClient.invalidateQueries({ queryKey: ['tenderContacts'] });
-      setAdding(false);
       return true;
     } catch (err) {
-      console.error(`[addInvitee] FAILED:`, err?.message);
-      toast({
-        title: 'Failed to add invitee',
-        description: err?.message || 'TenderInvitation create failed',
-        variant: 'destructive',
-        duration: 8000,
-      });
-      setAdding(false);
+      toast({ title: 'Failed to add invitee', description: err?.message, variant: 'destructive', duration: 8000 });
       return false;
+    } finally {
+      setAdding(false);
     }
   };
 
   const addFromSearch = async (c) => {
-    const success = await addInviteeCore({
-      full_name: c.full_name, business_name: c.business_name || '',
-      email: c.email || '', phone: c.phone || '', trade: c.trade || '',
-    });
-    if (success) toast({ title: `${c.full_name} added`, duration: 2500 });
+    const ok = await addInviteeCore({ full_name: c.full_name, business_name: c.business_name, email: c.email, phone: c.phone, trade: c.trade });
+    if (ok) toast({ title: `${c.full_name} added`, duration: 2500 });
   };
 
   const addInvitee = async () => {
-    if (!form.full_name) return;
-    const success = await addInviteeCore({
-      full_name: form.full_name, business_name: form.business_name || '',
-      email: form.email || '', phone: form.phone || '',
-      trade: form.trade === 'NONE' ? '' : (form.trade || ''),
-    });
-    if (success) {
-      toast({ title: `${form.full_name} added`, description: 'Saved to subcontractor database', duration: 2500 });
+    const ok = await addInviteeCore({ ...form, trade: form.trade === 'NONE' ? '' : form.trade });
+    if (ok) {
+      toast({ title: `${form.full_name} added`, duration: 2500 });
       setForm(emptyForm);
       setNameSearch('');
       setNameSuggestions([]);
@@ -183,87 +160,61 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
 
   // ── Remove invitee ────────────────────────────────────────────────────────
   const removeInvitee = async (inv) => {
-    console.log(`[removeInvitee] id=${inv.id} token=${inv.token} email=${inv.invitee_email}`);
     try {
-      await base44.functions.invoke('manageTenderInvitation', {
-        action:       'delete',
-        invitationId: inv.id,
-      });
-      console.log(`[removeInvitee] Deleted id=${inv.id}`);
-      await refetchInvitations();
+      await base44.functions.invoke('manageTenderInvitee', { action: 'delete', inviteeId: inv.id });
+      await refetchInvitees();
     } catch (err) {
-      console.error(`[removeInvitee] FAILED id=${inv.id}:`, err?.message);
       toast({ title: 'Remove failed', description: err?.message, variant: 'destructive', duration: 5000 });
     }
   };
 
   // ── Issue tender ──────────────────────────────────────────────────────────
-  const pendingInvitees  = invitations.filter(inv => !inv.status || inv.status === 'Pending');
-  const emailableCount   = invitations.filter(i => i.invitee_email).length;
-  const newInviteesCount = pendingInvitees.filter(i => i.invitee_email).length;
-  const showIssueButton  = canManage && invitations.length > 0 &&
-    (tender.status === 'Draft' || (tender.status === 'Issued' && pendingInvitees.length > 0));
+  const draftInvitees  = invitees.filter(i => !i.status || i.status === 'Draft');
+  const emailableCount = invitees.filter(i => i.email).length;
+  const newCount       = draftInvitees.filter(i => i.email).length;
+
+  const showIssueButton = canManage && invitees.length > 0 &&
+    (tender.status === 'Draft' || (tender.status === 'Issued' && draftInvitees.length > 0));
 
   const issueTender = async () => {
     setIssuing(true);
     try {
       // Update tender status first
-      try {
-        const now = new Date().toISOString();
-        await onUpdate({
-          status:     'Issued',
-          issue_date: tender.issue_date || now.split('T')[0],
-        });
-      } catch (saveErr) {
-        console.error('[issueTender] tender status update failed:', saveErr?.message, saveErr?.stack);
-        toast({ title: 'Failed to update tender status', description: saveErr?.message, variant: 'destructive', duration: 8000 });
-        return;
-      }
+      await onUpdate({
+        status:     'Issued',
+        issue_date: tender.issue_date || new Date().toISOString().split('T')[0],
+      });
 
-      const toEmail = pendingInvitees.filter(inv => inv.invitee_email);
-      let sent = 0, failed = 0, sendErrors = [];
+      // Send invitations to all Draft invitees with email
+      const result = await base44.functions.invoke('sendTenderInvitations', {
+        tenderId: tender.id,
+        tenderInfo: {
+          title:                tender.title,
+          tender_number:        tender.tender_number        || '',
+          location:             tender.location             || '',
+          closing_date:         tender.closing_date         || '',
+          description:          tender.description          || '',
+          trade_packages:       tender.trade_packages       || [],
+          client_name:          tender.client_name          || '',
+          architect_name:       tender.architect_name       || '',
+          project_manager_name: tender.project_manager_name || '',
+        },
+        appUrl: window.location.origin,
+      });
 
-      if (toEmail.length > 0) {
-        const result = await base44.functions.invoke('sendTenderInvitations', {
-          tenderId: tender.id,
-          tenderInfo: {
-            title:                tender.title,
-            tender_number:        tender.tender_number        || '',
-            location:             tender.location             || '',
-            closing_date:         tender.closing_date         || '',
-            description:          tender.description          || '',
-            trade_packages:       tender.trade_packages       || [],
-            client_name:          tender.client_name          || '',
-            architect_name:       tender.architect_name       || '',
-            project_manager_name: tender.project_manager_name || '',
-          },
-          invitees: toEmail.map(inv => ({
-            id:        inv.id,
-            email:     inv.invitee_email,
-            full_name: inv.invitee_name,
-            token:     inv.token,
-          })),
-          appUrl: window.location.origin,
-        });
-        sent       = result.data?.sent   ?? 0;
-        failed     = result.data?.failed ?? 0;
-        sendErrors = result.data?.errors ?? [];
-        if (sendErrors.length > 0) console.error('[issueTender] partial failures:', sendErrors);
-      }
+      const { sent = 0, failed = 0, errors = [] } = result.data || {};
+      await refetchInvitees();
 
-      await refetchInvitations();
-
-      if (toEmail.length === 0) {
-        toast({ title: 'Tender status updated', description: 'No pending invitees to email', duration: 4000 });
-      } else if (sent > 0 && failed === 0) {
+      if (sent > 0 && failed === 0) {
         toast({ title: `Tender issued — ${sent} invitation${sent !== 1 ? 's' : ''} sent`, duration: 5000 });
       } else if (sent > 0) {
-        toast({ title: `${sent} sent, ${failed} failed`, description: sendErrors.slice(0, 3).join('; '), variant: 'destructive', duration: 10000 });
+        toast({ title: `${sent} sent, ${failed} failed`, description: errors.slice(0, 3).join('; '), variant: 'destructive', duration: 10000 });
+      } else if (newCount === 0) {
+        toast({ title: 'Tender status updated', description: 'No uninvited contacts to email', duration: 4000 });
       } else {
-        toast({ title: 'No invitations sent', description: sendErrors.slice(0, 3).join('; ') || 'Check invitees have valid emails', variant: 'destructive', duration: 10000 });
+        toast({ title: 'No invitations sent', description: errors.slice(0, 3).join('; ') || 'Check invitees have valid emails', variant: 'destructive', duration: 10000 });
       }
     } catch (err) {
-      console.error('[issueTender] FATAL:', err?.message, err?.stack);
       toast({ title: 'Issue Tender Failed', description: err?.message, variant: 'destructive', duration: 10000 });
     } finally {
       setIssuing(false);
@@ -282,8 +233,8 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
             </p>
             <p className="text-xs text-blue-700 dark:text-blue-300">
               {tender.status === 'Issued'
-                ? `${pendingInvitees.length} new invitee${pendingInvitees.length !== 1 ? 's' : ''} will receive an invitation email`
-                : `${invitations.length} invitee${invitations.length !== 1 ? 's' : ''} · ${emailableCount} with email addresses`}
+                ? `${draftInvitees.length} new invitee${draftInvitees.length !== 1 ? 's' : ''} will receive an invitation email`
+                : `${invitees.length} invitee${invitees.length !== 1 ? 's' : ''} · ${emailableCount} with email addresses`}
             </p>
           </div>
           <Button onClick={() => setShowIssueConfirm(true)} className="gap-2 bg-blue-600 hover:bg-blue-700">
@@ -292,6 +243,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
         </div>
       )}
 
+      {/* Add invitee UI */}
       {canManage && (
         <div className="space-y-3">
           <div className="flex gap-2">
@@ -300,7 +252,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
             </Button>
             <Button variant={showSearch ? 'default' : 'outline'} size="sm" className="gap-2"
               onClick={() => { setShowSearch(true); setSearchQ(''); setSearchResults([]); }}>
-              <Search className="w-4 h-4" /> Add from Database ({contacts.length})
+              <Search className="w-4 h-4" /> From Database ({contacts.length})
             </Button>
           </div>
 
@@ -315,7 +267,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
               {searchResults.length > 0 && (
                 <div className="space-y-1 max-h-64 overflow-y-auto">
                   {searchResults.map(c => {
-                    const added = invitations.some(i => i.invitee_email?.toLowerCase() === c.email?.toLowerCase());
+                    const added = invitees.some(i => i.email?.toLowerCase() === c.email?.toLowerCase());
                     return (
                       <div key={c.id} className="flex items-center justify-between p-3 border rounded-md hover:bg-muted/40 transition-colors">
                         <div className="min-w-0 flex-1">
@@ -388,7 +340,6 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
                   </Select>
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground">Contact will be saved to the subcontractor database.</p>
               <Button onClick={addInvitee} disabled={!form.full_name || adding} className="gap-2" size="sm">
                 <Plus className="w-4 h-4" /> {adding ? 'Adding…' : 'Add Invitee'}
               </Button>
@@ -397,32 +348,31 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
         </div>
       )}
 
-      {/* Invitee list — sourced entirely from TenderInvitation */}
-      {invitations.length === 0 ? (
+      {/* Invitee list */}
+      {invitees.length === 0 ? (
         <div className="text-center py-10 text-muted-foreground">
           <Users className="w-10 h-10 mx-auto mb-3 opacity-30" />
           <p className="text-sm">No invitees added yet</p>
         </div>
       ) : (
         <div className="space-y-2">
-          <p className="text-sm font-medium text-muted-foreground">{invitations.length} Invitee{invitations.length !== 1 ? 's' : ''}</p>
-          {invitations.map(inv => (
+          <p className="text-sm font-medium text-muted-foreground">{invitees.length} Invitee{invitees.length !== 1 ? 's' : ''}</p>
+          {invitees.map(inv => (
             <div key={inv.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/30 transition-colors">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-medium text-sm">{inv.invitee_name || '—'}</span>
+                  <span className="font-medium text-sm">{inv.full_name || '—'}</span>
+                  {inv.business_name && <span className="text-xs text-muted-foreground">{inv.business_name}</span>}
+                  {inv.trade && <span className="text-xs bg-secondary text-secondary-foreground px-1.5 py-0.5 rounded">{inv.trade}</span>}
                   {inv.status && (
                     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[inv.status] || 'bg-gray-100 text-gray-700'}`}>
                       {inv.status}
                     </span>
                   )}
                 </div>
-                <div className="text-xs text-muted-foreground mt-0.5">
-                  {inv.invitee_email || 'No email'}
-                  {inv.sent_date && <span className="ml-2 opacity-60">Sent {new Date(inv.sent_date).toLocaleDateString()}</span>}
-                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">{inv.email || 'No email'}</p>
               </div>
-              {canManage && (!inv.status || inv.status === 'Pending' || inv.status === 'Sent') && (
+              {canManage && (inv.status === 'Draft' || !inv.status) && (
                 <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive flex-shrink-0"
                   onClick={() => removeInvitee(inv)}>
                   <Trash2 className="w-4 h-4" />
@@ -440,13 +390,13 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
             <AlertDialogTitle>{tender.status === 'Issued' ? 'Send to New Invitees?' : 'Issue Tender?'}</AlertDialogTitle>
             <AlertDialogDescription>
               {tender.status === 'Issued'
-                ? `Send invitation emails to ${newInviteesCount} new invitee${newInviteesCount !== 1 ? 's' : ''}? Previously invited subcontractors will not receive another email.`
+                ? `Send invitation emails to ${newCount} new invitee${newCount !== 1 ? 's' : ''}?`
                 : `Send tender invitation to ${emailableCount} subcontractor${emailableCount !== 1 ? 's' : ''} with email addresses? This will set the tender status to Issued.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="flex justify-end gap-2 mt-2">
             <AlertDialogCancel disabled={issuing}>Cancel</AlertDialogCancel>
-            <Button onClick={issueTender} disabled={issuing} className="bg-primary text-primary-foreground hover:bg-primary/90">
+            <Button onClick={issueTender} disabled={issuing}>
               {issuing ? 'Sending…' : tender.status === 'Issued' ? 'Send Invitations' : 'Issue Tender'}
             </Button>
           </div>

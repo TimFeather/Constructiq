@@ -1,6 +1,6 @@
 /**
- * TenderHealthPanel — Phase 6
- * Health checks use TenderInvitation as source of truth (not Tender.invitees[]).
+ * TenderHealthPanel
+ * Health checks use TenderInvitee as source of truth.
  */
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -11,11 +11,11 @@ import { useToast } from '@/components/ui/use-toast';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-function computeHealth(tender, invitations) {
+function computeHealth(tender, invitees) {
   const docs   = tender.documents || [];
   const issues = [];
 
-  // ── Document checks ──────────────────────────────────────────────────────
+  // Document checks
   const docsWithoutUrl = docs.filter(d => !d.file_url);
   const docKeyCounts = new Map();
   for (const d of docs) {
@@ -32,56 +32,38 @@ function computeHealth(tender, invitations) {
   if (dupDocCount > 0)
     issues.push({ severity: 'warning', msg: `${dupDocCount} duplicate document name${dupDocCount !== 1 ? 's' : ''} detected` });
 
-  // ── Invitee checks (from TenderInvitation — source of truth) ─────────────
-  const invalidEmails = invitations.filter(i => i.invitee_email && !EMAIL_RE.test(i.invitee_email));
-  const missingEmails = invitations.filter(i => !i.invitee_email);
-
+  // Invitee checks (from TenderInvitee)
+  const invalidEmails = invitees.filter(i => i.email && !EMAIL_RE.test(i.email));
+  const missingEmails = invitees.filter(i => !i.email);
   const seenEmails = new Set();
-  const dupEmails  = invitations.filter(i => {
-    if (!i.invitee_email) return false;
-    const k = i.invitee_email.toLowerCase();
+  const dupEmails = invitees.filter(i => {
+    if (!i.email) return false;
+    const k = i.email.toLowerCase();
     if (seenEmails.has(k)) return true;
     seenEmails.add(k);
     return false;
   });
 
-  const missingTokens   = invitations.filter(i => !i.token);
-  const missingTenderId = invitations.filter(i => !i.tender_id);
-
   if (invalidEmails.length > 0)
     issues.push({ severity: 'error', msg: `${invalidEmails.length} invalid email address${invalidEmails.length !== 1 ? 'es' : ''}` });
   if (dupEmails.length > 0)
     issues.push({ severity: 'error', msg: `${dupEmails.length} duplicate email${dupEmails.length !== 1 ? 's' : ''} in invitee list` });
-  if (missingTokens.length > 0)
-    issues.push({ severity: 'error', msg: `${missingTokens.length} invitation${missingTokens.length !== 1 ? 's' : ''} missing token` });
-  if (missingTenderId.length > 0)
-    issues.push({ severity: 'error', msg: `${missingTenderId.length} invitation${missingTenderId.length !== 1 ? 's' : ''} missing tender_id` });
-
-  if (invitations.length === 0)
+  if (invitees.length === 0)
     issues.push({ severity: 'warning', msg: 'No invitees added yet' });
   if (missingEmails.length > 0)
     issues.push({ severity: 'warning', msg: `${missingEmails.length} invitee${missingEmails.length !== 1 ? 's' : ''} without email — will not receive invitation` });
-
-  // ── Status mismatch checks ────────────────────────────────────────────────
-  if (tender.status === 'Issued' && invitations.length === 0)
-    issues.push({ severity: 'warning', msg: 'Tender is Issued but has 0 invitations' });
-  if (tender.status === 'Closed' && invitations.filter(i => i.status === 'Submitted').length === 0)
+  if (tender.status === 'Issued' && invitees.length === 0)
+    issues.push({ severity: 'warning', msg: 'Tender is Issued but has 0 invitees' });
+  if (tender.status === 'Closed' && invitees.filter(i => i.status === 'Submitted').length === 0)
     issues.push({ severity: 'warning', msg: 'Tender is Closed but no submissions received' });
 
-  // ── Orphaned submission check ─────────────────────────────────────────────
-  const legacySubmissions = (tender.invitees || []).filter(i => i.submission?.submitted_at);
-  const submittedInvitations = invitations.filter(i => i.status === 'Submitted');
-  if (legacySubmissions.length > submittedInvitations.length) {
-    issues.push({ severity: 'warning', msg: `${legacySubmissions.length - submittedInvitations.length} submission(s) may be orphaned (legacy data)` });
-  }
-
   const errorCount = issues.filter(i => i.severity === 'error').length;
-  const isReady    = errorCount === 0 && docs.length > 0 && invitations.length > 0;
+  const isReady    = errorCount === 0 && docs.length > 0 && invitees.length > 0;
 
   return {
-    docs:    docs.length,
-    folders: uniqueFolders.size,
-    invitees: invitations.length,
+    docs:     docs.length,
+    folders:  uniqueFolders.size,
+    invitees: invitees.length,
     issues,
     isReady,
     errorCount,
@@ -93,14 +75,13 @@ export default function TenderHealthPanel({ tender, user }) {
   const [testSending, setTestSending] = useState(false);
   const [lastValidated, setLastValidated] = useState(null);
 
-  // Phase 6: read from TenderInvitation as source of truth
-  const { data: invitations = [] } = useQuery({
-    queryKey: ['tenderInvitations', tender.id],
-    queryFn: () => base44.entities.TenderInvitation.filter({ tender_id: tender.id }),
-    enabled: !!tender.id,
+  const { data: invitees = [] } = useQuery({
+    queryKey: ['tenderInvitees', tender.id],
+    queryFn:  () => base44.entities.TenderInvitee.filter({ tender_id: tender.id }),
+    enabled:  !!tender.id,
   });
 
-  const health = computeHealth(tender, invitations);
+  const health = computeHealth(tender, invitees);
 
   const handleValidate = () => {
     setLastValidated(new Date());
@@ -120,6 +101,19 @@ export default function TenderHealthPanel({ tender, user }) {
     if (!user?.email) return;
     setTestSending(true);
     try {
+      // Create a temporary test invitee so sendTenderInvitations can find it
+      const testToken = crypto.randomUUID();
+      let testInviteeId = null;
+      try {
+        const testInvitee = await base44.entities.TenderInvitee.create({
+          tender_id:  tender.id,
+          full_name:  user.full_name || user.email,
+          email:      user.email,
+          status:     'Draft',
+        });
+        testInviteeId = testInvitee.id;
+      } catch (_e) { /* non-fatal */ }
+
       const result = await base44.functions.invoke('sendTenderInvitations', {
         tenderId: tender.id,
         tenderInfo: {
@@ -129,31 +123,26 @@ export default function TenderHealthPanel({ tender, user }) {
           closing_date:         tender.closing_date         || '',
           description:          tender.description          || '',
           trade_packages:       tender.trade_packages       || [],
-          client_name:          tender.client_name          || '',
-          architect_name:       tender.architect_name       || '',
-          project_manager_name: tender.project_manager_name || '',
         },
-        invitees: [{
-          id:        'test-preview',
-          email:     user.email,
-          full_name: user.full_name || user.email,
-          token:     crypto.randomUUID(),
-        }],
         appUrl: window.location.origin,
       });
+
+      // Clean up test invitee + invitation
+      if (testInviteeId) {
+        await base44.entities.TenderInvitee.delete(testInviteeId).catch(() => {});
+      }
 
       if (result.data?.sent > 0) {
         toast({ title: `Test email sent to ${user.email}`, duration: 5000 });
       } else {
         toast({
           title: 'Test email failed',
-          description: result.data?.error || result.data?.errors?.[0] || 'Check RESEND_API_KEY and email branding settings',
+          description: result.data?.errors?.[0] || result.data?.message || 'Check RESEND_API_KEY and email branding',
           variant: 'destructive',
           duration: 6000,
         });
       }
     } catch (err) {
-      console.error('[handleTestEmail] failed:', err?.message, err?.stack);
       toast({ title: 'Test email failed', description: err.message, variant: 'destructive', duration: 6000 });
     } finally {
       setTestSending(false);
@@ -181,7 +170,7 @@ export default function TenderHealthPanel({ tender, user }) {
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" className="gap-1.5 h-7 text-xs" onClick={handleValidate}>
-            <ShieldCheck className="w-3 h-3" /> Validate Package
+            <ShieldCheck className="w-3 h-3" /> Validate
           </Button>
           <Button variant="outline" size="sm" className="gap-1.5 h-7 text-xs"
             onClick={handleTestEmail} disabled={testSending || !user?.email}>

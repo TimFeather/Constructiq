@@ -14,11 +14,11 @@ import { ArrowLeft, Save, X, Trash2, AlertCircle, RefreshCw } from 'lucide-react
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { useToast } from '@/components/ui/use-toast';
 import TenderDocuments from '@/components/tenders/TenderDocuments';
-import InviteeManager from '@/components/tenders/InviteeManager';
-import SubmissionScorer from '@/components/tenders/SubmissionScorer';
-import OutcomePanel from '@/components/tenders/OutcomePanel';
+import InviteeManager from '@/components/tenders/InviteeManager.jsx';
+import SubmissionScorer from '@/components/tenders/SubmissionScorer.jsx';
+import OutcomePanel from '@/components/tenders/OutcomePanel.jsx';
 import ConvertToProjectModal from '@/components/tenders/ConvertToProjectModal';
-import TenderHealthPanel from '@/components/tenders/TenderHealthPanel';
+import TenderHealthPanel from '@/components/tenders/TenderHealthPanel.jsx';
 import TenderDebugPanel from '@/components/tenders/TenderDebugPanel';
 
 const TRADES = [

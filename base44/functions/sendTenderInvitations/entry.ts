@@ -4,135 +4,120 @@ import { Resend } from 'npm:resend@4.0.0';
 /**
  * sendTenderInvitations
  *
- * CRITICAL FIX 1 & 2: TenderInvitation is created and VERIFIED before any email is sent.
- * If TenderInvitation creation or verification fails, the email is NOT sent and the error
- * is returned — no silent failures.
+ * Called when issuing a tender.
+ * For each TenderInvitee with an email:
+ *   1. Generate a unique token
+ *   2. Create a TenderInvitation record (source of truth for the link)
+ *   3. Update TenderInvitee.status = 'Invited'
+ *   4. Send the invitation email
  *
  * Payload:
- *   tenderId    – Tender record ID
- *   tenderInfo  – { title, tender_number, location, closing_date, description,
- *                   trade_packages, client_name, architect_name, project_manager_name }
- *   invitees    – [{ id, email, full_name, token }]
- *   appUrl      – window.location.origin
+ *   tenderId   – Tender record ID
+ *   tenderInfo – { title, tender_number, location, closing_date, description,
+ *                  trade_packages, client_name, architect_name, project_manager_name }
+ *   appUrl     – window.location.origin
  */
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
+    const sr = base44.asServiceRole;
 
     const user = await base44.auth.me();
-    if (!user) {
-      return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!['admin', 'pricing'].includes(user.role)) {
+      return Response.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
     if (!RESEND_API_KEY) {
-      return Response.json({ error: 'Email service not configured — RESEND_API_KEY missing', sent: 0, failed: 0 });
+      return Response.json({ error: 'RESEND_API_KEY not configured', sent: 0, failed: 0 });
     }
 
-    const payload = await req.json();
-    const { tenderInfo, invitees: inviteesToEmail, appUrl, tenderId } = payload;
+    const { tenderId, tenderInfo, appUrl } = await req.json();
+    if (!tenderId)        return Response.json({ error: 'tenderId required', sent: 0, failed: 0 });
+    if (!tenderInfo?.title) return Response.json({ error: 'tenderInfo required', sent: 0, failed: 0 });
 
-    if (!inviteesToEmail?.length) {
-      return Response.json({ error: 'No invitees provided', sent: 0, failed: 0 });
-    }
-    if (!tenderInfo?.title) {
-      return Response.json({ error: 'tenderInfo is required', sent: 0, failed: 0 });
-    }
-    if (!tenderId) {
-      return Response.json({ error: 'tenderId is required', sent: 0, failed: 0 });
+    console.log(`[sendTenderInvitations] START tenderId=${tenderId} user=${user.email}`);
+
+    // Load all Draft/Pending invitees for this tender
+    const allInvitees = await sr.entities.TenderInvitee.filter({ tender_id: tenderId });
+    const toInvite = allInvitees.filter(i =>
+      i.email && (i.status === 'Draft' || !i.status)
+    );
+
+    if (toInvite.length === 0) {
+      return Response.json({ sent: 0, failed: 0, errors: [], message: 'No uninvited invitees with email addresses' });
     }
 
-    console.log(`[sendTenderInvitations] START tenderId=${tenderId} invitees=${inviteesToEmail.length} user=${user.email}`);
-
-    // Fetch branding + email templates
+    // Load branding + templates
     const [templates, brandings] = await Promise.all([
-      base44.asServiceRole.entities.EmailTemplate.list(),
-      base44.asServiceRole.entities.EmailBranding.list(),
+      sr.entities.EmailTemplate.list(),
+      sr.entities.EmailBranding.list(),
     ]);
+    const branding     = brandings[0] || {};
+    const brandColour  = branding.brand_colour || '#1a56db';
+    const fromName     = branding.sender_name || branding.company_name || 'ConstructIQ';
+    const senderEmail  = branding.sender_email || 'noreply@totalhomesolutions.co.nz';
+    const fromEmail    = `${fromName} <${senderEmail}>`;
+    const resend       = new Resend(RESEND_API_KEY);
+    const tpl          = templates.find(t => t.template_key === 'tender_invitation');
+    const defaultBody  = `You have been invited to submit pricing for {title}.\n\nPlease click the link below to view the tender documents and submit your pricing:\n\n{submission_link}\n\nClosing Date: {closing_date}\n\nRegards,\n{sender_name}`;
+    const sentDate     = new Date().toISOString();
 
-    const branding = brandings[0] || {};
-    const brandColour = branding.brand_colour || '#1a56db';
-    const resend = new Resend(RESEND_API_KEY);
-    const fromName = branding.sender_name || branding.company_name || 'ConstructIQ';
-    const senderEmail = branding.sender_email || 'noreply@totalhomesolutions.co.nz';
-    const fromEmail = `${fromName} <${senderEmail}>`;
-
-    const tpl = templates.find(t => t.template_key === 'tender_invitation');
-    const defaultSubject = `Tender Invitation — ${tenderInfo.tender_number || ''}: ${tenderInfo.title}`;
-    const defaultBody = `You have been invited to submit pricing for {title}.\n\nPlease click the link below to view the tender documents and submit your pricing:\n\n{submission_link}\n\nClosing Date: {closing_date}\n\nRegards,\n{sender_name}`;
-
-    let sent = 0;
-    let failed = 0;
+    let sent = 0, failed = 0;
     const errors = [];
-    const sentDate = new Date().toISOString();
 
-    for (const inv of inviteesToEmail) {
-      const invLabel = `${inv.full_name || 'Unknown'} (${inv.email || 'no-email'})`;
+    for (const inv of toInvite) {
+      const label = `${inv.full_name || 'Unknown'} <${inv.email}>`;
 
-      // ── Pre-flight validation ──────────────────────────────────────────────
-      if (!inv.email) {
-        const msg = `${inv.full_name || 'Unknown'}: no email address — skipped`;
-        console.error(`[sendTenderInvitations] SKIP ${msg}`);
-        errors.push(msg);
-        failed++;
-        continue;
-      }
-      if (!inv.token) {
-        const msg = `${invLabel}: no invitation token — skipped`;
-        console.error(`[sendTenderInvitations] SKIP ${msg}`);
-        errors.push(msg);
-        failed++;
-        continue;
-      }
-
-      // ── CRITICAL FIX 1: Create TenderInvitation BEFORE sending email ──────
+      // Check for existing invitation for this invitee on this tender
       let invitationRecord = null;
       try {
-        // Check if one already exists for this token
-        const existing = await base44.asServiceRole.entities.TenderInvitation.filter({ token: inv.token });
+        const existing = await sr.entities.TenderInvitation.filter({
+          tender_id: tenderId,
+          invitee_id: inv.id,
+        });
 
         if (existing.length > 0) {
-          // Update the existing record
-          await base44.asServiceRole.entities.TenderInvitation.update(existing[0].id, {
+          // Reuse existing token — update status + sent_date
+          await sr.entities.TenderInvitation.update(existing[0].id, {
+            status:    'Sent',
+            sent_date: sentDate,
             invitee_email: inv.email,
             invitee_name:  inv.full_name || '',
-            status:        'Sent',
-            sent_date:     sentDate,
           });
-          invitationRecord = { id: existing[0].id };
-          console.log(`[sendTenderInvitations] TenderInvitation UPDATED id=${existing[0].id} token=${inv.token}`);
+          invitationRecord = existing[0];
+          console.log(`[sendTenderInvitations] TenderInvitation REUSED id=${existing[0].id}`);
         } else {
-          // Create a new record
-          invitationRecord = await base44.asServiceRole.entities.TenderInvitation.create({
-            token:         inv.token,
+          const token = crypto.randomUUID();
+          invitationRecord = await sr.entities.TenderInvitation.create({
+            token,
             tender_id:     tenderId,
+            invitee_id:    inv.id,
             invitee_email: inv.email,
             invitee_name:  inv.full_name || '',
             status:        'Sent',
             sent_date:     sentDate,
           });
-          console.log(`[sendTenderInvitations] TenderInvitation CREATED id=${invitationRecord?.id} token=${inv.token} tender_id=${tenderId}`);
+          console.log(`[sendTenderInvitations] TenderInvitation CREATED id=${invitationRecord.id}`);
         }
       } catch (dbErr) {
-        // CRITICAL FIX 2: TenderInvitation failure is BLOCKING — do not send email
-        const msg = `${invLabel}: TenderInvitation DB error — ${dbErr?.message || 'unknown'}`;
+        const msg = `${label}: TenderInvitation DB error — ${dbErr.message}`;
         console.error(`[sendTenderInvitations] ABORT ${msg}`);
         errors.push(msg);
         failed++;
         continue;
       }
 
-      // ── CRITICAL FIX 1: Verify TenderInvitation exists before sending ─────
-      if (!invitationRecord?.id) {
-        const msg = `${invLabel}: TenderInvitation has no id after create/update — email not sent`;
-        console.error(`[sendTenderInvitations] ABORT ${msg}`);
+      if (!invitationRecord?.token) {
+        const msg = `${label}: invitation has no token — skipped`;
         errors.push(msg);
         failed++;
         continue;
       }
 
-      // ── Build and send email ──────────────────────────────────────────────
-      const submissionLink = `${appUrl}/tender-submit/${inv.token}`;
+      // Build submission link
+      const submissionLink = `${appUrl}/tender-submit/${invitationRecord.token}`;
 
       const vars = {
         tender_number:        tenderInfo.tender_number || '',
@@ -143,20 +128,16 @@ Deno.serve(async (req) => {
         closing_date:         tenderInfo.closing_date || '',
         trade_packages:       (tenderInfo.trade_packages || []).join(', '),
         description:          tenderInfo.description || '',
-        client_name:          tenderInfo.client_name || '',
-        architect_name:       tenderInfo.architect_name || '',
-        project_manager_name: tenderInfo.project_manager_name || '',
         submission_link:      submissionLink,
         sender_name:          branding.sender_name || branding.company_name || 'ConstructIQ',
       };
 
-      const replace = (str) => str.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? '');
-
-      const subject     = tpl?.subject   ? replace(tpl.subject)   : replace(defaultSubject);
-      const rawBody     = tpl?.body_html || tpl?.body_text        || defaultBody;
-      const bodyText    = replace(rawBody);
-      const isHtml      = rawBody.trim().startsWith('<') || !!tpl?.body_html;
+      const replace  = (str) => str.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? '');
+      const rawBody  = tpl?.body_html || tpl?.body_text || defaultBody;
+      const subject  = tpl?.subject ? replace(tpl.subject) : `Tender Invitation — ${vars.tender_number}: ${vars.title}`;
+      const isHtml   = rawBody.trim().startsWith('<') || !!tpl?.body_html;
       const bodyContent = isHtml ? replace(rawBody) : replace(rawBody).replace(/\n/g, '<br>');
+      const bodyText = replace(rawBody);
 
       const htmlBody = `<!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
@@ -193,24 +174,26 @@ Deno.serve(async (req) => {
 </body></html>`;
 
       try {
-        await resend.emails.send({
-          from: fromEmail,
-          to:   inv.email,
-          subject,
-          html: htmlBody,
-          text: bodyText,
-        });
+        await resend.emails.send({ from: fromEmail, to: inv.email, subject, html: htmlBody, text: bodyText });
         sent++;
-        console.log(`[sendTenderInvitations] EMAIL SENT to=${inv.email} invitation_id=${invitationRecord.id}`);
+        console.log(`[sendTenderInvitations] SENT to=${inv.email}`);
       } catch (emailErr) {
         failed++;
-        const msg = `${invLabel}: email send failed — ${emailErr?.message || 'unknown'}`;
+        const msg = `${label}: email send failed — ${emailErr.message}`;
         errors.push(msg);
-        console.error(`[sendTenderInvitations] EMAIL FAILED ${msg}`);
+        console.error(`[sendTenderInvitations] ${msg}`);
+        continue;
+      }
+
+      // Update TenderInvitee status to Invited
+      try {
+        await sr.entities.TenderInvitee.update(inv.id, { status: 'Invited' });
+      } catch (e) {
+        console.warn(`[sendTenderInvitations] TenderInvitee status update failed (non-fatal): ${e.message}`);
       }
     }
 
-    console.log(`[sendTenderInvitations] COMPLETE sent=${sent} failed=${failed} errors=${errors.length}`);
+    console.log(`[sendTenderInvitations] COMPLETE sent=${sent} failed=${failed}`);
     return Response.json({ sent, failed, errors });
 
   } catch (error) {
