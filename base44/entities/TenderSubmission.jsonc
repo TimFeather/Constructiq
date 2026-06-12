@@ -1,0 +1,124 @@
+{
+  "name": "TenderSubmission",
+  "type": "object",
+  "properties": {
+    "tender_id": {
+      "type": "string",
+      "description": "ID of the owning Tender"
+    },
+    "invitee_id": {
+      "type": "string",
+      "description": "ID of the TenderInvitee record"
+    },
+    "invitation_id": {
+      "type": "string",
+      "description": "ID of the TenderInvitation record"
+    },
+    "invitee_name": {
+      "type": "string"
+    },
+    "invitee_email": {
+      "type": "string"
+    },
+    "business_name": {
+      "type": "string"
+    },
+    "lump_sum_price": {
+      "type": "number"
+    },
+    "notes": {
+      "type": "string"
+    },
+    "uploaded_file_url": {
+      "type": "string"
+    },
+    "uploaded_file_name": {
+      "type": "string"
+    },
+    "price_breakdown": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "trade_package": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "submitted_at": {
+      "type": "string"
+    },
+    "scores": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "criterion": {
+            "type": "string"
+          },
+          "score": {
+            "type": "number"
+          },
+          "comment": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "",
+        "Awarded",
+        "Unsuccessful"
+      ],
+      "default": ""
+    },
+    "outcome_notes": {
+      "type": "string"
+    },
+    "outcome_notified_at": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "tender_id"
+  ],
+  "rls": {
+    "read": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "admin",
+            "pricing",
+            "internal"
+          ]
+        }
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "admin",
+            "pricing"
+          ]
+        }
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "admin",
+            "pricing"
+          ]
+        }
+      }
+    }
+  }
+}

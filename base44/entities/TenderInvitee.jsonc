@@ -1,0 +1,77 @@
+{
+  "name": "TenderInvitee",
+  "type": "object",
+  "properties": {
+    "tender_id": {
+      "type": "string",
+      "description": "ID of the owning Tender"
+    },
+    "contact_id": {
+      "type": "string",
+      "description": "ID of the TenderContact record"
+    },
+    "full_name": {
+      "type": "string"
+    },
+    "business_name": {
+      "type": "string"
+    },
+    "email": {
+      "type": "string"
+    },
+    "phone": {
+      "type": "string"
+    },
+    "trade": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "Draft",
+        "Invited",
+        "Viewed",
+        "Submitted",
+        "Declined"
+      ],
+      "default": "Draft"
+    }
+  },
+  "required": [
+    "tender_id"
+  ],
+  "rls": {
+    "read": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "admin",
+            "pricing",
+            "internal"
+          ]
+        }
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "admin",
+            "pricing",
+            "internal"
+          ]
+        }
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "admin",
+            "pricing"
+          ]
+        }
+      }
+    }
+  }
+}
