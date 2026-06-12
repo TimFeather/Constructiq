@@ -93,6 +93,7 @@ Deno.serve(async (req) => {
       }
 
       // Create TenderInvitee
+      trace('BEFORE_CREATE');
       const invitee = await sr.entities.TenderInvitee.create({
         tender_id:     tenderId,
         contact_id:    contactId,
@@ -103,9 +104,54 @@ Deno.serve(async (req) => {
         trade:         trade        || '',
         status:        'Draft',
       });
-      trace(`TenderInvitee CREATED id=${invitee.id}`);
+      trace(`AFTER_CREATE id=${invitee.id}`);
 
-      return Response.json({ success: true, invitee, trace: log });
+      // ── Verify-after-write (all service role) ────────────────────────────────
+      let verifyGet = null;
+      let verifyGetError = null;
+      try {
+        verifyGet = await sr.entities.TenderInvitee.get(invitee.id);
+        trace(`AFTER_VERIFY_GET exists=${!!verifyGet} id=${verifyGet?.id ?? 'null'}`);
+      } catch (e) {
+        verifyGetError = e.message;
+        trace(`AFTER_VERIFY_GET error=${e.message}`);
+      }
+
+      let verifyFilter = [];
+      let verifyFilterError = null;
+      try {
+        verifyFilter = await sr.entities.TenderInvitee.filter({ tender_id: tenderId });
+        trace(`AFTER_VERIFY_FILTER_TENDER count=${verifyFilter.length} ids=${verifyFilter.map(x=>x.id).join(',')}`);
+      } catch (e) {
+        verifyFilterError = e.message;
+        trace(`AFTER_VERIFY_FILTER_TENDER error=${e.message}`);
+      }
+
+      let verifyEmail = [];
+      let verifyEmailError = null;
+      if (email) {
+        try {
+          verifyEmail = await sr.entities.TenderInvitee.filter({ email: email });
+          trace(`AFTER_VERIFY_FILTER_EMAIL count=${verifyEmail.length} ids=${verifyEmail.map(x=>x.id).join(',')}`);
+        } catch (e) {
+          verifyEmailError = e.message;
+          trace(`AFTER_VERIFY_FILTER_EMAIL error=${e.message}`);
+        }
+      }
+
+      return Response.json({
+        success: true,
+        invitee,
+        verify: {
+          get:          verifyGet,
+          getError:     verifyGetError,
+          filterTender: verifyFilter,
+          filterTenderError: verifyFilterError,
+          filterEmail:  verifyEmail,
+          filterEmailError:  verifyEmailError,
+        },
+        trace: log,
+      });
     }
 
     // ── DELETE ────────────────────────────────────────────────────────────────
