@@ -89,17 +89,6 @@
     "tender_id"
   ],
   "rls": {
-    "read": {
-      "user_condition": {
-        "role": {
-          "$in": [
-            "admin",
-            "pricing",
-            "internal"
-          ]
-        }
-      }
-    },
     "update": {
       "user_condition": {
         "role": {
