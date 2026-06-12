@@ -300,6 +300,9 @@ export default function TenderTestSuite() {
 
       {/* ── Issue Tender Diagnostic ───────────────────────────────────── */}
       <IssueTenderDiagnostic />
+
+      {/* ── Add Invitee Trace ─────────────────────────────────────────── */}
+      <AddInviteeTrace />
     </div>
   );
 }
@@ -458,6 +461,172 @@ function IssueTenderDiagnostic() {
           <Section title={`AFTER — TenderInvitation (${report.after.invitations.length} record${report.after.invitations.length !== 1 ? 's' : ''})`} colour="green">
             <Pre colour="green">{JSON.stringify(report.after.invitations, null, 2)}</Pre>
           </Section>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AddInviteeTrace
+// Executes manageTenderInvitee 'create' against a hardcoded or entered tender,
+// and captures every step with raw payloads.
+// ─────────────────────────────────────────────────────────────────────────────
+function AddInviteeTrace() {
+  const FIXED_TENDER_ID = '6a2b77d922706c2852ff2788';
+
+  const [fullName,     setFullName]     = useState('Trace Test Invitee');
+  const [email,        setEmail]        = useState('trace-test@example.com');
+  const [businessName, setBusinessName] = useState('Test Co');
+  const [phone,        setPhone]        = useState('');
+  const [trade,        setTrade]        = useState('');
+  const [running,      setRunning]      = useState(false);
+  const [report,       setReport]       = useState(null);
+
+  const run = async () => {
+    setRunning(true);
+    setReport(null);
+
+    const payload = {
+      action:       'create',
+      tenderId:     FIXED_TENDER_ID,
+      fullName:     fullName.trim(),
+      businessName: businessName.trim(),
+      email:        email.trim(),
+      phone:        phone.trim(),
+      trade:        trade.trim(),
+    };
+
+    const out = {
+      requestPayload:    payload,
+      countBefore:       null,
+      countAfter:        null,
+      rawResponse:       null,
+      validationErrors:  [],
+      caughtExceptions:  [],
+      dbRecordCreated:   null,
+    };
+
+    // Client-side validation (mirrors InviteeManager)
+    if (!payload.fullName) out.validationErrors.push('fullName is required (client-side check)');
+
+    // Count before
+    try {
+      const before = await base44.entities.TenderInvitee.filter({ tender_id: FIXED_TENDER_ID });
+      out.countBefore = before.length;
+    } catch (e) {
+      out.caughtExceptions.push({ stage: 'countBefore', message: e.message, stack: e.stack });
+    }
+
+    // Call manageTenderInvitee
+    if (out.validationErrors.length === 0) {
+      try {
+        const res = await base44.functions.invoke('manageTenderInvitee', payload);
+        out.rawResponse = res.data;
+        out.dbRecordCreated = !!(res.data?.invitee?.id);
+      } catch (e) {
+        out.caughtExceptions.push({
+          stage:    'manageTenderInvitee',
+          message:  e.message,
+          stack:    e.stack,
+          response: e?.response?.data ?? null,
+        });
+        out.dbRecordCreated = false;
+      }
+    } else {
+      out.dbRecordCreated = false;
+    }
+
+    // Count after
+    try {
+      const after = await base44.entities.TenderInvitee.filter({ tender_id: FIXED_TENDER_ID });
+      out.countAfter = after.length;
+    } catch (e) {
+      out.caughtExceptions.push({ stage: 'countAfter', message: e.message, stack: e.stack });
+    }
+
+    setReport(out);
+    setRunning(false);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <FlaskConical className="w-5 h-5 text-orange-600" />
+        <h2 className="text-lg font-bold">Add Invitee Trace</h2>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Calls <code className="text-xs bg-muted px-1 py-0.5 rounded">manageTenderInvitee</code> against tender <code className="text-xs bg-muted px-1 py-0.5 rounded">{FIXED_TENDER_ID}</code> and captures raw payloads at every step.
+      </p>
+
+      <div className="grid grid-cols-2 gap-2 max-w-lg">
+        {[
+          ['Full Name', fullName, setFullName],
+          ['Email', email, setEmail],
+          ['Business Name', businessName, setBusinessName],
+          ['Phone', phone, setPhone],
+          ['Trade', trade, setTrade],
+        ].map(([label, val, setter]) => (
+          <div key={label}>
+            <label className="text-xs text-muted-foreground">{label}</label>
+            <input
+              className="flex h-8 w-full rounded-md border border-input bg-transparent px-2 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              value={val}
+              onChange={e => setter(e.target.value)}
+            />
+          </div>
+        ))}
+      </div>
+
+      <Button onClick={run} disabled={running} className="gap-2 bg-orange-600 hover:bg-orange-700">
+        {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
+        {running ? 'Tracing…' : 'Run Trace'}
+      </Button>
+
+      {report && (
+        <div className="space-y-4 text-sm font-mono">
+
+          <Section title="1. Raw Request Payload Sent to manageTenderInvitee">
+            <Pre>{JSON.stringify(report.requestPayload, null, 2)}</Pre>
+          </Section>
+
+          <Section title="2. Raw Response Returned" colour={report.rawResponse ? 'blue' : 'red'}>
+            <Pre colour={report.rawResponse ? 'blue' : 'red'}>
+              {report.rawResponse ? JSON.stringify(report.rawResponse, null, 2) : 'null — see Caught Exceptions'}
+            </Pre>
+          </Section>
+
+          <Section title={`3. TenderInvitee Count BEFORE — ${report.countBefore ?? 'ERROR'}`}>
+            <Pre>{String(report.countBefore ?? 'Could not read — see exceptions')}</Pre>
+          </Section>
+
+          <Section title={`4. TenderInvitee Count AFTER — ${report.countAfter ?? 'ERROR'}`} colour="green">
+            <Pre colour="green">{String(report.countAfter ?? 'Could not read — see exceptions')}</Pre>
+          </Section>
+
+          <Section title={`5. Validation Errors — ${report.validationErrors.length}`} colour={report.validationErrors.length ? 'red' : 'gray'}>
+            <Pre colour={report.validationErrors.length ? 'red' : 'gray'}>
+              {report.validationErrors.length ? JSON.stringify(report.validationErrors, null, 2) : 'None'}
+            </Pre>
+          </Section>
+
+          <Section title={`6. Caught Exceptions — ${report.caughtExceptions.length}`} colour={report.caughtExceptions.length ? 'red' : 'gray'}>
+            <Pre colour={report.caughtExceptions.length ? 'red' : 'gray'}>
+              {report.caughtExceptions.length ? JSON.stringify(report.caughtExceptions, null, 2) : 'None'}
+            </Pre>
+          </Section>
+
+          <Section title={`7. Database Record Created? — ${report.dbRecordCreated === true ? 'YES' : report.dbRecordCreated === false ? 'NO' : 'UNKNOWN'}`}
+            colour={report.dbRecordCreated === true ? 'green' : 'red'}>
+            <Pre colour={report.dbRecordCreated === true ? 'green' : 'red'}>
+              {report.dbRecordCreated === true
+                ? `YES — invitee.id = ${report.rawResponse?.invitee?.id}`
+                : report.dbRecordCreated === false
+                  ? 'NO'
+                  : 'UNKNOWN'}
+            </Pre>
+          </Section>
+
         </div>
       )}
     </div>
