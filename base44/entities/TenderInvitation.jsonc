@@ -4,15 +4,14 @@
   "properties": {
     "token": {
       "type": "string",
-      "description": "Unique invitation token (UUID). Used for O(1) lookup."
+      "description": "Unique UUID token for the submission link"
     },
     "tender_id": {
-      "type": "string",
-      "description": "ID of the owning Tender record"
+      "type": "string"
     },
-    "contact_id": {
+    "invitee_id": {
       "type": "string",
-      "description": "ID of the TenderContact record (source of truth for subcontractor details)"
+      "description": "ID of the TenderInvitee record"
     },
     "invitee_email": {
       "type": "string"
@@ -23,58 +22,24 @@
     "status": {
       "type": "string",
       "enum": [
-        "Pending",
         "Sent",
         "Viewed",
-        "Submitted",
-        "Cancelled"
+        "Submitted"
       ],
-      "default": "Pending"
+      "default": "Sent"
     },
     "sent_date": {
-      "type": "string",
-      "description": "ISO datetime when invitation was sent"
+      "type": "string"
     },
     "opened_date": {
-      "type": "string",
-      "description": "ISO datetime when invitation link was first opened"
+      "type": "string"
     },
     "submitted_date": {
-      "type": "string",
-      "description": "ISO datetime when submission was received"
+      "type": "string"
     }
   },
   "required": [
     "token",
     "tender_id"
-  ],
-  "rls": {
-    "read": {
-      "user_condition": {
-        "role": {
-          "$in": [
-            "admin",
-            "pricing",
-            "internal"
-          ]
-        }
-      }
-    },
-    "update": {
-      "user_condition": {
-        "role": {
-          "$in": [
-            "admin",
-            "pricing",
-            "internal"
-          ]
-        }
-      }
-    },
-    "delete": {
-      "user_condition": {
-        "role": "admin"
-      }
-    }
-  }
+  ]
 }
