@@ -70,6 +70,15 @@ Deno.serve(async (req) => {
     for (const inv of toInvite) {
       const label = `${inv.full_name || 'Unknown'} <${inv.email}>`;
 
+      // INTEGRITY GUARD: invitee_id is mandatory — reject if missing
+      if (!inv.id) {
+        const msg = `${label}: missing invitee_id — skipped (integrity violation)`;
+        console.error(`[sendTenderInvitations] REJECT ${msg}`);
+        errors.push(msg);
+        failed++;
+        continue;
+      }
+
       // Check for existing invitation for this invitee on this tender
       let invitationRecord = null;
       try {
