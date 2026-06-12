@@ -5,7 +5,7 @@
  * Scores are saved back to TenderSubmission records.
  * Scoring criteria are still stored on the Tender record.
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
@@ -140,19 +140,34 @@ export default function SubmissionScorer({ tender, onUpdate, canManage }) {
   const [openPanel, setOpenPanel]       = useState(null);
   const [savingScores, setSavingScores] = useState(null);
   const [showCriteria, setShowCriteria] = useState(false);
-  const [criteria, setCriteria]         = useState(() => tender.scoring_criteria || [
-    { criterion: 'Price',       weight_percent: 40 },
-    { criterion: 'Experience',  weight_percent: 20 },
-    { criterion: 'Programme',   weight_percent: 15 },
-    { criterion: 'Methodology', weight_percent: 15 },
-    { criterion: 'Compliance',  weight_percent: 10 },
-  ]);
+  // Sync criteria from tender prop (source of truth is Tender.scoring_criteria)
+  const [criteria, setCriteria] = useState(
+    tender.scoring_criteria?.length
+      ? tender.scoring_criteria
+      : [
+          { criterion: 'Price',       weight_percent: 40 },
+          { criterion: 'Experience',  weight_percent: 20 },
+          { criterion: 'Programme',   weight_percent: 15 },
+          { criterion: 'Methodology', weight_percent: 15 },
+          { criterion: 'Compliance',  weight_percent: 10 },
+        ]
+  );
+
+  // Re-sync criteria whenever the saved tender record changes
+  React.useEffect(() => {
+    if (tender.scoring_criteria?.length) {
+      setCriteria(tender.scoring_criteria);
+    }
+  }, [JSON.stringify(tender.scoring_criteria)]);
   const [savingCriteria, setSavingCriteria] = useState(false);
 
   const { data: submissions = [] } = useQuery({
     queryKey: ['tenderSubmissions', tender.id],
     queryFn:  () => base44.entities.TenderSubmission.filter({ tender_id: tender.id }),
     enabled:  !!tender.id,
+    // Poll every 30s while tender is Issued so incoming submissions appear without manual refresh
+    refetchInterval: tender.status === 'Issued' ? 30000 : false,
+    refetchIntervalInBackground: false,
   });
 
   const totalWeight = criteria.reduce((s, c) => s + (c.weight_percent || 0), 0);

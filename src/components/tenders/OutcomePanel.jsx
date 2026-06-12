@@ -4,7 +4,7 @@
  * Reads submissions from TenderSubmission entity.
  * Saves outcome (Awarded/Unsuccessful) back to TenderSubmission records.
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
@@ -32,17 +32,23 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
     enabled:  !!tender.id,
   });
 
-  // Local outcome state keyed by submission.id
-  const [subOutcomes, setSubOutcomes] = useState(() => {
-    const m = {};
-    submissions.forEach(s => { m[s.id] = s.outcome || ''; });
-    return m;
-  });
-  const [subNotes, setSubNotes] = useState(() => {
-    const m = {};
-    submissions.forEach(s => { m[s.id] = s.outcome_notes || ''; });
-    return m;
-  });
+  // Local outcome state keyed by submission.id — synced from DB whenever submissions refetch
+  const [subOutcomes, setSubOutcomes] = useState({});
+  const [subNotes, setSubNotes]       = useState({});
+
+  useEffect(() => {
+    if (!submissions.length) return;
+    setSubOutcomes(prev => {
+      const m = {};
+      submissions.forEach(s => { m[s.id] = prev[s.id] ?? s.outcome ?? ''; });
+      return m;
+    });
+    setSubNotes(prev => {
+      const m = {};
+      submissions.forEach(s => { m[s.id] = prev[s.id] ?? s.outcome_notes ?? ''; });
+      return m;
+    });
+  }, [submissions]);
 
   const { data: emailTemplates = [] } = useQuery({
     queryKey: ['emailTemplates'],
@@ -56,6 +62,8 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
   const saveOurResult = async () => {
     setSavingOur(true);
     await onUpdate({ our_result: ourResult, our_result_notes: ourNotes });
+    queryClient.invalidateQueries({ queryKey: ['tender', tender.id] });
+    queryClient.invalidateQueries({ queryKey: ['tenders'] });
     setSavingOur(false);
     toast({ title: 'Result saved' });
   };

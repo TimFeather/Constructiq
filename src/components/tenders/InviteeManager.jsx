@@ -48,6 +48,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
 
   const [showIssueConfirm, setShowIssueConfirm] = useState(false);
   const [issuing, setIssuing] = useState(false);
+  const [issueResult, setIssueResult] = useState(null); // { sent, failed, errors }
   const [adding, setAdding]   = useState(false);
 
   // ── Primary data: TenderInvitee ───────────────────────────────────────────
@@ -203,7 +204,14 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
       });
 
       const { sent = 0, failed = 0, errors = [] } = result.data || {};
+
+      // Invalidate all related queries so UI reflects DB state
       await refetchInvitees();
+      queryClient.invalidateQueries({ queryKey: ['tender', tender.id] });
+      queryClient.invalidateQueries({ queryKey: ['tenders'] });
+      queryClient.invalidateQueries({ queryKey: ['tenderInvitations', tender.id] });
+
+      setIssueResult({ sent, failed, errors });
 
       if (sent > 0 && failed === 0) {
         toast({ title: `Tender issued — ${sent} invitation${sent !== 1 ? 's' : ''} sent`, duration: 5000 });
@@ -219,6 +227,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
     } finally {
       setIssuing(false);
       setShowIssueConfirm(false);
+      setIssueResult(null);
     }
   };
 
@@ -244,7 +253,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
       )}
 
       {/* Add invitee UI */}
-      {canManage && (
+      {canManage && !issuing && (
         <div className="space-y-3">
           <div className="flex gap-2">
             <Button variant={!showSearch ? 'default' : 'outline'} size="sm" className="gap-2" onClick={() => setShowSearch(false)}>
@@ -394,6 +403,14 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
                 : `Send tender invitation to ${emailableCount} subcontractor${emailableCount !== 1 ? 's' : ''} with email addresses? This will set the tender status to Issued.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
+
+          {issuing && (
+            <div className="flex items-center gap-3 p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200">
+              <div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+              <p className="text-sm text-blue-800 dark:text-blue-200">Sending invitations… do not close this window.</p>
+            </div>
+          )}
+
           <div className="flex justify-end gap-2 mt-2">
             <AlertDialogCancel disabled={issuing}>Cancel</AlertDialogCancel>
             <Button onClick={issueTender} disabled={issuing}>
