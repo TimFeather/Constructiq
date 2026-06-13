@@ -84,6 +84,13 @@ export const AuthProvider = ({ children }) => {
       setIsAuthenticated(true);
       setIsLoadingAuth(false);
       setAuthChecked(true);
+      // Login-triggered sync: activate any pending project assignments
+      try {
+        await base44.functions.invoke('processPendingAssignments', {});
+      } catch (e) {
+        // Non-critical — log and continue
+        console.warn('[AuthContext] processPendingAssignments failed:', e?.message);
+      }
     } catch (error) {
       console.error('User auth check failed:', error);
       setIsLoadingAuth(false);

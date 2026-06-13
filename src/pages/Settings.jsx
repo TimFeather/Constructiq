@@ -11,7 +11,7 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Save, Shield, Bell, Mail, Palette, Tag, RefreshCw, Trash2, FolderOpen, FileSignature } from 'lucide-react';
+import { Save, Shield, Bell, Mail, Palette, Tag, RefreshCw, Trash2, FolderOpen, FileSignature, Users } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import PageHeader from '@/components/shared/PageHeader';
 import { DEFAULT_TEMPLATES } from '@/lib/emailTemplates';
@@ -24,6 +24,7 @@ import EmailBrandingPanel from '@/components/settings/EmailBrandingPanel';
 import EmailTemplateEditor from '@/components/settings/EmailTemplateEditor';
 import DocumentFolderTemplates from '@/components/settings/DocumentFolderTemplates';
 import TenderSettingsPanel from '@/components/settings/TenderSettingsPanel';
+import PeopleSettings from '@/components/settings/PeopleSettings';
 
 const ROLES = [
   'Architect', 'Client', 'External Project Manager',
@@ -160,6 +161,11 @@ export default function Settings() {
           <TabsTrigger value="notifications">
             <Bell className="w-3.5 h-3.5 mr-1" /> Notifications
           </TabsTrigger>
+          {isAdmin && (
+            <TabsTrigger value="people">
+              <Users className="w-3.5 h-3.5 mr-1" /> People
+            </TabsTrigger>
+          )}
           {isAdmin && (
             <TabsTrigger value="users">
               <Shield className="w-3.5 h-3.5 mr-1" /> Users
@@ -325,6 +331,13 @@ export default function Settings() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* People (Admin only) */}
+        {isAdmin && (
+          <TabsContent value="people">
+            <PeopleSettings />
+          </TabsContent>
+        )}
 
         {/* User Management (Admin only) */}
         {isAdmin && (

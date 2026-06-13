@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
@@ -7,8 +7,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Plus, Trash2, Users, UserCheck, Pencil } from 'lucide-react';
+import { Plus, Trash2, Users, UserCheck, Pencil, Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { useToast } from '@/components/ui/use-toast';
 import { resolveTemplate, applyTemplate, buildEmailHtml } from '@/lib/emailTemplates';
 
 const DEFAULT_ROLES = [
@@ -24,8 +25,29 @@ const TRADES = [
 
 const emptyMember = { user_email: '', full_name: '', business_name: '', phone: '', role: '', trade: '' };
 
+// Detection status badge
+function EmailStatusBadge({ status }) {
+  if (!status) return null;
+  if (status === 'existing_user') return (
+    <span className="inline-flex items-center gap-1 text-xs text-green-700 bg-green-50 border border-green-200 rounded-full px-2 py-0.5">
+      🟢 Existing User
+    </span>
+  );
+  if (status === 'pending') return (
+    <span className="inline-flex items-center gap-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
+      🟡 Pending Invitation
+    </span>
+  );
+  return (
+    <span className="inline-flex items-center gap-1 text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-full px-2 py-0.5">
+      ⚪ New User
+    </span>
+  );
+}
+
 export default function TeamManager({ project }) {
   const { user } = useAuth();
+  const { toast } = useToast();
   const isAllowed = ['admin', 'internal', 'pricing'].includes(user?.role);
   const [newMember, setNewMember] = useState(emptyMember);
   const [customRole, setCustomRole] = useState('');
@@ -34,6 +56,10 @@ export default function TeamManager({ project }) {
   const [suggestions, setSuggestions] = useState([]);
   const [editingIndex, setEditingIndex] = useState(null);
   const [editValues, setEditValues] = useState({});
+  const [emailStatus, setEmailStatus] = useState(null); // 'existing_user' | 'pending' | 'new' | null
+  const [emailStatusData, setEmailStatusData] = useState(null);
+  const [detectingEmail, setDetectingEmail] = useState(false);
+  const [adding, setAdding] = useState(false);
   const queryClient = useQueryClient();
 
   const { data: allUsers = [] } = useQuery({
@@ -41,18 +67,6 @@ export default function TeamManager({ project }) {
     queryFn: () => base44.entities.User.list(),
     enabled: isAllowed,
   });
-
-  const { data: adminUser } = useQuery({
-    queryKey: ['adminUser'],
-    queryFn: async () => {
-      const all = await base44.entities.User.list();
-      return all.find(u => u.role === 'admin') || null;
-    },
-    enabled: isAllowed,
-  });
-
-  const customRoles = adminUser?.custom_roles ? JSON.parse(adminUser.custom_roles) : [];
-  const ROLES = [...DEFAULT_ROLES, ...customRoles];
 
   const { data: emailTemplates = [] } = useQuery({
     queryKey: ['emailTemplates'],
@@ -71,9 +85,39 @@ export default function TeamManager({ project }) {
     }
   });
 
+  // Debounced email detection
+  const detectEmail = useCallback(async (email) => {
+    if (!email || email.length < 5 || !email.includes('@')) {
+      setEmailStatus(null);
+      setEmailStatusData(null);
+      return;
+    }
+    setDetectingEmail(true);
+    try {
+      const res = await base44.functions.invoke('invitationService', { action: 'detect', email });
+      setEmailStatus(res.data?.status || null);
+      setEmailStatusData(res.data || null);
+      // Auto-fill name if existing user
+      if (res.data?.status === 'existing_user' && res.data.user) {
+        setNewMember(prev => ({
+          ...prev,
+          full_name: prev.full_name || res.data.user.full_name || '',
+          business_name: prev.business_name || res.data.user.business_name || '',
+          phone: prev.phone || res.data.user.phone || '',
+        }));
+      }
+    } catch (e) {
+      setEmailStatus(null);
+    } finally {
+      setDetectingEmail(false);
+    }
+  }, []);
+
   const handleEmailInput = (val) => {
     setEmailInput(val);
     setNewMember(prev => ({ ...prev, user_email: val }));
+    setEmailStatus(null);
+    // User suggestions from registered users
     if (val.length >= 2) {
       const matches = allUsers.filter(u =>
         u.email?.toLowerCase().includes(val.toLowerCase()) ||
@@ -82,6 +126,13 @@ export default function TeamManager({ project }) {
       setSuggestions(matches.slice(0, 5));
     } else {
       setSuggestions([]);
+    }
+  };
+
+  const handleEmailBlur = () => {
+    setSuggestions([]);
+    if (emailInput && emailInput.includes('@')) {
+      detectEmail(emailInput);
     }
   };
 
@@ -95,27 +146,31 @@ export default function TeamManager({ project }) {
       business_name: u.business_name || prev.business_name,
     }));
     setSuggestions([]);
+    detectEmail(u.email);
   };
 
   const addMember = async () => {
     if (!newMember.full_name || !newMember.role) return;
-    const member = { ...newMember };
-    if (member.role === 'Subcontractor' && customTrade) {
-      member.trade = customTrade;
-    }
-    if (member.role === 'Other' && customRole) {
-      member.role = customRole;
-    }
-    const team = [...(project.team || []), member];
-    await updateMutation.mutateAsync(team);
+    setAdding(true);
+    try {
+      const member = { ...newMember };
+      if (member.role === 'Subcontractor' && customTrade) member.trade = customTrade;
+      if (member.role === 'Other' && customRole) member.role = customRole;
 
-    // Check if this email belongs to a registered user
-    const existingUser = allUsers.find(u => u.email?.toLowerCase() === member.user_email?.toLowerCase());
-    const tpl = resolveTemplate(emailTemplates, existingUser ? 'team_added' : 'team_invited');
-
-    if (member.user_email) {
-      if (existingUser) {
-        // Send notification email only to registered users
+      if (emailStatus === 'existing_user' && emailStatusData?.user) {
+        // Route through invitationService for direct add + audit log
+        await base44.functions.invoke('invitationService', {
+          action: 'addExistingUser',
+          targetUserId: emailStatusData.user.id,
+          projectId: project.id,
+          role: member.role,
+          fullName: member.full_name,
+          businessName: member.business_name,
+          phone: member.phone,
+          trade: member.trade,
+        });
+        // Also send notification email
+        const tpl = resolveTemplate(emailTemplates, 'team_added');
         const { subject, body } = applyTemplate(tpl, {
           name: member.full_name,
           project_name: project.name,
@@ -123,32 +178,59 @@ export default function TeamManager({ project }) {
         });
         try {
           const htmlBody = buildEmailHtml(body, emailBranding);
-          await base44.functions.invoke('sendEmail', { to: member.user_email, toName: member.full_name || '', subject, htmlBody });
-        } catch (e) {
-          // Email failed — not critical
+          await base44.functions.invoke('sendEmail', { to: member.user_email, toName: member.full_name, subject, htmlBody });
+        } catch (e) { /* email non-critical */ }
+
+        toast({ title: `${member.full_name} added to project` });
+
+      } else if (member.user_email) {
+        // New user or pending — add to team array locally + route through invitationService
+        const team = [...(project.team || []), member];
+        await updateMutation.mutateAsync(team);
+
+        const res = await base44.functions.invoke('invitationService', {
+          action: 'invite',
+          email: member.user_email,
+          fullName: member.full_name,
+          businessName: member.business_name,
+          phone: member.phone,
+          trade: member.trade,
+          projectId: project.id,
+          projectName: project.name,
+          role: member.role,
+        });
+
+        const data = res?.data;
+        if (data?.duplicateAssignment) {
+          toast({ title: `${member.full_name} added to project`, description: 'Existing invitation reused — no duplicate sent.' });
+        } else if (data?.isNewInvite) {
+          toast({ title: `${member.full_name} added`, description: 'Invitation email sent.' });
+        } else {
+          toast({ title: `${member.full_name} added to project` });
         }
       } else {
-        // Invite unregistered users — platform invite handles the notification email
-        try {
-          await base44.users.inviteUser(member.user_email, 'user');
-          await base44.entities.InvitedUser.create({
-            email: member.user_email,
-            app_role: 'external',
-            invited_by_email: user?.email,
-            project_id: project.id,
-            project_name: project.name,
-          });
-        } catch (e) {
-          // Already invited — that's fine
-        }
+        // No email — just add to team
+        const team = [...(project.team || []), member];
+        await updateMutation.mutateAsync(team);
+        toast({ title: `${member.full_name} added to project` });
       }
-    }
 
-    setNewMember(emptyMember);
-    setEmailInput('');
-    setCustomTrade('');
-    setCustomRole('');
-    setSuggestions([]);
+      queryClient.invalidateQueries({ queryKey: ['project', project.id] });
+      queryClient.invalidateQueries({ queryKey: ['invitedUsers'] });
+      queryClient.invalidateQueries({ queryKey: ['pendingAssignments'] });
+
+      setNewMember(emptyMember);
+      setEmailInput('');
+      setCustomTrade('');
+      setCustomRole('');
+      setSuggestions([]);
+      setEmailStatus(null);
+      setEmailStatusData(null);
+    } catch (e) {
+      toast({ title: 'Failed to add member', description: e?.message, variant: 'destructive' });
+    } finally {
+      setAdding(false);
+    }
   };
 
   const removeMember = (index) => {
@@ -230,7 +312,7 @@ export default function TeamManager({ project }) {
                           <Label className="text-xs">Role</Label>
                           <Select value={editValues.role || ''} onValueChange={val => setEditValues(v => ({ ...v, role: val }))}>
                             <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                            <SelectContent>{ROLES.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
+                            <SelectContent>{DEFAULT_ROLES.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
                           </Select>
                         </div>
                         <div>
@@ -309,25 +391,25 @@ export default function TeamManager({ project }) {
               <Select value={newMember.role} onValueChange={v => setNewMember({ ...newMember, role: v })}>
                 <SelectTrigger><SelectValue placeholder="Select role" /></SelectTrigger>
                 <SelectContent>
-                  {ROLES.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                  {DEFAULT_ROLES.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
                 </SelectContent>
               </Select>
               {newMember.role === 'Other' && (
-                <Input
-                  className="mt-2"
-                  value={customRole}
-                  onChange={e => setCustomRole(e.target.value)}
-                  placeholder="Enter custom role..."
-                />
+                <Input className="mt-2" value={customRole} onChange={e => setCustomRole(e.target.value)} placeholder="Enter custom role..." />
               )}
             </div>
-            <div className="relative">
-              <Label className="text-xs">Email</Label>
+            <div className="relative sm:col-span-2">
+              <Label className="text-xs flex items-center gap-2">
+                Email
+                {detectingEmail && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />}
+                {emailStatus && !detectingEmail && <EmailStatusBadge status={emailStatus} />}
+              </Label>
               <Input
                 type="email"
                 value={emailInput}
                 onChange={e => handleEmailInput(e.target.value)}
-                placeholder="Email (type to search users)"
+                onBlur={handleEmailBlur}
+                placeholder="Email (type to search or detect status)"
                 autoComplete="off"
               />
               {suggestions.length > 0 && (
@@ -346,22 +428,17 @@ export default function TeamManager({ project }) {
                   ))}
                 </div>
               )}
+              {emailStatus === 'pending' && (
+                <p className="text-xs text-amber-600 mt-1">An invitation already exists for this email. Adding this project will reuse it — no duplicate will be sent.</p>
+              )}
             </div>
             <div>
               <Label className="text-xs">Phone</Label>
-              <Input
-                value={newMember.phone}
-                onChange={e => setNewMember({ ...newMember, phone: e.target.value })}
-                placeholder="Phone"
-              />
+              <Input value={newMember.phone} onChange={e => setNewMember({ ...newMember, phone: e.target.value })} placeholder="Phone" />
             </div>
             <div>
               <Label className="text-xs">Business Name</Label>
-              <Input
-                value={newMember.business_name}
-                onChange={e => setNewMember({ ...newMember, business_name: e.target.value })}
-                placeholder="Business name"
-              />
+              <Input value={newMember.business_name} onChange={e => setNewMember({ ...newMember, business_name: e.target.value })} placeholder="Business name" />
             </div>
             {newMember.role === 'Subcontractor' && (
               <div>
@@ -374,18 +451,18 @@ export default function TeamManager({ project }) {
                   </SelectContent>
                 </Select>
                 {newMember.trade === 'custom' && (
-                  <Input
-                    className="mt-2"
-                    value={customTrade}
-                    onChange={e => setCustomTrade(e.target.value)}
-                    placeholder="Enter custom trade"
-                  />
+                  <Input className="mt-2" value={customTrade} onChange={e => setCustomTrade(e.target.value)} placeholder="Enter custom trade" />
                 )}
               </div>
             )}
           </div>
-          <Button onClick={addMember} disabled={!newMember.full_name || !newMember.role || updateMutation.isPending} className="gap-2">
-            <Plus className="w-4 h-4" /> Add Member
+          <Button
+            onClick={addMember}
+            disabled={!newMember.full_name || !newMember.role || adding}
+            className="gap-2"
+          >
+            {adding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+            {adding ? 'Adding...' : 'Add Member'}
           </Button>
         </div>
       </CardContent>
