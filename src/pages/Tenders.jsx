@@ -47,12 +47,14 @@ function closingDateLabel(tender) {
   return null;
 }
 
-const STATUS_TABS = ['All', 'Draft', 'Issued', 'Closed', 'Awarded', 'Unsuccessful', 'Converted', 'On Hold', 'Cancelled'];
+const ACTIVE_STATUSES   = ['Draft', 'Issued', 'Closed', 'Awarded', 'Unsuccessful', 'On Hold', 'Cancelled'];
+const ARCHIVED_STATUSES = ['Converted', 'Archived'];
 
 const STATUS_STYLES_LIST = {
   ...STATUS_STYLES,
   'On Hold':  'bg-orange-100 text-orange-700',
   Cancelled:  'bg-gray-100 text-gray-500',
+  Archived:   'bg-gray-100 text-gray-500',
 };
 
 export default function Tenders() {
@@ -60,6 +62,7 @@ export default function Tenders() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [search, setSearch] = useState('');
+  const [view, setView] = useState('active');   // 'active' | 'archive'
   const [statusTab, setStatusTab] = useState('All');
   const queryClient = useQueryClient();
   const canManage = canManagePerm(user, 'tenders');
@@ -91,8 +94,12 @@ export default function Tenders() {
 
   if (!canAccess(user, 'tenders')) return <Navigate to="/" replace />;
 
+  const viewStatuses = view === 'active' ? ACTIVE_STATUSES : ARCHIVED_STATUSES;
+  const statusTabs   = ['All', ...viewStatuses];
+
   const filtered = tenders.filter(t => {
-    const matchTab = statusTab === 'All' || t.status === statusTab;
+    const inView    = viewStatuses.includes(t.status);
+    const matchTab  = statusTab === 'All' ? inView : t.status === statusTab;
     const q = search.toLowerCase();
     const matchSearch = !q || t.title?.toLowerCase().includes(q) || t.tender_number?.toLowerCase().includes(q) || t.client_name?.toLowerCase().includes(q);
     return matchTab && matchSearch;
@@ -112,9 +119,25 @@ export default function Tenders() {
         }
       />
 
-      {/* Status tabs */}
+      {/* Active / Archive toggle */}
+      <div className="flex items-center gap-2 mb-4">
+        <button
+          onClick={() => { setView('active'); setStatusTab('All'); }}
+          className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-colors ${view === 'active' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-muted/80'}`}
+        >
+          Active <span className="ml-1.5 opacity-70">{tenders.filter(t => ACTIVE_STATUSES.includes(t.status)).length}</span>
+        </button>
+        <button
+          onClick={() => { setView('archive'); setStatusTab('All'); }}
+          className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-colors ${view === 'archive' ? 'bg-purple-600 text-white' : 'bg-muted text-muted-foreground hover:bg-muted/80'}`}
+        >
+          Archive <span className="ml-1.5 opacity-70">{tenders.filter(t => ARCHIVED_STATUSES.includes(t.status)).length}</span>
+        </button>
+      </div>
+
+      {/* Status sub-tabs */}
       <div className="flex gap-1 flex-wrap mb-4">
-        {STATUS_TABS.map(tab => (
+        {statusTabs.map(tab => (
           <button
             key={tab}
             onClick={() => setStatusTab(tab)}

@@ -12,7 +12,9 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Send, CheckCircle2, XCircle } from 'lucide-react';
+import { Send, CheckCircle2, XCircle, FolderOpen } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { format } from 'date-fns';
 import { useToast } from '@/components/ui/use-toast';
 import { resolveTemplate, applyTemplate, buildEmailHtml } from '@/lib/emailTemplates';
 
@@ -167,8 +169,33 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
     }
   };
 
+  // Header info: award date, linked project, status
+  const headerItems = [
+    tender.status && { label: 'Tender Status', value: tender.status },
+    tender.award_date && { label: 'Award Date', value: format(new Date(tender.award_date), 'dd MMM yyyy') },
+    tender.converted_project_id && { label: 'Linked Project', isLink: true, to: `/projects/${tender.converted_project_id}`, value: 'Open Project →' },
+  ].filter(Boolean);
+
   return (
     <div className="space-y-6">
+      {/* Header info strip */}
+      {headerItems.length > 0 && (
+        <div className="flex flex-wrap gap-4 p-3 bg-muted/40 rounded-lg border text-xs">
+          {headerItems.map(item => (
+            <div key={item.label}>
+              <span className="text-muted-foreground font-medium">{item.label}: </span>
+              {item.isLink ? (
+                <Link to={item.to} className="text-primary hover:underline inline-flex items-center gap-1">
+                  <FolderOpen className="w-3 h-3" /> {item.value}
+                </Link>
+              ) : (
+                <span className="font-semibold">{item.value}</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Our result */}
       <Card>
         <CardHeader><CardTitle className="text-sm">Our Tender Result</CardTitle></CardHeader>
@@ -209,57 +236,91 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
         </CardContent>
       </Card>
 
-      {/* Subcontractor results */}
-      {(tender.our_result || ourResult) && submissions.length > 0 && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm">Subcontractor Results</CardTitle>
-              {canManage && (
-                <Button onClick={sendAllOutcomeNotifications} disabled={sending} size="sm" className="gap-2">
-                  <Send className="w-4 h-4" /> {sending ? 'Sending...' : 'Send All Notifications'}
-                </Button>
-              )}
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {submissions.map(sub => (
-              <div key={sub.id} className="p-3 border rounded-lg space-y-2">
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <div>
-                    <span className="font-medium text-sm">{sub.invitee_name}</span>
-                    {sub.business_name && <span className="text-xs text-muted-foreground ml-2">{sub.business_name}</span>}
-                    {sub.lump_sum_price && (
-                      <span className="text-xs text-muted-foreground ml-2">
-                        NZD {Number(sub.lump_sum_price).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}
-                      </span>
-                    )}
-                  </div>
-                  {sub.outcome_notified_at && <span className="text-xs text-green-600">Notified ✓</span>}
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={() => setSubOutcomes(r => ({ ...r, [sub.id]: 'Awarded' }))}
-                    className={`px-3 py-1.5 rounded text-xs font-medium border transition-all ${subOutcomes[sub.id] === 'Awarded' ? 'bg-green-100 text-green-700 border-green-400' : 'border-border hover:bg-muted'}`}>
-                    Awarded
-                  </button>
-                  <button onClick={() => setSubOutcomes(r => ({ ...r, [sub.id]: 'Unsuccessful' }))}
-                    className={`px-3 py-1.5 rounded text-xs font-medium border transition-all ${subOutcomes[sub.id] === 'Unsuccessful' ? 'bg-red-100 text-red-700 border-red-400' : 'border-border hover:bg-muted'}`}>
-                    Unsuccessful
-                  </button>
-                  {canManage && (
-                    <Button variant="outline" size="sm" className="ml-auto gap-1 h-7 text-xs"
-                      onClick={() => sendSingleNotification(sub)}>
-                      <Send className="w-3 h-3" /> Send
-                    </Button>
-                  )}
-                </div>
-                <Textarea value={subNotes[sub.id] || ''} onChange={e => setSubNotes(n => ({ ...n, [sub.id]: e.target.value }))}
-                  placeholder="Optional notes..." className="h-14 text-xs" />
+      {/* Subcontractor results — grouped by trade */}
+      {(tender.our_result || ourResult) && submissions.length > 0 && (() => {
+        const grouped = submissions.reduce((acc, s) => {
+          const trade = s.trade || 'Unspecified';
+          if (!acc[trade]) acc[trade] = [];
+          acc[trade].push(s);
+          return acc;
+        }, {});
+        return (
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm">Subcontractor Results</CardTitle>
+                {canManage && (
+                  <Button onClick={sendAllOutcomeNotifications} disabled={sending} size="sm" className="gap-2">
+                    <Send className="w-4 h-4" /> {sending ? 'Sending...' : 'Send All Notifications'}
+                  </Button>
+                )}
               </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
+            </CardHeader>
+            <CardContent className="space-y-5">
+              {Object.entries(grouped).map(([trade, subs]) => (
+                <div key={trade}>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">{trade}</p>
+                  <div className="border rounded-lg overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="bg-muted/40 border-b text-muted-foreground">
+                          <th className="text-left px-3 py-2 font-medium">Business Name</th>
+                          <th className="text-left px-3 py-2 font-medium">Contact</th>
+                          <th className="text-right px-3 py-2 font-medium">Submitted Price</th>
+                          <th className="text-center px-3 py-2 font-medium">Outcome</th>
+                          {canManage && <th className="px-3 py-2 font-medium">Notes / Notify</th>}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {subs.map(sub => (
+                          <tr key={sub.id} className="hover:bg-muted/20">
+                            <td className="px-3 py-2">
+                              <p className="font-medium">{sub.business_name || '—'}</p>
+                            </td>
+                            <td className="px-3 py-2 text-muted-foreground">
+                              {sub.invitee_name || sub.full_name || '—'}
+                              {sub.outcome_notified_at && <span className="ml-1 text-green-600">✓</span>}
+                            </td>
+                            <td className="px-3 py-2 text-right font-mono">
+                              {sub.lump_sum_price
+                                ? `$${Number(sub.lump_sum_price).toLocaleString('en-NZ')}`
+                                : '—'}
+                            </td>
+                            <td className="px-3 py-2">
+                              <div className="flex justify-center gap-1">
+                                <button onClick={() => canManage && setSubOutcomes(r => ({ ...r, [sub.id]: 'Awarded' }))}
+                                  className={`px-2 py-1 rounded text-xs font-medium border transition-all ${subOutcomes[sub.id] === 'Awarded' ? 'bg-green-100 text-green-700 border-green-400' : 'border-border hover:bg-muted'} ${!canManage ? 'cursor-default' : ''}`}>
+                                  Awarded
+                                </button>
+                                <button onClick={() => canManage && setSubOutcomes(r => ({ ...r, [sub.id]: 'Unsuccessful' }))}
+                                  className={`px-2 py-1 rounded text-xs font-medium border transition-all ${subOutcomes[sub.id] === 'Unsuccessful' ? 'bg-red-100 text-red-700 border-red-400' : 'border-border hover:bg-muted'} ${!canManage ? 'cursor-default' : ''}`}>
+                                  Unsuccessful
+                                </button>
+                              </div>
+                            </td>
+                            {canManage && (
+                              <td className="px-3 py-2">
+                                <div className="flex items-center gap-2">
+                                  <Textarea value={subNotes[sub.id] || ''} onChange={e => setSubNotes(n => ({ ...n, [sub.id]: e.target.value }))}
+                                    placeholder="Notes..." className="h-8 text-xs min-h-0 py-1 flex-1" />
+                                  <Button variant="outline" size="sm" className="gap-1 h-7 text-xs flex-shrink-0"
+                                    onClick={() => sendSingleNotification(sub)}>
+                                    <Send className="w-3 h-3" />
+                                  </Button>
+                                </div>
+                              </td>
+                            )}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        );
+      })()}
     </div>
   );
 }

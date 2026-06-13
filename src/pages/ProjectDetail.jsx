@@ -5,11 +5,12 @@ import { base44 } from '@/api/base44Client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ArrowLeft, Pencil, FileText, MessageSquareMore, Calendar, BarChart2, ExternalLink } from 'lucide-react';
+import { ArrowLeft, Pencil, FileText, MessageSquareMore, BarChart2, ExternalLink, FileSignature, HardHat } from 'lucide-react';
 import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
 import TeamManager from '@/components/projects/TeamManager';
 import ProjectFormDialog from '@/components/projects/ProjectFormDialog';
+import AwardedContractors from '@/components/projects/AwardedContractors';
 import ProjectRFIPanel from '@/components/rfis/ProjectRFIPanel';
 import ProjectDocsPanel from '@/components/documents/ProjectDocsPanel';
 import { format } from 'date-fns';
@@ -39,6 +40,14 @@ export default function ProjectDetail() {
     queryFn: () => base44.entities.Task.filter({ project_id: id }, 'sort_order', 100),
     enabled: activeTab === 'programme',
   });
+
+  // Find linked tender (if this project was converted from one)
+  const { data: linkedTenders = [] } = useQuery({
+    queryKey: ['linkedTender', id],
+    queryFn: () => base44.entities.Tender.filter({ converted_project_id: id }),
+    enabled: !!id,
+  });
+  const linkedTender = linkedTenders[0] ?? null;
 
   if (isLoading) {
     return (
@@ -72,9 +81,17 @@ export default function ProjectDetail() {
         title={project.name}
         description={project.description}
         actions={
-          <Button onClick={() => setShowEdit(true)} variant="outline" className="gap-2">
-            <Pencil className="w-4 h-4" /> Edit
-          </Button>
+          <div className="flex items-center gap-2">
+            {linkedTender && (
+              <Link to={`/tenders/${linkedTender.id}`} className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium border border-primary/30 rounded-md px-2.5 py-1.5">
+                <FileSignature className="w-3.5 h-3.5" />
+                Tender Source: {linkedTender.tender_number}
+              </Link>
+            )}
+            <Button onClick={() => setShowEdit(true)} variant="outline" className="gap-2">
+              <Pencil className="w-4 h-4" /> Edit
+            </Button>
+          </div>
         }
       />
 
@@ -122,6 +139,11 @@ export default function ProjectDetail() {
           <TabsTrigger value="programme" className="gap-1">
             <BarChart2 className="w-3.5 h-3.5" /> Programme
           </TabsTrigger>
+          {linkedTender && (
+            <TabsTrigger value="contractors" className="gap-1">
+              <HardHat className="w-3.5 h-3.5" /> Awarded Contractors
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="team">
@@ -198,6 +220,12 @@ export default function ProjectDetail() {
             )}
           </div>
         </TabsContent>
+
+        {linkedTender && (
+          <TabsContent value="contractors">
+            <AwardedContractors tenderId={linkedTender.id} />
+          </TabsContent>
+        )}
       </Tabs>
 
       <ProjectFormDialog open={showEdit} onOpenChange={setShowEdit} project={project} />

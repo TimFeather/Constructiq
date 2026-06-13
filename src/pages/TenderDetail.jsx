@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ArrowLeft, Save, X, Trash2, AlertCircle, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Save, X, Trash2, AlertCircle, RefreshCw, FolderOpen, Lock } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { useToast } from '@/components/ui/use-toast';
 import TenderDocuments from '@/components/tenders/TenderDocuments';
@@ -51,6 +51,8 @@ export default function TenderDetail() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const canManage = canManagePerm(user, 'tenders');
+  const isConverted = tender?.status === 'Converted';
+  const effectiveCanManage = canManage && !isConverted;
   const [showConvert, setShowConvert] = useState(false);
   const [customTrade, setCustomTrade] = useState('');
   const [form, setForm] = useState(null);
@@ -192,6 +194,14 @@ export default function TenderDetail() {
 
   return (
     <div>
+      {/* Read-only banner for converted tenders */}
+      {isConverted && (
+        <div className="flex items-center gap-2 mb-4 px-4 py-2.5 bg-purple-50 border border-purple-200 rounded-lg text-sm text-purple-700">
+          <Lock className="w-4 h-4 flex-shrink-0" />
+          This tender has been converted to a project and is now read-only.
+        </div>
+      )}
+
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 mb-4">
         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate('/tenders')}>
@@ -206,7 +216,12 @@ export default function TenderDetail() {
         {tender.estimated_value && (
           <span className="ml-2 text-xs text-muted-foreground font-medium">{formatCurrency(tender.estimated_value)}</span>
         )}
-        {canManage && (
+        {tender.converted_project_id && (
+          <Link to={`/projects/${tender.converted_project_id}`} className="ml-2 inline-flex items-center gap-1 text-xs text-purple-600 hover:text-purple-700 font-medium">
+            <FolderOpen className="w-3 h-3" /> View Project →
+          </Link>
+        )}
+        {effectiveCanManage && (
           <div className="ml-auto">
             <AlertDialog>
               <AlertDialogTrigger asChild>
@@ -459,7 +474,7 @@ export default function TenderDetail() {
             <Textarea value={form.notes || ''} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={3} disabled={!canManage} />
           </div>
 
-          {canManage && (
+          {effectiveCanManage && (
             <div className="flex items-center gap-3">
               {isDirty && (
                 <span className="text-xs text-amber-600 flex items-center gap-1">
@@ -475,7 +490,7 @@ export default function TenderDetail() {
 
         {/* Tab 2 — Documents */}
         <TabsContent value="documents">
-          <TenderDocuments tender={tender} onUpdate={handleUpdate} canManage={canManage} />
+          <TenderDocuments tender={tender} onUpdate={handleUpdate} canManage={effectiveCanManage} />
         </TabsContent>
 
         {/* Tab 3 — Invitees */}
@@ -484,7 +499,7 @@ export default function TenderDetail() {
             <TenderInvitationStats tenderId={tender.id} />
             <TenderHealthPanel tender={tender} user={user} />
             <TenderDebugPanel tender={tender} />
-            <InviteeManager tender={tender} onUpdate={handleUpdate} canManage={canManage} />
+            <InviteeManager tender={tender} onUpdate={handleUpdate} canManage={effectiveCanManage} />
           </div>
         </TabsContent>
 
@@ -496,12 +511,12 @@ export default function TenderDetail() {
               <RefreshCw className="w-3.5 h-3.5" /> Refresh
             </Button>
           </div>
-          <SubmissionScorer tender={tender} onUpdate={handleUpdate} canManage={canManage} />
+          <SubmissionScorer tender={tender} onUpdate={handleUpdate} canManage={effectiveCanManage} />
         </TabsContent>
 
         {/* Tab 5 — Outcome */}
         <TabsContent value="outcome">
-          <OutcomePanel tender={tender} onUpdate={handleUpdate} onConvert={() => setShowConvert(true)} canManage={canManage} />
+          <OutcomePanel tender={tender} onUpdate={handleUpdate} onConvert={() => setShowConvert(true)} canManage={effectiveCanManage} />
         </TabsContent>
       </Tabs>
 
