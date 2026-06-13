@@ -90,24 +90,32 @@
   ],
   "rls": {
     "update": {
-      "user_condition": {
-        "role": {
-          "$in": [
-            "admin",
-            "pricing"
-          ]
+      "$or": [
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        },
+        {
+          "user_condition": {
+            "role": "pricing"
+          }
         }
-      }
+      ]
     },
     "delete": {
-      "user_condition": {
-        "role": {
-          "$in": [
-            "admin",
-            "pricing"
-          ]
+      "$or": [
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        },
+        {
+          "user_condition": {
+            "role": "pricing"
+          }
         }
-      }
+      ]
     }
   }
 }
