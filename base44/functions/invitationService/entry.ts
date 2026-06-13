@@ -101,13 +101,11 @@ Deno.serve(async (req) => {
     const user = await base44.auth.me();
     if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const allowed = ['admin', 'internal', 'pricing'].includes(user.role);
-    if (!allowed) return Response.json({ error: 'Forbidden' }, { status: 403 });
-
     const body = await req.json();
     const { action } = body;
 
     // ── ACTION: detect ─────────────────────────────────────────────────────
+    // Public-ish: called from Register page — only requires a valid session (any role).
     // Returns { status: 'existing_user'|'pending'|'new', invitedUser?, user? }
     if (action === 'detect') {
       const { email } = body;
@@ -131,6 +129,10 @@ Deno.serve(async (req) => {
 
       return Response.json({ status: 'new' });
     }
+
+    // All other actions require admin/internal/pricing
+    const allowed = ['admin', 'internal', 'pricing'].includes(user.role);
+    if (!allowed) return Response.json({ error: 'Forbidden' }, { status: 403 });
 
     // ── ACTION: invite ─────────────────────────────────────────────────────
     // Creates or reuses InvitedUser, creates PendingProjectAssignment, sends email
@@ -386,26 +388,6 @@ Deno.serve(async (req) => {
       });
 
       return Response.json({ success: true, alreadyMember });
-    }
-
-    // ── ACTION: listAssignments ───────────────────────────────────────────
-    // Returns pending project names for a given email (used on Register page)
-    if (action === 'listAssignments') {
-      const { email } = body;
-      if (!email) return Response.json({ projects: [] });
-      const normalEmail = email.toLowerCase().trim();
-      const assignments = await base44.asServiceRole.entities.PendingProjectAssignment.filter({
-        email: normalEmail,
-        status: 'Pending',
-      });
-      const projectIds = [...new Set(assignments.map(a => a.project_id).filter(Boolean))];
-      const projects = await Promise.all(
-        projectIds.map(async id => {
-          const p = await base44.asServiceRole.entities.Project.filter({ id });
-          return p[0] ? { id: p[0].id, name: p[0].name } : null;
-        })
-      );
-      return Response.json({ projects: projects.filter(Boolean) });
     }
 
     return Response.json({ error: `Unknown action: ${action}` }, { status: 400 });

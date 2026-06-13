@@ -38,11 +38,6 @@ export default function Register() {
       const data = res?.data;
       if (data?.status === 'pending' && data.invitedUser) {
         const inv = data.invitedUser;
-        // Fetch pending assignments to list projects
-        const assignments = await base44.entities.PendingProjectAssignment.filter
-          ? null : null; // Will be fetched below via service role — use a simple list call
-        // Fetch projects from pending assignments via invitationService detect response
-        // We'll display the role and fetch projects separately
         let projects = [];
         try {
           const allAssignments = await base44.functions.invoke('invitationService', {
