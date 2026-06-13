@@ -79,7 +79,8 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
 
   const notifyWeUnsuccessful = async () => {
     setSending(true);
-    const tpl = resolveTemplate(emailTemplates, 'tender_outcome_unsuccessful');
+    const tplKey = 'tender_outcome_unsuccessful';
+    const tpl = resolveTemplate(emailTemplates, tplKey);
     let sent = 0, failed = 0;
     for (const sub of submissions) {
       if (!sub.invitee_email) continue;
@@ -92,13 +93,24 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
           company_name:  emailBranding?.company_name || 'ConstructIQ',
         });
         const htmlBody = buildEmailHtml(body, emailBranding);
-        await base44.functions.invoke('sendEmail', { to: sub.invitee_email, toName: sub.invitee_name || '', subject, htmlBody });
-        sent++;
-      } catch (e) { failed++; console.error('Outcome email failed', sub.invitee_email, e); }
+        console.log(`[OutcomePanel] notifyWeUnsuccessful to=${sub.invitee_email} subject="${subject}" tpl=${tplKey}`);
+        const res = await base44.functions.invoke('sendEmail', { to: sub.invitee_email, toName: sub.invitee_name || '', subject, htmlBody, templateKey: tplKey });
+        const resData = res?.data;
+        console.log(`[OutcomePanel] sendEmail response:`, JSON.stringify(resData));
+        if (resData?.success === true && resData?.id) {
+          sent++;
+        } else {
+          failed++;
+          console.error(`[OutcomePanel] sendEmail did not confirm delivery for ${sub.invitee_email}:`, JSON.stringify(resData));
+        }
+      } catch (e) {
+        failed++;
+        console.error('[OutcomePanel] notifyWeUnsuccessful exception', sub.invitee_email, e);
+      }
     }
     toast({
       title: sent > 0 ? `Notified ${sent} subcontractor${sent !== 1 ? 's' : ''}` : 'No emails sent',
-      description: failed > 0 ? `${failed} failed` : undefined,
+      description: failed > 0 ? `${failed} failed — check console for details` : undefined,
       variant: sent === 0 ? 'destructive' : 'default',
     });
     setSending(false);
@@ -107,7 +119,6 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
   const sendAllOutcomeNotifications = async () => {
     setSending(true);
     let sent = 0, failed = 0;
-    const notifiedAt = new Date().toISOString();
 
     for (const sub of submissions) {
       if (!sub.invitee_email) continue;
@@ -123,15 +134,28 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
           company_name:  emailBranding?.company_name || 'ConstructIQ',
         });
         const htmlBody = buildEmailHtml(body, emailBranding);
-        await base44.functions.invoke('sendEmail', { to: sub.invitee_email, toName: sub.invitee_name || '', subject, htmlBody });
-        // Save outcome to submission record
-        await base44.entities.TenderSubmission.update(sub.id, {
-          outcome:              outcome || '',
-          outcome_notes:        subNotes[sub.id] || '',
-          outcome_notified_at:  notifiedAt,
-        });
-        sent++;
-      } catch (e) { failed++; console.error('Outcome email failed', sub.invitee_email, e); }
+        console.log(`[OutcomePanel] sendAll to=${sub.invitee_email} subject="${subject}" tpl=${tplKey}`);
+        const res = await base44.functions.invoke('sendEmail', { to: sub.invitee_email, toName: sub.invitee_name || '', subject, htmlBody, templateKey: tplKey });
+        const resData = res?.data;
+        console.log(`[OutcomePanel] sendEmail response for ${sub.invitee_email}:`, JSON.stringify(resData));
+        if (resData?.success === true && resData?.id) {
+          // Only write outcome_notified_at when Resend confirmed delivery with a message ID
+          await base44.entities.TenderSubmission.update(sub.id, {
+            outcome:             outcome || '',
+            outcome_notes:       subNotes[sub.id] || '',
+            outcome_notified_at: new Date().toISOString(),
+          });
+          sent++;
+        } else {
+          failed++;
+          console.error(`[OutcomePanel] sendEmail returned no confirmed ID for ${sub.invitee_email}:`, JSON.stringify(resData));
+          toast({ title: `Notification failed for ${sub.invitee_name || sub.invitee_email}`, description: resData?.error || 'Resend did not confirm delivery', variant: 'destructive' });
+        }
+      } catch (e) {
+        failed++;
+        console.error('[OutcomePanel] sendAll exception', sub.invitee_email, e);
+        toast({ title: `Notification failed for ${sub.invitee_name || sub.invitee_email}`, description: e?.message, variant: 'destructive' });
+      }
     }
 
     queryClient.invalidateQueries({ queryKey: ['tenderSubmissions', tender.id] });
@@ -153,7 +177,8 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
   const sendSingleNotification = async (sub) => {
     if (!sub.invitee_email) { toast({ title: 'No email address', variant: 'destructive' }); return; }
     const outcome = subOutcomes[sub.id];
-    const tpl     = resolveTemplate(emailTemplates, outcome === 'Awarded' ? 'tender_sub_awarded' : 'tender_sub_unsuccessful');
+    const tplKey  = outcome === 'Awarded' ? 'tender_sub_awarded' : 'tender_sub_unsuccessful';
+    const tpl     = resolveTemplate(emailTemplates, tplKey);
     try {
       const { subject, body } = applyTemplate(tpl, {
         tender_number: tender.tender_number || '',
@@ -163,16 +188,26 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
         company_name:  emailBranding?.company_name || 'ConstructIQ',
       });
       const htmlBody = buildEmailHtml(body, emailBranding);
-      await base44.functions.invoke('sendEmail', { to: sub.invitee_email, toName: sub.invitee_name || '', subject, htmlBody });
-      await base44.entities.TenderSubmission.update(sub.id, {
-        outcome:             outcome || '',
-        outcome_notes:       subNotes[sub.id] || '',
-        outcome_notified_at: new Date().toISOString(),
-      });
-      queryClient.invalidateQueries({ queryKey: ['tenderSubmissions', tender.id] });
-      toast({ title: `Notification sent to ${sub.invitee_name}` });
-    } catch (_e) {
-      toast({ title: 'Failed to send notification', variant: 'destructive' });
+      console.log(`[OutcomePanel] sendSingle to=${sub.invitee_email} subject="${subject}" tpl=${tplKey}`);
+      const res = await base44.functions.invoke('sendEmail', { to: sub.invitee_email, toName: sub.invitee_name || '', subject, htmlBody, templateKey: tplKey });
+      const resData = res?.data;
+      console.log(`[OutcomePanel] sendEmail response for ${sub.invitee_email}:`, JSON.stringify(resData));
+      if (resData?.success === true && resData?.id) {
+        // Only write outcome_notified_at when Resend confirmed delivery with a message ID
+        await base44.entities.TenderSubmission.update(sub.id, {
+          outcome:             outcome || '',
+          outcome_notes:       subNotes[sub.id] || '',
+          outcome_notified_at: new Date().toISOString(),
+        });
+        queryClient.invalidateQueries({ queryKey: ['tenderSubmissions', tender.id] });
+        toast({ title: `Notification sent to ${sub.invitee_name}` });
+      } else {
+        console.error(`[OutcomePanel] sendEmail returned no confirmed ID for ${sub.invitee_email}:`, JSON.stringify(resData));
+        toast({ title: 'Notification failed', description: resData?.error || 'Resend did not confirm delivery — outcome not marked as notified', variant: 'destructive' });
+      }
+    } catch (e) {
+      console.error('[OutcomePanel] sendSingle exception', sub.invitee_email, e);
+      toast({ title: 'Notification failed', description: e?.message, variant: 'destructive' });
     }
   };
 
