@@ -5,12 +5,13 @@
  * Scores are saved back to TenderSubmission records.
  * Scoring criteria are still stored on the Tender record.
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ChevronDown, ChevronUp, Download, Plus, Trash2, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
@@ -135,11 +136,45 @@ function ScoringPanel({ submission, criteria, onSaveScores, saving }) {
   );
 }
 
+function fmt(val) {
+  if (!val) return '—';
+  return `NZD ${Number(val).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}`;
+}
+
+function TradeSummary({ submissions }) {
+  const prices = submissions.map(s => s.lump_sum_price).filter(Boolean);
+  if (prices.length === 0) return null;
+  const lowest  = Math.min(...prices);
+  const highest = Math.max(...prices);
+  const avg     = prices.reduce((a, b) => a + b, 0) / prices.length;
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3 bg-muted/30 rounded-lg border mb-3 text-sm">
+      <div>
+        <p className="text-xs text-muted-foreground">Submissions</p>
+        <p className="font-semibold">{submissions.length}</p>
+      </div>
+      <div>
+        <p className="text-xs text-muted-foreground">Lowest</p>
+        <p className="font-semibold text-green-700">{fmt(lowest)}</p>
+      </div>
+      <div>
+        <p className="text-xs text-muted-foreground">Average</p>
+        <p className="font-semibold">{fmt(avg)}</p>
+      </div>
+      <div>
+        <p className="text-xs text-muted-foreground">Highest</p>
+        <p className="font-semibold text-red-600">{fmt(highest)}</p>
+      </div>
+    </div>
+  );
+}
+
 export default function SubmissionScorer({ tender, onUpdate, canManage }) {
   const queryClient = useQueryClient();
   const [openPanel, setOpenPanel]       = useState(null);
   const [savingScores, setSavingScores] = useState(null);
   const [showCriteria, setShowCriteria] = useState(false);
+  const [tradeFilter, setTradeFilter]   = useState('ALL');
   // Sync criteria from tender prop (source of truth is Tender.scoring_criteria)
   const [criteria, setCriteria] = useState(
     tender.scoring_criteria?.length
@@ -185,6 +220,31 @@ export default function SubmissionScorer({ tender, onUpdate, canManage }) {
     queryClient.invalidateQueries({ queryKey: ['tenderSubmissions', tender.id] });
     setSavingScores(null);
   };
+
+  // Unique trade values from snapshot fields
+  const uniqueTrades = useMemo(() => {
+    const set = new Set(submissions.map(s => s.trade).filter(Boolean));
+    return Array.from(set).sort();
+  }, [submissions]);
+
+  // Filtered + grouped submissions
+  const filteredSubmissions = useMemo(() => {
+    return tradeFilter === 'ALL' ? submissions : submissions.filter(s => s.trade === tradeFilter);
+  }, [submissions, tradeFilter]);
+
+  const tradeGroups = useMemo(() => {
+    const groups = {};
+    for (const sub of filteredSubmissions) {
+      const key = sub.trade || '(No Trade)';
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(sub);
+    }
+    // Sort each group by lump_sum_price ascending
+    for (const key of Object.keys(groups)) {
+      groups[key].sort((a, b) => (a.lump_sum_price || 0) - (b.lump_sum_price || 0));
+    }
+    return groups;
+  }, [filteredSubmissions]);
 
   const chartData = [...submissions]
     .filter(s => !!s.lump_sum_price)
@@ -249,47 +309,93 @@ export default function SubmissionScorer({ tender, onUpdate, canManage }) {
         </div>
       )}
 
-      {/* Submissions list */}
+      {/* Trade filter */}
+      {submissions.length > 0 && (
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-muted-foreground flex-shrink-0">Filter by trade:</span>
+          <Select value={tradeFilter} onValueChange={setTradeFilter}>
+            <SelectTrigger className="w-48 h-8 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All Trades</SelectItem>
+              {uniqueTrades.map(t => (
+                <SelectItem key={t} value={t}>{t}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {tradeFilter !== 'ALL' && (
+            <button className="text-xs text-muted-foreground hover:text-foreground underline" onClick={() => setTradeFilter('ALL')}>
+              Clear
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Submissions list — grouped by trade */}
       {submissions.length === 0 ? (
         <div className="text-center py-10 text-muted-foreground text-sm">No submissions received yet</div>
+      ) : filteredSubmissions.length === 0 ? (
+        <div className="text-center py-10 text-muted-foreground text-sm">No submissions for this trade</div>
       ) : (
-        <div className="space-y-3">
-          {submissions.map(sub => {
-            const ws = calcWeightedScore(sub, criteria);
-            return (
-              <div key={sub.id} className="border rounded-lg overflow-hidden">
-                <div className="flex items-center justify-between p-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-sm">{sub.invitee_name}</span>
-                      {sub.business_name && <span className="text-xs text-muted-foreground">{sub.business_name}</span>}
-                    </div>
-                    <div className="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
-                      {sub.lump_sum_price && (
-                        <span className="font-semibold text-foreground">
-                          NZD {Number(sub.lump_sum_price).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}
-                        </span>
-                      )}
-                      {ws != null && <span className="text-primary font-medium">Score: {ws}/100</span>}
-                      {sub.submitted_at && <span>{format(new Date(sub.submitted_at), 'dd MMM yyyy')}</span>}
-                    </div>
-                  </div>
-                  {canManage && (
-                    <Button variant="outline" size="sm"
-                      onClick={() => setOpenPanel(openPanel === sub.id ? null : sub.id)}>
-                      {openPanel === sub.id ? 'Close' : 'View / Score'}
-                    </Button>
-                  )}
-                </div>
-                {openPanel === sub.id && (
-                  <div className="px-4 pb-4">
-                    <ScoringPanel submission={sub} criteria={criteria}
-                      onSaveScores={saveScores} saving={savingScores === sub.id} />
-                  </div>
-                )}
+        <div className="space-y-6">
+          {Object.entries(tradeGroups).map(([trade, tradeSubs]) => (
+            <div key={trade}>
+              {/* Trade group header */}
+              <div className="flex items-center gap-2 mb-3">
+                <h4 className="font-semibold text-sm">{trade}</h4>
+                <span className="text-xs bg-secondary text-secondary-foreground px-2 py-0.5 rounded-full">{tradeSubs.length}</span>
               </div>
-            );
-          })}
+
+              {/* Trade summary */}
+              <TradeSummary submissions={tradeSubs} />
+
+              {/* Submission cards */}
+              <div className="space-y-2">
+                {tradeSubs.map(sub => {
+                  const ws = calcWeightedScore(sub, criteria);
+                  return (
+                    <div key={sub.id} className="border rounded-lg overflow-hidden">
+                      <div className="flex items-center justify-between p-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-semibold text-sm">{sub.business_name || sub.invitee_name || '—'}</span>
+                            {sub.full_name && sub.full_name !== sub.business_name && (
+                              <span className="text-xs text-muted-foreground">{sub.full_name}</span>
+                            )}
+                            {sub.trade && (
+                              <span className="text-xs bg-secondary text-secondary-foreground px-1.5 py-0.5 rounded">{sub.trade}</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
+                            {sub.lump_sum_price && (
+                              <span className="font-semibold text-foreground">
+                                NZD {Number(sub.lump_sum_price).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}
+                              </span>
+                            )}
+                            {ws != null && <span className="text-primary font-medium">Score: {ws}/100</span>}
+                            {sub.submitted_at && <span>{format(new Date(sub.submitted_at), 'dd MMM yyyy')}</span>}
+                          </div>
+                        </div>
+                        {canManage && (
+                          <Button variant="outline" size="sm"
+                            onClick={() => setOpenPanel(openPanel === sub.id ? null : sub.id)}>
+                            {openPanel === sub.id ? 'Close' : 'View / Score'}
+                          </Button>
+                        )}
+                      </div>
+                      {openPanel === sub.id && (
+                        <div className="px-4 pb-4">
+                          <ScoringPanel submission={sub} criteria={criteria}
+                            onSaveScores={saveScores} saving={savingScores === sub.id} />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
