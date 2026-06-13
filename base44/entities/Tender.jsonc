@@ -51,6 +51,30 @@
       "type": "string",
       "description": "Set when converted to a project"
     },
+    "created_by_user_id": {
+      "type": "string",
+      "description": "Immutable \u2014 user id of creator"
+    },
+    "created_by_name": {
+      "type": "string",
+      "description": "Immutable \u2014 full name of creator"
+    },
+    "created_by_email": {
+      "type": "string",
+      "description": "Immutable \u2014 email of creator"
+    },
+    "tender_lead_user_id": {
+      "type": "string",
+      "description": "User id of the assigned Tender Lead"
+    },
+    "tender_lead_name": {
+      "type": "string",
+      "description": "Full name of the Tender Lead"
+    },
+    "tender_lead_email": {
+      "type": "string",
+      "description": "Email of the Tender Lead"
+    },
     "client_name": {
       "type": "string"
     },
@@ -238,9 +262,6 @@
     "our_result_notes": {
       "type": "string"
     },
-    "created_by_email": {
-      "type": "string"
-    },
     "notes": {
       "type": "string"
     }
@@ -253,6 +274,9 @@
       "$or": [
         {
           "data.created_by_email": "{{user.email}}"
+        },
+        {
+          "data.tender_lead_email": "{{user.email}}"
         },
         {
           "data.invitees.email": "{{user.email}}"
