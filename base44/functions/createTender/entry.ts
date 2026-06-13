@@ -130,11 +130,16 @@ Deno.serve(async (req) => {
     let created;
     try {
       created = await sr.entities.Tender.create({
-        title:            'New Tender',
-        status:           'Draft',
-        tender_number:    tenderNumber,
-        created_by_email: user.email,
-        invitees:         [],
+        title:              'New Tender',
+        status:             'Draft',
+        tender_number:      tenderNumber,
+        created_by_user_id: user.id,
+        created_by_name:    user.full_name || '',
+        created_by_email:   user.email,
+        tender_lead_user_id: user.id,
+        tender_lead_name:    user.full_name || '',
+        tender_lead_email:   user.email,
+        invitees:           [],
         scoring_criteria: [
           { criterion: 'Price',       weight_percent: 40 },
           { criterion: 'Experience',  weight_percent: 20 },
