@@ -36,6 +36,10 @@
     },
     "submitted_date": {
       "type": "string"
+    },
+    "reminder_24h_sent_at": {
+      "type": "string",
+      "description": "ISO datetime when the 24h reminder was sent. Prevents duplicates."
     }
   },
   "required": [
