@@ -26,48 +26,80 @@
   ],
   "rls": {
     "create": {
-      "user_condition": {
-        "role": {
-          "$in": [
-            "admin",
-            "pricing",
-            "internal"
-          ]
+      "$or": [
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        },
+        {
+          "user_condition": {
+            "role": "pricing"
+          }
+        },
+        {
+          "user_condition": {
+            "role": "internal"
+          }
         }
-      }
+      ]
     },
     "read": {
-      "user_condition": {
-        "role": {
-          "$in": [
-            "admin",
-            "pricing",
-            "internal"
-          ]
+      "$or": [
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        },
+        {
+          "user_condition": {
+            "role": "pricing"
+          }
+        },
+        {
+          "user_condition": {
+            "role": "internal"
+          }
         }
-      }
+      ]
     },
     "update": {
-      "user_condition": {
-        "role": {
-          "$in": [
-            "admin",
-            "pricing",
-            "internal"
-          ]
+      "$or": [
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        },
+        {
+          "user_condition": {
+            "role": "pricing"
+          }
+        },
+        {
+          "user_condition": {
+            "role": "internal"
+          }
         }
-      }
+      ]
     },
     "delete": {
-      "user_condition": {
-        "role": {
-          "$in": [
-            "admin",
-            "pricing",
-            "internal"
-          ]
+      "$or": [
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        },
+        {
+          "user_condition": {
+            "role": "pricing"
+          }
+        },
+        {
+          "user_condition": {
+            "role": "internal"
+          }
         }
-      }
+      ]
     }
   }
 }
