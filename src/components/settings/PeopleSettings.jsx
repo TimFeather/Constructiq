@@ -66,14 +66,11 @@ function PendingInvitationsTab() {
   }, [allUsers, rawInvitedForReconcile]);
   const [search, setSearch] = useState('');
 
-  const { data: allInvitedUsers = [], isLoading } = useQuery({
+  const { data: invitedUsers = [], isLoading } = useQuery({
     queryKey: ['invitedUsers'],
-    queryFn: () => base44.entities.InvitedUser.list('-created_date', 200),
+    queryFn: () => base44.entities.InvitedUser.filter({ status: 'Pending' }, '-created_date', 200),
     enabled: user?.role === 'admin',
   });
-
-  // Fix 3: Only show non-Accepted invitations in this tab
-  const invitedUsers = allInvitedUsers.filter(i => i.status !== 'Accepted');
 
   const { data: assignments = [] } = useQuery({
     queryKey: ['pendingAssignments'],

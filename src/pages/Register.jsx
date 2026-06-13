@@ -97,15 +97,19 @@ export default function Register() {
           last_name: form.last_name,
           phone: form.phone,
           business_name: form.business_name,
-          // If invited, apply the assigned role; never use a self-selected role
-          ...(inviteInfo?.role ? { construction_role: inviteInfo.role } : {}),
         });
       } catch (_) { /* non-critical */ }
-      // Trigger pending assignment activation
-      try {
-        await base44.functions.invoke('processPendingAssignments', {});
-      } catch (_) { /* non-critical */ }
-      window.location.href = "/";
+      // Mark invitation as Accepted if one was detected
+      if (inviteInfo?.invitedUserId) {
+        try {
+          await base44.entities.InvitedUser.update(inviteInfo.invitedUserId, {
+            status: 'Accepted',
+            accepted_at: new Date().toISOString(),
+          });
+        } catch (_) { /* non-critical */ }
+      }
+      // NOTE: processPendingAssignments disabled during stabilisation phase
+      window.location.href = "/login";
     } catch (err) {
       setError(err.message || "Invalid verification code");
     } finally {
