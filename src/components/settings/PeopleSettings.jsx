@@ -3,7 +3,7 @@
  * Settings → People tab
  * Tabs: Users | Pending Invitations | Contacts
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
@@ -33,13 +33,47 @@ function PendingInvitationsTab() {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  // Fix 4: Reconciliation — auto-accept any Pending invite where the user has already registered
+  const { data: allUsers = [] } = useQuery({
+    queryKey: ['allUsers'],
+    queryFn: () => base44.entities.User.list(),
+    enabled: user?.role === 'admin',
+  });
+
+  const { data: rawInvitedForReconcile = [] } = useQuery({
+    queryKey: ['invitedUsersReconcile'],
+    queryFn: () => base44.entities.InvitedUser.filter({ status: 'Pending' }),
+    enabled: user?.role === 'admin',
+  });
+
+  useEffect(() => {
+    if (!allUsers.length || !rawInvitedForReconcile.length) return;
+    const registeredEmails = new Set(allUsers.map(u => u.email?.toLowerCase()));
+    const stale = rawInvitedForReconcile.filter(inv =>
+      registeredEmails.has(inv.email?.toLowerCase())
+    );
+    if (stale.length === 0) return;
+    const now = new Date().toISOString();
+    Promise.all(
+      stale.map(inv =>
+        base44.entities.InvitedUser.update(inv.id, { status: 'Accepted', accepted_at: now })
+      )
+    ).then(() => {
+      queryClient.invalidateQueries({ queryKey: ['invitedUsers'] });
+      queryClient.invalidateQueries({ queryKey: ['invitedUsersReconcile'] });
+    }).catch(() => {});
+  }, [allUsers, rawInvitedForReconcile]);
   const [search, setSearch] = useState('');
 
-  const { data: invitedUsers = [], isLoading } = useQuery({
+  const { data: allInvitedUsers = [], isLoading } = useQuery({
     queryKey: ['invitedUsers'],
     queryFn: () => base44.entities.InvitedUser.list('-created_date', 200),
     enabled: user?.role === 'admin',
   });
+
+  // Fix 3: Only show non-Accepted invitations in this tab
+  const invitedUsers = allInvitedUsers.filter(i => i.status !== 'Accepted');
 
   const { data: assignments = [] } = useQuery({
     queryKey: ['pendingAssignments'],

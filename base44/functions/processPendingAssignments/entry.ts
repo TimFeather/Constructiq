@@ -93,7 +93,7 @@ Deno.serve(async (req) => {
       const inviteRecords = await base44.asServiceRole.entities.InvitedUser.filter({ email });
       const pendingInvite = inviteRecords.find(i => i.status === 'Pending');
       if (pendingInvite) {
-        await base44.asServiceRole.entities.InvitedUser.update(pendingInvite.id, { status: 'Accepted' });
+        await base44.asServiceRole.entities.InvitedUser.update(pendingInvite.id, { status: 'Accepted', accepted_at: now });
         await base44.asServiceRole.entities.AuditLog.create({
           action: 'User Registered',
           entity_type: 'InvitedUser',

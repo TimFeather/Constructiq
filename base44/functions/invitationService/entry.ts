@@ -388,6 +388,26 @@ Deno.serve(async (req) => {
       return Response.json({ success: true, alreadyMember });
     }
 
+    // ── ACTION: listAssignments ───────────────────────────────────────────
+    // Returns pending project names for a given email (used on Register page)
+    if (action === 'listAssignments') {
+      const { email } = body;
+      if (!email) return Response.json({ projects: [] });
+      const normalEmail = email.toLowerCase().trim();
+      const assignments = await base44.asServiceRole.entities.PendingProjectAssignment.filter({
+        email: normalEmail,
+        status: 'Pending',
+      });
+      const projectIds = [...new Set(assignments.map(a => a.project_id).filter(Boolean))];
+      const projects = await Promise.all(
+        projectIds.map(async id => {
+          const p = await base44.asServiceRole.entities.Project.filter({ id });
+          return p[0] ? { id: p[0].id, name: p[0].name } : null;
+        })
+      );
+      return Response.json({ projects: projects.filter(Boolean) });
+    }
+
     return Response.json({ error: `Unknown action: ${action}` }, { status: 400 });
 
   } catch (error) {
