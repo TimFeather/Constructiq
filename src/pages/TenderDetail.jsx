@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ArrowLeft, Save, X, Trash2, AlertCircle, RefreshCw, FolderOpen, Lock } from 'lucide-react';
+import { ArrowLeft, Save, X, Trash2, AlertCircle, RefreshCw, FolderOpen, Lock, User } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { useToast } from '@/components/ui/use-toast';
 import TenderDocuments from '@/components/tenders/TenderDocuments';
@@ -80,10 +80,18 @@ export default function TenderDetail() {
     setIsDirty(false);
   }, [tender?.id, tender?.updated_date]);
 
+  // Fetch admin+pricing users for Tender Lead selector
+  const { data: allUsers = [] } = useQuery({
+    queryKey: ['users'],
+    queryFn: () => base44.entities.User.list(),
+    enabled: !!canManage,
+  });
+  const eligibleLeads = allUsers.filter(u => u.role === 'admin' || u.role === 'pricing');
+
   // Detect unsaved changes
   useEffect(() => {
     if (!tender || !form) return;
-    const textFields = ['title', 'description', 'status', 'location', 'issue_date', 'notes', 'client_name', 'client_email', 'architect_name', 'architect_email', 'project_manager_name', 'project_manager_email'];
+    const textFields = ['title', 'description', 'status', 'location', 'issue_date', 'notes', 'client_name', 'client_email', 'architect_name', 'architect_email', 'project_manager_name', 'project_manager_email', 'tender_lead_user_id'];
     const textChanged = textFields.some(key => String(form[key] ?? '') !== String(tender[key] ?? ''));
     const valueChanged = String(form.estimated_value ?? '') !== String(tender.estimated_value ?? '');
     const tradeChanged = JSON.stringify(form.trade_packages ?? []) !== JSON.stringify(tender.trade_packages ?? []);
@@ -143,6 +151,9 @@ export default function TenderDetail() {
       closing_date: buildClosingDatetime(),
       estimated_value: form.estimated_value ? Number(form.estimated_value) : null,
       trade_packages: form.trade_packages || [],
+      tender_lead_user_id: form.tender_lead_user_id || null,
+      tender_lead_name: form.tender_lead_name || null,
+      tender_lead_email: form.tender_lead_email || null,
       client_name: form.client_name,
       client_contact: form.client_contact,
       client_email: form.client_email,
@@ -153,7 +164,7 @@ export default function TenderDetail() {
       project_manager_contact: form.project_manager_contact,
       project_manager_email: form.project_manager_email,
       additional_contacts: form.additional_contacts || [],
-        notes: form.notes,
+      notes: form.notes,
       });
       setIsDirty(false);
       toast({ title: 'Tender saved' });
@@ -321,6 +332,54 @@ export default function TenderDetail() {
             <div>
               <Label className="text-xs">Closing Time</Label>
               <Input type="time" value={form.closing_time || '17:00'} onChange={e => setForm(f => ({ ...f, closing_time: e.target.value }))} disabled={!canManage} />
+            </div>
+          </div>
+
+          {/* Tender Ownership */}
+          <div className="grid sm:grid-cols-2 gap-4 p-4 border rounded-lg bg-muted/20">
+            <div className="sm:col-span-2 flex items-center gap-2 mb-1">
+              <User className="w-4 h-4 text-muted-foreground" />
+              <h3 className="text-sm font-semibold">Tender Ownership</h3>
+            </div>
+            {/* Created By — read-only */}
+            <div>
+              <Label className="text-xs">Created By</Label>
+              <Input value={tender.created_by_name || tender.created_by_email || '—'} disabled className="bg-muted text-sm" />
+              {tender.created_by_email && tender.created_by_name && (
+                <p className="text-xs text-muted-foreground mt-0.5">{tender.created_by_email}</p>
+              )}
+            </div>
+            {/* Tender Lead — editable by canManage */}
+            <div>
+              <Label className="text-xs">Tender Lead</Label>
+              {canManage && eligibleLeads.length > 0 ? (
+                <Select
+                  value={form.tender_lead_user_id || ''}
+                  onValueChange={v => {
+                    const lead = eligibleLeads.find(u => u.id === v);
+                    setForm(f => ({
+                      ...f,
+                      tender_lead_user_id: v,
+                      tender_lead_name: lead?.full_name || '',
+                      tender_lead_email: lead?.email || '',
+                    }));
+                  }}
+                >
+                  <SelectTrigger><SelectValue placeholder="Select Tender Lead..." /></SelectTrigger>
+                  <SelectContent>
+                    {eligibleLeads.map(u => (
+                      <SelectItem key={u.id} value={u.id}>
+                        {u.full_name || u.email}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input value={form.tender_lead_name || form.tender_lead_email || '—'} disabled className="bg-muted text-sm" />
+              )}
+              {form.tender_lead_email && form.tender_lead_name && (
+                <p className="text-xs text-muted-foreground mt-0.5">{form.tender_lead_email}</p>
+              )}
             </div>
           </div>
 
