@@ -7,8 +7,22 @@ Deno.serve(async (req) => {
     const user = await base44.auth.me();
     if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { to, toName, subject, htmlBody, templateKey } = await req.json();
+    const rawBody = await req.json();
+    console.log(`[sendEmail] RAW INCOMING PAYLOAD: ${JSON.stringify(rawBody)}`);
+
+    const { to, toName, subject, htmlBody, templateKey } = rawBody;
+
+    console.log(`[sendEmail] DESTRUCTURED VALUES:`);
+    console.log(`  to          = ${JSON.stringify(to)}`);
+    console.log(`  toName      = ${JSON.stringify(toName)}`);
+    console.log(`  subject     = ${JSON.stringify(subject)}`);
+    console.log(`  htmlBody    = ${JSON.stringify(typeof htmlBody === 'string' ? htmlBody.substring(0, 200) : htmlBody)}`);
+    console.log(`  templateKey = ${JSON.stringify(templateKey)}`);
+    console.log(`[sendEmail] TYPES: to=${typeof to}, subject=${typeof subject}, htmlBody=${typeof htmlBody}`);
+    console.log(`[sendEmail] LENGTHS: to=${to?.length}, subject=${subject?.length}, htmlBody=${htmlBody?.length}`);
+
     if (!to || !subject || !htmlBody) {
+      console.log(`[sendEmail] VALIDATION FAILED: to=${!!to}, subject=${!!subject}, htmlBody=${!!htmlBody}`);
       return Response.json({ error: 'to, subject, htmlBody required' }, { status: 400 });
     }
 
@@ -17,21 +31,27 @@ Deno.serve(async (req) => {
     const fromName = branding.sender_name || branding.company_name || 'ConstructIQ';
     const fromEmail = `${fromName} <noreply@totalhomesolutions.co.nz>`;
 
-    console.log(`[sendEmail] SEND to=${to} subject="${subject}" templateKey=${templateKey || 'n/a'} from="${fromEmail}"`);
-
-    const resend = new Resend(Deno.env.get('RESEND_API_KEY'));
-    const result = await resend.emails.send({
+    const resendPayload = {
       from: fromEmail,
       to: toName ? [{ email: to, name: toName }] : to,
       subject,
       html: htmlBody,
-    });
+    };
+    console.log(`[sendEmail] RESEND PAYLOAD (html truncated): ${JSON.stringify({
+      ...resendPayload,
+      html: typeof resendPayload.html === 'string' ? resendPayload.html.substring(0, 200) + '...' : resendPayload.html
+    })}`);
 
-    console.log(`[sendEmail] Resend raw result: ${JSON.stringify(result)}`);
+    const resend = new Resend(Deno.env.get('RESEND_API_KEY'));
+    const result = await resend.emails.send(resendPayload);
 
-    // Validate that Resend accepted the email and returned a message ID
+    console.log(`[sendEmail] RESEND RAW RESULT: ${JSON.stringify(result)}`);
+    console.log(`[sendEmail] result.data = ${JSON.stringify(result?.data)}`);
+    console.log(`[sendEmail] result.data.id = ${JSON.stringify(result?.data?.id)}`);
+    console.log(`[sendEmail] result.error = ${JSON.stringify(result?.error)}`);
+
     if (!result || !result.data || !result.data.id) {
-      console.error(`[sendEmail] FAILED — Resend did not return a message ID. Full result: ${JSON.stringify(result)}`);
+      console.error(`[sendEmail] TRIGGER: "Resend did not confirm" — result=${JSON.stringify(result)}`);
       return Response.json(
         { success: false, error: 'Resend did not return a message ID', result },
         { status: 500 }
