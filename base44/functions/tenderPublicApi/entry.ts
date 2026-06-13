@@ -41,12 +41,30 @@ Deno.serve(async (req) => {
 
     // ── UPLOAD ────────────────────────────────────────────────────────────────
     if (action === 'upload') {
-      const { fileName, fileData, fileType } = payload;
-      if (!fileName || !fileData) return Response.json({ error: 'fileName and fileData required' }, { status: 400 });
-      const binary = Uint8Array.from(atob(fileData), c => c.charCodeAt(0));
-      const blob   = new Blob([binary], { type: fileType || 'application/octet-stream' });
-      const { file_url } = await sr.integrations.Core.UploadFile({ file: blob, filename: fileName });
-      return Response.json({ file_url });
+      try {
+        const { fileName, fileData, fileType } = payload;
+
+        if (!fileName || !fileData) {
+          return Response.json({ error: 'fileName and fileData required' }, { status: 400 });
+        }
+
+        console.log(`[tenderPublicApi] UPLOAD START fileName=${fileName} fileType=${fileType} base64Length=${fileData?.length}`);
+
+        const binary = Uint8Array.from(atob(fileData), c => c.charCodeAt(0));
+        const file   = new File([binary], fileName, { type: fileType || 'application/octet-stream' });
+
+        console.log(`[tenderPublicApi] File constructed name=${file.name} type=${file.type} size=${file.size}`);
+
+        const { file_url } = await sr.integrations.Core.UploadFile({ file });
+
+        console.log(`[tenderPublicApi] UPLOAD SUCCESS file_url=${file_url}`);
+
+        return Response.json({ file_url });
+
+      } catch (uploadError) {
+        console.error(`[tenderPublicApi] UPLOAD ERROR: ${uploadError?.message}`, uploadError);
+        return Response.json({ error: uploadError?.message || 'Upload failed' }, { status: 500 });
+      }
     }
 
     // ── GET ───────────────────────────────────────────────────────────────────
