@@ -20,6 +20,7 @@ import OutcomePanel from '@/components/tenders/OutcomePanel.jsx';
 import ConvertToProjectModal from '@/components/tenders/ConvertToProjectModal';
 import TenderHealthPanel from '@/components/tenders/TenderHealthPanel.jsx';
 import TenderDebugPanel from '@/components/tenders/TenderDebugPanel';
+import TenderInvitationStats from '@/components/tenders/TenderInvitationStats';
 
 const TRADES = [
   'Electrical', 'Plumbing', 'HVAC', 'Carpentry', 'Masonry',
@@ -480,6 +481,7 @@ export default function TenderDetail() {
         {/* Tab 3 — Invitees */}
         <TabsContent value="invitees">
           <div className="space-y-4">
+            <TenderInvitationStats tenderId={tender.id} />
             <TenderHealthPanel tender={tender} user={user} />
             <TenderDebugPanel tender={tender} />
             <InviteeManager tender={tender} onUpdate={handleUpdate} canManage={canManage} />

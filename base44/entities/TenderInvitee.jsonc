@@ -32,7 +32,8 @@
         "Invited",
         "Viewed",
         "Submitted",
-        "Declined"
+        "Declined",
+        "Archived"
       ],
       "default": "Draft"
     }

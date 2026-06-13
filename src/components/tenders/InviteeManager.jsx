@@ -4,6 +4,8 @@
  * Source of truth: TenderInvitee entity only.
  * No direct writes to TenderContact (handled server-side via manageTenderInvitee).
  * No tokens or invitations created here — those happen at issue time via sendTenderInvitations.
+ *
+ * v2: Actions column (Resend, Delete/Archive), Resend All Outstanding button.
  */
 import React, { useState, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -13,7 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { Users, Plus, Trash2, Send, UserCheck, Search } from 'lucide-react';
+import { Users, Plus, Trash2, Send, UserCheck, Search, RefreshCw, Archive } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 
 const TRADES = [
@@ -28,9 +30,12 @@ const STATUS_STYLES = {
   Viewed:     'bg-cyan-100 text-cyan-700',
   Submitted:  'bg-green-100 text-green-700',
   Declined:   'bg-red-100 text-red-600',
+  Archived:   'bg-gray-100 text-gray-400',
 };
 
 const emptyForm = { full_name: '', business_name: '', email: '', phone: '', trade: '' };
+
+const RESENDABLE_STATUSES = ['Draft', 'Invited', 'Viewed'];
 
 export default function InviteeManager({ tender, onUpdate, canManage }) {
   const { toast }   = useToast();
@@ -48,8 +53,17 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
 
   const [showIssueConfirm, setShowIssueConfirm] = useState(false);
   const [issuing, setIssuing] = useState(false);
-  const [issueResult, setIssueResult] = useState(null); // { sent, failed, errors }
+  const [issueResult, setIssueResult] = useState(null);
   const [adding, setAdding]   = useState(false);
+
+  // Per-invitee loading state: { [inviteeId]: 'resending' | 'deleting' }
+  const [actionLoading, setActionLoading] = useState({});
+
+  // Archive confirmation dialog
+  const [archiveTarget, setArchiveTarget] = useState(null); // invitee record
+
+  // Resend all loading
+  const [resendingAll, setResendingAll] = useState(false);
 
   // ── Primary data: TenderInvitee ───────────────────────────────────────────
   const { data: invitees = [], refetch: refetchInvitees } = useQuery({
@@ -62,6 +76,12 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
     queryKey: ['tenderContacts'],
     queryFn:  () => base44.entities.TenderContact.list('-created_date', 500).catch(() => []),
   });
+
+  const invalidateAll = () => {
+    queryClient.invalidateQueries({ queryKey: ['tender', tender.id] });
+    queryClient.invalidateQueries({ queryKey: ['tenderInvitees', tender.id] });
+    queryClient.invalidateQueries({ queryKey: ['tenderInvitations', tender.id] });
+  };
 
   // ── Name autocomplete ─────────────────────────────────────────────────────
   const handleNameInput = (val) => {
@@ -159,34 +179,107 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
     }
   };
 
-  // ── Remove invitee ────────────────────────────────────────────────────────
-  const removeInvitee = async (inv) => {
+  // ── Resend invitation ─────────────────────────────────────────────────────
+  const resendInvitation = async (inv) => {
+    if (actionLoading[inv.id]) return;
+    setActionLoading(s => ({ ...s, [inv.id]: 'resending' }));
     try {
-      await base44.functions.invoke('manageTenderInvitee', { action: 'delete', inviteeId: inv.id });
+      await base44.functions.invoke('resendInvitation', { inviteeId: inv.id });
+      toast({ title: `Invitation resent to ${inv.full_name}`, duration: 3000 });
+      invalidateAll();
       await refetchInvitees();
     } catch (err) {
+      toast({ title: 'Resend failed', description: err?.response?.data?.error || err?.message, variant: 'destructive', duration: 6000 });
+    } finally {
+      setActionLoading(s => ({ ...s, [inv.id]: null }));
+    }
+  };
+
+  // ── Resend all outstanding (Sent + Viewed, excludes Submitted/Archived) ───
+  const resendAllOutstanding = async () => {
+    const outstanding = invitees.filter(i => i.status === 'Invited' || i.status === 'Viewed');
+    if (outstanding.length === 0) {
+      toast({ title: 'No outstanding invitations', description: 'All invitees have either submitted or not yet been sent an invitation.', duration: 4000 });
+      return;
+    }
+    setResendingAll(true);
+    let succeeded = 0, failed = 0;
+    for (const inv of outstanding) {
+      try {
+        await base44.functions.invoke('resendInvitation', { inviteeId: inv.id });
+        succeeded++;
+      } catch {
+        failed++;
+      }
+    }
+    invalidateAll();
+    await refetchInvitees();
+    setResendingAll(false);
+    if (failed === 0) {
+      toast({ title: `${succeeded} invitation${succeeded !== 1 ? 's' : ''} resent`, duration: 3500 });
+    } else {
+      toast({ title: `${succeeded} resent, ${failed} failed`, variant: 'destructive', duration: 6000 });
+    }
+  };
+
+  // ── Delete / Archive invitee ──────────────────────────────────────────────
+  const handleDeleteInvitee = async (inv) => {
+    // Check if a submission exists
+    const submissions = await base44.entities.TenderSubmission.filter({ invitee_id: inv.id }).catch(() => []);
+    if (submissions.length > 0) {
+      // Show archive confirmation
+      setArchiveTarget(inv);
+      return;
+    }
+    // Hard delete
+    setActionLoading(s => ({ ...s, [inv.id]: 'deleting' }));
+    try {
+      await base44.functions.invoke('manageTenderInvitee', { action: 'delete', inviteeId: inv.id });
+      invalidateAll();
+      await refetchInvitees();
+      toast({ title: `${inv.full_name} removed`, duration: 2500 });
+    } catch (err) {
       toast({ title: 'Remove failed', description: err?.message, variant: 'destructive', duration: 5000 });
+    } finally {
+      setActionLoading(s => ({ ...s, [inv.id]: null }));
+    }
+  };
+
+  const archiveInvitee = async () => {
+    if (!archiveTarget) return;
+    const inv = archiveTarget;
+    setArchiveTarget(null);
+    setActionLoading(s => ({ ...s, [inv.id]: 'deleting' }));
+    try {
+      await base44.entities.TenderInvitee.update(inv.id, { status: 'Archived' });
+      invalidateAll();
+      await refetchInvitees();
+      toast({ title: `${inv.full_name} archived`, duration: 2500 });
+    } catch (err) {
+      toast({ title: 'Archive failed', description: err?.message, variant: 'destructive', duration: 5000 });
+    } finally {
+      setActionLoading(s => ({ ...s, [inv.id]: null }));
     }
   };
 
   // ── Issue tender ──────────────────────────────────────────────────────────
-  const draftInvitees  = invitees.filter(i => !i.status || i.status === 'Draft');
-  const emailableCount = invitees.filter(i => i.email).length;
+  const draftInvitees  = invitees.filter(i => (!i.status || i.status === 'Draft') && i.status !== 'Archived');
+  const emailableCount = invitees.filter(i => i.email && i.status !== 'Archived').length;
   const newCount       = draftInvitees.filter(i => i.email).length;
 
-  const showIssueButton = canManage && invitees.length > 0 &&
+  const showIssueButton = canManage && invitees.filter(i => i.status !== 'Archived').length > 0 &&
     (tender.status === 'Draft' || (tender.status === 'Issued' && draftInvitees.length > 0));
+
+  const outstandingCount = invitees.filter(i => i.status === 'Invited' || i.status === 'Viewed').length;
 
   const issueTender = async () => {
     setIssuing(true);
     try {
-      // Update tender status first
       await onUpdate({
         status:     'Issued',
         issue_date: tender.issue_date || new Date().toISOString().split('T')[0],
       });
 
-      // Send invitations to all Draft invitees with email
       const result = await base44.functions.invoke('sendTenderInvitations', {
         tenderId: tender.id,
         tenderInfo: {
@@ -205,11 +298,8 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
 
       const { sent = 0, failed = 0, errors = [] } = result.data || {};
 
-      // Invalidate all related queries so UI reflects DB state
+      invalidateAll();
       await refetchInvitees();
-      queryClient.invalidateQueries({ queryKey: ['tender', tender.id] });
-      queryClient.invalidateQueries({ queryKey: ['tenders'] });
-      queryClient.invalidateQueries({ queryKey: ['tenderInvitations', tender.id] });
 
       setIssueResult({ sent, failed, errors });
 
@@ -231,6 +321,10 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
     }
   };
 
+  // Visible invitees: exclude Archived from default view
+  const visibleInvitees = invitees.filter(i => i.status !== 'Archived');
+  const archivedCount   = invitees.filter(i => i.status === 'Archived').length;
+
   return (
     <div className="space-y-6">
       {/* Issue button */}
@@ -243,11 +337,35 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
             <p className="text-xs text-blue-700 dark:text-blue-300">
               {tender.status === 'Issued'
                 ? `${draftInvitees.length} new invitee${draftInvitees.length !== 1 ? 's' : ''} will receive an invitation email`
-                : `${invitees.length} invitee${invitees.length !== 1 ? 's' : ''} · ${emailableCount} with email addresses`}
+                : `${visibleInvitees.length} invitee${visibleInvitees.length !== 1 ? 's' : ''} · ${emailableCount} with email addresses`}
             </p>
           </div>
           <Button onClick={() => setShowIssueConfirm(true)} className="gap-2 bg-blue-600 hover:bg-blue-700">
             <Send className="w-4 h-4" /> {tender.status === 'Issued' ? 'Send to New' : 'Issue Tender'}
+          </Button>
+        </div>
+      )}
+
+      {/* Resend all outstanding */}
+      {canManage && outstandingCount > 0 && tender.status === 'Issued' && (
+        <div className="flex items-center justify-between p-3 bg-amber-50 dark:bg-amber-950/20 rounded-lg border border-amber-200 dark:border-amber-800">
+          <div>
+            <p className="text-sm font-medium text-amber-900 dark:text-amber-100">Outstanding invitations</p>
+            <p className="text-xs text-amber-700 dark:text-amber-300">
+              {outstandingCount} invitee{outstandingCount !== 1 ? 's' : ''} sent/viewed but not yet submitted
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2 border-amber-300 text-amber-800 hover:bg-amber-100"
+            onClick={resendAllOutstanding}
+            disabled={resendingAll}
+          >
+            {resendingAll
+              ? <><div className="w-3.5 h-3.5 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" /> Resending…</>
+              : <><RefreshCw className="w-3.5 h-3.5" /> Resend Outstanding</>
+            }
           </Button>
         </div>
       )}
@@ -358,37 +476,77 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
       )}
 
       {/* Invitee list */}
-      {invitees.length === 0 ? (
+      {visibleInvitees.length === 0 ? (
         <div className="text-center py-10 text-muted-foreground">
           <Users className="w-10 h-10 mx-auto mb-3 opacity-30" />
           <p className="text-sm">No invitees added yet</p>
         </div>
       ) : (
         <div className="space-y-2">
-          <p className="text-sm font-medium text-muted-foreground">{invitees.length} Invitee{invitees.length !== 1 ? 's' : ''}</p>
-          {invitees.map(inv => (
-            <div key={inv.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/30 transition-colors">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-medium text-sm">{inv.full_name || '—'}</span>
-                  {inv.business_name && <span className="text-xs text-muted-foreground">{inv.business_name}</span>}
-                  {inv.trade && <span className="text-xs bg-secondary text-secondary-foreground px-1.5 py-0.5 rounded">{inv.trade}</span>}
-                  {inv.status && (
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[inv.status] || 'bg-gray-100 text-gray-700'}`}>
-                      {inv.status}
-                    </span>
-                  )}
+          <p className="text-sm font-medium text-muted-foreground">
+            {visibleInvitees.length} Invitee{visibleInvitees.length !== 1 ? 's' : ''}
+            {archivedCount > 0 && <span className="ml-2 text-xs text-gray-400">({archivedCount} archived)</span>}
+          </p>
+          {visibleInvitees.map(inv => {
+            const isLoading = !!actionLoading[inv.id];
+            const canResend = canManage && RESENDABLE_STATUSES.includes(inv.status || 'Draft') && tender.status === 'Issued';
+            const canDelete = canManage && inv.status !== 'Archived';
+
+            return (
+              <div key={inv.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/30 transition-colors">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-medium text-sm">{inv.full_name || '—'}</span>
+                    {inv.business_name && <span className="text-xs text-muted-foreground">{inv.business_name}</span>}
+                    {inv.trade && <span className="text-xs bg-secondary text-secondary-foreground px-1.5 py-0.5 rounded">{inv.trade}</span>}
+                    {inv.status && (
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[inv.status] || 'bg-gray-100 text-gray-700'}`}>
+                        {inv.status}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">{inv.email || 'No email'}</p>
                 </div>
-                <p className="text-xs text-muted-foreground mt-0.5">{inv.email || 'No email'}</p>
+
+                {/* Actions */}
+                {canManage && (
+                  <div className="flex items-center gap-1 ml-3 flex-shrink-0">
+                    {canResend && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-2 gap-1 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                        onClick={() => resendInvitation(inv)}
+                        disabled={isLoading}
+                        title="Resend invitation email"
+                      >
+                        {actionLoading[inv.id] === 'resending'
+                          ? <div className="w-3.5 h-3.5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                          : <RefreshCw className="w-3.5 h-3.5" />
+                        }
+                        <span className="hidden sm:inline">Resend</span>
+                      </Button>
+                    )}
+                    {canDelete && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => handleDeleteInvitee(inv)}
+                        disabled={isLoading}
+                        title="Remove invitee"
+                      >
+                        {actionLoading[inv.id] === 'deleting'
+                          ? <div className="w-3.5 h-3.5 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
+                          : <Trash2 className="w-4 h-4" />
+                        }
+                      </Button>
+                    )}
+                  </div>
+                )}
               </div>
-              {canManage && (inv.status === 'Draft' || !inv.status) && (
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive flex-shrink-0"
-                  onClick={() => removeInvitee(inv)}>
-                  <Trash2 className="w-4 h-4" />
-                </Button>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -415,6 +573,26 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
             <AlertDialogCancel disabled={issuing}>Cancel</AlertDialogCancel>
             <Button onClick={issueTender} disabled={issuing}>
               {issuing ? 'Sending…' : tender.status === 'Issued' ? 'Send Invitations' : 'Issue Tender'}
+            </Button>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Archive confirmation dialog */}
+      <AlertDialog open={!!archiveTarget} onOpenChange={(open) => { if (!open) setArchiveTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Preserve Submission History?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <strong>{archiveTarget?.full_name}</strong> has submitted pricing. Historical tender records must be preserved.
+              <br /><br />
+              This invitee will be archived and hidden from the default view, but their submission data will remain intact.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="flex justify-end gap-2 mt-2">
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <Button variant="outline" className="gap-2" onClick={archiveInvitee}>
+              <Archive className="w-4 h-4" /> Archive Invitee
             </Button>
           </div>
         </AlertDialogContent>
