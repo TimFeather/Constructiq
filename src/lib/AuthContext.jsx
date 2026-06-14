@@ -82,7 +82,7 @@ export const AuthProvider = ({ children }) => {
       const currentUser = await base44.auth.me();
 
       // Hard-block deactivated users before granting any access
-      if (currentUser?.disabled === true) {
+      if (currentUser?.data?.disabled === true) {
         setIsLoadingAuth(false);
         setIsAuthenticated(false);
         setAuthChecked(true);

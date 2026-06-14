@@ -60,7 +60,7 @@ export default function UserManagement() {
   });
 
   const deactivateUserMutation = useMutation({
-    mutationFn: (userId) => base44.entities.User.update(userId, { disabled: true }),
+    mutationFn: (userId) => base44.entities.User.update(userId, { data: { disabled: true } }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
       setDeleteConfirm(null);
@@ -68,7 +68,7 @@ export default function UserManagement() {
   });
 
   const reactivateUserMutation = useMutation({
-    mutationFn: (userId) => base44.entities.User.update(userId, { disabled: false }),
+    mutationFn: (userId) => base44.entities.User.update(userId, { data: { disabled: false } }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['users'] }),
   });
 
@@ -142,7 +142,7 @@ export default function UserManagement() {
         <CardContent>
           <div className="space-y-2">
             {users.map(u => {
-              const isDeactivated = u.disabled === true;
+              const isDeactivated = u.data?.disabled === true;
               return (
               <div key={u.id} className={`flex items-center justify-between p-3 rounded-lg ${isDeactivated ? 'bg-muted/30 opacity-70' : 'bg-muted/50'}`}>
                 <div className="min-w-0 flex-1">

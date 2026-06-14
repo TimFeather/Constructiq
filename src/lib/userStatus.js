@@ -15,7 +15,7 @@
  */
 export function isUserActive(user) {
   if (!user) return false;
-  return user.disabled !== true;
+  return user.data?.disabled !== true;
 }
 
 /**
@@ -24,7 +24,7 @@ export function isUserActive(user) {
  */
 export function isUserDeactivated(user) {
   if (!user) return false;
-  return user.disabled === true;
+  return user.data?.disabled === true;
 }
 
 /**
