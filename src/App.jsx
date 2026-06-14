@@ -26,6 +26,7 @@ import Tenders from '@/pages/Tenders';
 import TenderDetail from '@/pages/TenderDetail';
 import TenderSubmit from '@/pages/TenderSubmit';
 import TenderTestSuite from '@/pages/TenderTestSuite';
+import AccountDeactivated from '@/pages/AccountDeactivated';
 
 const TendersRoute = ({ children }) => {
   const { user } = useAuth();
@@ -59,7 +60,9 @@ const AuthenticatedApp = () => {
   }
 
   if (authError) {
-    if (authError.type === 'user_not_registered') {
+    if (authError.type === 'account_deactivated') {
+      return <AccountDeactivated />;
+    } else if (authError.type === 'user_not_registered') {
       return <UserNotRegisteredError />;
     } else if (authError.type === 'auth_required') {
       navigateToLogin();

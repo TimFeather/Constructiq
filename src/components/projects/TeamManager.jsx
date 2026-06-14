@@ -11,6 +11,7 @@ import { Plus, Trash2, Users, UserCheck, Pencil, Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/components/ui/use-toast';
 import { resolveTemplate, applyTemplate, buildEmailHtml } from '@/lib/emailTemplates';
+import { isUserDeactivated, filterActiveUsers } from '@/lib/userStatus';
 
 const DEFAULT_ROLES = [
   'Architect', 'Client', 'External Project Manager',
@@ -117,9 +118,9 @@ export default function TeamManager({ project }) {
     setEmailInput(val);
     setNewMember(prev => ({ ...prev, user_email: val }));
     setEmailStatus(null);
-    // User suggestions from registered users
+    // Only suggest active users
     if (val.length >= 2) {
-      const matches = allUsers.filter(u =>
+      const matches = filterActiveUsers(allUsers).filter(u =>
         u.email?.toLowerCase().includes(val.toLowerCase()) ||
         u.full_name?.toLowerCase().includes(val.toLowerCase())
       );
@@ -266,16 +267,23 @@ export default function TeamManager({ project }) {
         <CardContent>
           {(project.team || []).length > 0 ? (
             <div className="space-y-2">
-              {(project.team || []).map((member, i) => (
+              {(project.team || []).map((member, i) => {
+                const matchedUser = allUsers.find(u => u.email?.toLowerCase() === member.user_email?.toLowerCase());
+                const isMemberDeactivated = matchedUser ? isUserDeactivated(matchedUser) : false;
+                return (
                 <div key={i} className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-medium text-sm">{member.full_name}</span>
                       <Badge variant="outline" className="text-xs">{member.role}</Badge>
+                      {isMemberDeactivated && (
+                        <Badge variant="outline" className="text-xs text-red-600 border-red-300 bg-red-50">Deactivated</Badge>
+                      )}
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <p className="text-sm text-muted-foreground text-center py-2">No team members assigned</p>
@@ -297,7 +305,9 @@ export default function TeamManager({ project }) {
         {(project.team || []).length > 0 ? (
           <div className="space-y-2">
             {(project.team || []).map((member, i) => {
-              const isRegistered = allUsers.some(u => u.email?.toLowerCase() === member.user_email?.toLowerCase());
+              const matchedUser = allUsers.find(u => u.email?.toLowerCase() === member.user_email?.toLowerCase());
+              const isRegistered = !!matchedUser;
+              const isMemberDeactivated = matchedUser ? isUserDeactivated(matchedUser) : false;
               const isEditing = editingIndex === i;
               return (
                 <div key={i} className={`p-3 rounded-lg border ${isEditing ? 'bg-primary/5 border-primary/20' : 'bg-muted/50 border-transparent'}`}>
@@ -348,8 +358,11 @@ export default function TeamManager({ project }) {
                           {member.user_email && !isRegistered && (
                             <Badge variant="secondary" className="text-xs text-amber-600 bg-amber-50">Invite Pending</Badge>
                           )}
-                          {member.user_email && isRegistered && (
+                          {member.user_email && isRegistered && !isMemberDeactivated && (
                             <UserCheck className="w-3.5 h-3.5 text-green-600" />
+                          )}
+                          {isMemberDeactivated && (
+                            <Badge variant="outline" className="text-xs text-red-600 border-red-300 bg-red-50">Deactivated</Badge>
                           )}
                         </div>
                         <div className="text-xs text-muted-foreground mt-0.5">

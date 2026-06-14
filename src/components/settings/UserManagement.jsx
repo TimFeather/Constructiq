@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { UserPlus, Clock, Trash2, Pencil, Check, X } from 'lucide-react';
+import { UserPlus, Clock, Trash2, Pencil, Check, X, ShieldOff, ShieldCheck } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Label } from '@/components/ui/label';
@@ -65,6 +65,11 @@ export default function UserManagement() {
       queryClient.invalidateQueries({ queryKey: ['users'] });
       setDeleteConfirm(null);
     }
+  });
+
+  const reactivateUserMutation = useMutation({
+    mutationFn: (userId) => base44.entities.User.update(userId, { disabled: false }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['users'] }),
   });
 
   const openEdit = (u) => {
@@ -136,10 +141,18 @@ export default function UserManagement() {
         </CardHeader>
         <CardContent>
           <div className="space-y-2">
-            {users.map(u => (
-              <div key={u.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+            {users.map(u => {
+              const isDeactivated = u.disabled === true;
+              return (
+              <div key={u.id} className={`flex items-center justify-between p-3 rounded-lg ${isDeactivated ? 'bg-muted/30 opacity-70' : 'bg-muted/50'}`}>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium">{u.full_name || u.email}</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-medium">{u.full_name || u.email}</p>
+                    {isDeactivated
+                      ? <Badge variant="outline" className="text-xs bg-red-50 text-red-600 border-red-300 gap-1"><ShieldOff className="w-2.5 h-2.5" /> Deactivated</Badge>
+                      : <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-300 gap-1"><ShieldCheck className="w-2.5 h-2.5" /> Active</Badge>
+                    }
+                  </div>
                   <p className="text-xs text-muted-foreground">{u.email}</p>
                   <Badge variant="outline" className={`text-xs mt-1 ${
                     (u.role || 'external') === 'admin' ? 'bg-purple-100 text-purple-700 border-purple-300' :
@@ -150,17 +163,29 @@ export default function UserManagement() {
                 </div>
                 {u.id !== user?.id && (
                   <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-                    <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={() => openEdit(u)}>
-                      <Pencil className="w-3 h-3" /> Edit
-                    </Button>
-                    <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs text-destructive border-destructive/30 hover:bg-destructive/5" onClick={() => setDeleteConfirm(u)}>
-                      <Trash2 className="w-3 h-3" /> Deactivate
-                    </Button>
+                    {!isDeactivated && (
+                      <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={() => openEdit(u)}>
+                        <Pencil className="w-3 h-3" /> Edit
+                      </Button>
+                    )}
+                    {isDeactivated ? (
+                      <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs text-green-700 border-green-400 hover:bg-green-50"
+                        disabled={reactivateUserMutation.isPending}
+                        onClick={() => reactivateUserMutation.mutate(u.id)}>
+                        <ShieldCheck className="w-3 h-3" /> Reactivate
+                      </Button>
+                    ) : (
+                      <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs text-destructive border-destructive/30 hover:bg-destructive/5"
+                        onClick={() => setDeleteConfirm(u)}>
+                        <ShieldOff className="w-3 h-3" /> Deactivate
+                      </Button>
+                    )}
                   </div>
                 )}
                 {u.id === user?.id && <Badge variant="secondary" className="text-xs">You</Badge>}
               </div>
-            ))}
+              );
+            })}
             {users.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">No users found</p>}
           </div>
         </CardContent>

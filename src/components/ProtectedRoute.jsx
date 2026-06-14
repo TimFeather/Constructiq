@@ -26,6 +26,10 @@ export default function ProtectedRoute({ fallback = <DefaultFallback />, unauthe
     if (authError.type === 'user_not_registered') {
       return <UserNotRegisteredError />;
     }
+    if (authError.type === 'account_deactivated') {
+      // Render nothing — App.jsx AuthenticatedApp handles the redirect
+      return null;
+    }
     return unauthenticatedElement;
   }
 

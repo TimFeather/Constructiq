@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { Users, Clock, BookUser, RotateCcw, XCircle, Search, Pencil, Trash2 } from 'lucide-react';
+import { Users, Clock, BookUser, RotateCcw, XCircle, Search, Pencil, Trash2, ShieldOff, ShieldCheck } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { format } from 'date-fns';
 
@@ -50,6 +50,14 @@ function UsersTab() {
     },
   });
 
+  const reactivateUserMutation = useMutation({
+    mutationFn: (userId) => base44.entities.User.update(userId, { disabled: false }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      toast({ title: 'User reactivated', description: 'They can now log in and access ConstructIQ.' });
+    },
+  });
+
   const roleColour = (role) => {
     if (role === 'admin')    return 'bg-purple-100 text-purple-700 border-purple-300';
     if (role === 'internal') return 'bg-blue-100 text-blue-700 border-blue-300';
@@ -68,31 +76,55 @@ function UsersTab() {
         </div>
       )}
 
-      {users.map(u => (
-        <div key={u.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium">{u.full_name || u.email}</p>
-            <p className="text-xs text-muted-foreground">{u.email}</p>
-            <Badge variant="outline" className={`text-xs mt-1 ${roleColour(u.role || 'external')}`}>
-              {u.role || 'external'}
-            </Badge>
-          </div>
-          {u.id === user?.id ? (
-            <Badge variant="secondary" className="text-xs flex-shrink-0">You</Badge>
-          ) : (
-            <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-              <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs"
-                onClick={() => { setEditingUser(u); setEditRole(u.role || 'external'); }}>
-                <Pencil className="w-3 h-3" /> Edit Role
-              </Button>
-              <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs text-destructive border-destructive/30 hover:bg-destructive/5"
-                onClick={() => setDeleteConfirm(u)}>
-                <Trash2 className="w-3 h-3" /> Deactivate
-              </Button>
+      {users.map(u => {
+        const isDeactivated = u.disabled === true;
+        return (
+          <div key={u.id} className={`flex items-center justify-between p-3 rounded-lg ${isDeactivated ? 'bg-muted/30 opacity-70' : 'bg-muted/50'}`}>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-sm font-medium">{u.full_name || u.email}</p>
+                {isDeactivated ? (
+                  <Badge variant="outline" className="text-xs bg-red-50 text-red-600 border-red-300 gap-1">
+                    <ShieldOff className="w-2.5 h-2.5" /> Deactivated
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-300 gap-1">
+                    <ShieldCheck className="w-2.5 h-2.5" /> Active
+                  </Badge>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">{u.email}</p>
+              <Badge variant="outline" className={`text-xs mt-1 ${roleColour(u.role || 'external')}`}>
+                {u.role || 'external'}
+              </Badge>
             </div>
-          )}
-        </div>
-      ))}
+            {u.id === user?.id ? (
+              <Badge variant="secondary" className="text-xs flex-shrink-0">You</Badge>
+            ) : (
+              <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                {!isDeactivated && (
+                  <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs"
+                    onClick={() => { setEditingUser(u); setEditRole(u.role || 'external'); }}>
+                    <Pencil className="w-3 h-3" /> Edit Role
+                  </Button>
+                )}
+                {isDeactivated ? (
+                  <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs text-green-700 border-green-400 hover:bg-green-50"
+                    disabled={reactivateUserMutation.isPending}
+                    onClick={() => reactivateUserMutation.mutate(u.id)}>
+                    <ShieldCheck className="w-3 h-3" /> Reactivate
+                  </Button>
+                ) : (
+                  <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs text-destructive border-destructive/30 hover:bg-destructive/5"
+                    onClick={() => setDeleteConfirm(u)}>
+                    <ShieldOff className="w-3 h-3" /> Deactivate
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
 
       {/* Edit role dialog */}
       <Dialog open={!!editingUser} onOpenChange={() => setEditingUser(null)}>

@@ -13,6 +13,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { X } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
+import { filterActiveUsers } from '@/lib/userStatus';
 
 export default function RFIFormDialog({ open, onOpenChange, projects = [], defaultProjectId = '' }) {
   const { user } = useAuth();
@@ -38,8 +39,17 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
     queryFn: () => base44.entities.EmailBranding.list().then(r => r[0] ?? {}),
   });
 
+  const { data: allUsersRaw = [] } = useQuery({
+    queryKey: ['users'],
+    queryFn: () => base44.entities.User.list(),
+  });
+  const activeUserEmails = new Set(filterActiveUsers(allUsersRaw).map(u => u.email?.toLowerCase()));
+
   const selectedProject = projects.find(p => p.id === form.project_id);
-  const teamMembers = selectedProject?.team || [];
+  // Filter deactivated users from the assignee picker — historical RFI data is unaffected
+  const teamMembers = (selectedProject?.team || []).filter(m =>
+    !m.user_email || activeUserEmails.has(m.user_email.toLowerCase())
+  );
 
   useEffect(() => {
     setSelectedEmails([]);
