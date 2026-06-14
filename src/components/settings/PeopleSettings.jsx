@@ -31,7 +31,7 @@ function UserRow({ u, actions }) {
   const firstName = u.data?.first_name || '';
   const lastName = u.data?.last_name || '';
   const fullName = [firstName, lastName].filter(Boolean).join(' ') || '—';
-  const company = u.data?.business_name || '—';
+  const company = u.data?.business_name || u.data?.company_name || '—';
   const phone = u.data?.phone || '—';
   const role = u.role || 'external';
 
