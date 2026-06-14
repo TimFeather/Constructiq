@@ -401,6 +401,39 @@ Deno.serve(async (req) => {
       return Response.json({ success: true, alreadyMember });
     }
 
+    // ── ACTION: removeFromProjectTeams ────────────────────────────────────
+    // Removes a user (by email) from all active project teams upon deactivation
+    if (action === 'removeFromProjectTeams') {
+      const { targetEmail } = body;
+      if (!targetEmail) return Response.json({ error: 'targetEmail required' }, { status: 400 });
+
+      const normalEmail = targetEmail.toLowerCase().trim();
+      const now = new Date().toISOString();
+
+      // Find all projects where this user is a team member
+      const allProjects = await base44.asServiceRole.entities.Project.list();
+      const affectedProjects = allProjects.filter(p =>
+        Array.isArray(p.team) && p.team.some(m => m.user_email?.toLowerCase() === normalEmail)
+      );
+
+      await Promise.all(affectedProjects.map(async (project) => {
+        const updatedTeam = project.team.filter(m => m.user_email?.toLowerCase() !== normalEmail);
+        await base44.asServiceRole.entities.Project.update(project.id, { team: updatedTeam });
+        await base44.asServiceRole.entities.AuditLog.create({
+          action: 'User Removed From Project',
+          entity_type: 'Project',
+          entity_id: project.id,
+          project_id: project.id,
+          user_id: user.id,
+          user_name: user.full_name || user.email,
+          description: `${normalEmail} removed from project "${project.name}" due to account deactivation`,
+          created_date: now,
+        });
+      }));
+
+      return Response.json({ success: true, projectsAffected: affectedProjects.length });
+    }
+
     return Response.json({ error: `Unknown action: ${action}` }, { status: 400 });
 
   } catch (error) {

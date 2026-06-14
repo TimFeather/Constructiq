@@ -11,19 +11,49 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { Users, Clock, BookUser, RotateCcw, XCircle, Search, Pencil, Trash2, ShieldOff, ShieldCheck } from 'lucide-react';
+import { Users, Clock, RotateCcw, XCircle, Search, Pencil, ShieldOff, ShieldCheck, UserX } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { format } from 'date-fns';
 
-// ─── Users Tab ────────────────────────────────────────────────────────────────
+const ROLE_COLOURS = {
+  admin:    'bg-purple-100 text-purple-700 border-purple-300',
+  internal: 'bg-blue-100 text-blue-700 border-blue-300',
+  pricing:  'bg-amber-100 text-amber-700 border-amber-300',
+  external: 'bg-gray-100 text-gray-600 border-gray-200',
+};
 
-function UsersTab() {
+function roleColour(role) {
+  return ROLE_COLOURS[role] || ROLE_COLOURS.external;
+}
+
+// Shared user card layout
+function UserRow({ u, actions }) {
+  const displayName = u.full_name || u.email;
+  const company = u.data?.company_name || u.company_name || '';
+  const role = u.role || 'external';
+
+  return (
+    <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50 gap-3">
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium truncate">{displayName}</p>
+        {company && <p className="text-xs text-muted-foreground truncate">{company}</p>}
+        <p className="text-xs text-muted-foreground truncate">{u.email}</p>
+        <Badge variant="outline" className={`text-xs mt-1 ${roleColour(role)}`}>{role}</Badge>
+      </div>
+      {actions && <div className="flex items-center gap-2 flex-shrink-0">{actions}</div>}
+    </div>
+  );
+}
+
+// ─── Active Users Tab ─────────────────────────────────────────────────────────
+
+function ActiveUsersTab() {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [editingUser, setEditingUser] = useState(null);
   const [editRole, setEditRole] = useState('');
-  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [deactivateConfirm, setDeactivateConfirm] = useState(null);
   const [pendingRoleChange, setPendingRoleChange] = useState(null);
 
   const { data: users = [], isLoading } = useQuery({
@@ -32,7 +62,9 @@ function UsersTab() {
     enabled: user?.role === 'admin',
   });
 
-  const updateUserMutation = useMutation({
+  const activeUsers = users.filter(u => u.data?.disabled !== true);
+
+  const updateRoleMutation = useMutation({
     mutationFn: ({ userId, role }) => base44.entities.User.update(userId, { role }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
@@ -41,90 +73,54 @@ function UsersTab() {
     },
   });
 
-  const deactivateUserMutation = useMutation({
-    mutationFn: (userId) => base44.entities.User.update(userId, { data: { disabled: true } }),
+  const deactivateMutation = useMutation({
+    mutationFn: async (u) => {
+      // 1. Mark user disabled
+      await base44.entities.User.update(u.id, { data: { disabled: true } });
+      // 2. Remove from all active project teams
+      await base44.functions.invoke('invitationService', {
+        action: 'removeFromProjectTeams',
+        targetEmail: u.email,
+      });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
-      setDeleteConfirm(null);
-      toast({ title: 'User deactivated', description: 'Their account is disabled but their history is preserved.' });
+      setDeactivateConfirm(null);
+      toast({ title: 'User deactivated', description: 'Account disabled and removed from active project teams.' });
     },
+    onError: (e) => toast({ title: 'Deactivation failed', description: e.message, variant: 'destructive' }),
   });
-
-  const reactivateUserMutation = useMutation({
-    mutationFn: (userId) => base44.entities.User.update(userId, { data: { disabled: false } }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['users'] });
-      toast({ title: 'User reactivated', description: 'They can now log in and access ConstructIQ.' });
-    },
-  });
-
-  const roleColour = (role) => {
-    if (role === 'admin')    return 'bg-purple-100 text-purple-700 border-purple-300';
-    if (role === 'internal') return 'bg-blue-100 text-blue-700 border-blue-300';
-    if (role === 'pricing')  return 'bg-amber-100 text-amber-700 border-amber-300';
-    return 'bg-gray-100 text-gray-600';
-  };
 
   if (isLoading) return <p className="text-sm text-muted-foreground py-6 text-center">Loading...</p>;
 
   return (
     <div className="space-y-2">
-      {users.length === 0 && (
+      {activeUsers.length === 0 && (
         <div className="text-center py-10 text-muted-foreground">
           <Users className="w-8 h-8 mx-auto mb-2 opacity-40" />
-          <p className="text-sm">No registered users</p>
+          <p className="text-sm">No active users</p>
         </div>
       )}
 
-      {users.map(u => {
-        const isDeactivated = u.data?.disabled === true;
-        return (
-          <div key={u.id} className={`flex items-center justify-between p-3 rounded-lg ${isDeactivated ? 'bg-muted/30 opacity-70' : 'bg-muted/50'}`}>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 flex-wrap">
-                <p className="text-sm font-medium">{u.full_name || u.email}</p>
-                {isDeactivated ? (
-                  <Badge variant="outline" className="text-xs bg-red-50 text-red-600 border-red-300 gap-1">
-                    <ShieldOff className="w-2.5 h-2.5" /> Deactivated
-                  </Badge>
-                ) : (
-                  <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-300 gap-1">
-                    <ShieldCheck className="w-2.5 h-2.5" /> Active
-                  </Badge>
-                )}
-              </div>
-              <p className="text-xs text-muted-foreground">{u.email}</p>
-              <Badge variant="outline" className={`text-xs mt-1 ${roleColour(u.role || 'external')}`}>
-                {u.role || 'external'}
-              </Badge>
-            </div>
-            {u.id === user?.id ? (
-              <Badge variant="secondary" className="text-xs flex-shrink-0">You</Badge>
-            ) : (
-              <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-                {!isDeactivated && (
-                  <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs"
-                    onClick={() => { setEditingUser(u); setEditRole(u.role || 'external'); }}>
-                    <Pencil className="w-3 h-3" /> Edit Role
-                  </Button>
-                )}
-                {isDeactivated ? (
-                  <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs text-green-700 border-green-400 hover:bg-green-50"
-                    disabled={reactivateUserMutation.isPending}
-                    onClick={() => reactivateUserMutation.mutate(u.id)}>
-                    <ShieldCheck className="w-3 h-3" /> Reactivate
-                  </Button>
-                ) : (
-                  <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs text-destructive border-destructive/30 hover:bg-destructive/5"
-                    onClick={() => setDeleteConfirm(u)}>
-                    <ShieldOff className="w-3 h-3" /> Deactivate
-                  </Button>
-                )}
-              </div>
-            )}
-          </div>
-        );
-      })}
+      {activeUsers.map(u => (
+        <UserRow key={u.id} u={u} actions={
+          u.id === user?.id ? (
+            <Badge variant="secondary" className="text-xs">You</Badge>
+          ) : (
+            <>
+              <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs"
+                onClick={() => { setEditingUser(u); setEditRole(u.role || 'external'); }}>
+                <Pencil className="w-3 h-3" /> Edit Role
+              </Button>
+              <Button size="sm" variant="outline"
+                className="h-8 gap-1.5 text-xs text-destructive border-destructive/30 hover:bg-destructive/5"
+                onClick={() => setDeactivateConfirm(u)}>
+                <ShieldOff className="w-3 h-3" /> Deactivate
+              </Button>
+            </>
+          )
+        } />
+      ))}
 
       {/* Edit role dialog */}
       <Dialog open={!!editingUser} onOpenChange={() => setEditingUser(null)}>
@@ -168,27 +164,30 @@ function UsersTab() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogAction
-            onClick={() => updateUserMutation.mutate({ userId: pendingRoleChange.userId, role: pendingRoleChange.newRole })}
-            disabled={updateUserMutation.isPending}
+            onClick={() => updateRoleMutation.mutate({ userId: pendingRoleChange.userId, role: pendingRoleChange.newRole })}
+            disabled={updateRoleMutation.isPending}
           >
-            {updateUserMutation.isPending ? 'Saving...' : 'Confirm'}
+            {updateRoleMutation.isPending ? 'Saving...' : 'Confirm'}
           </AlertDialogAction>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
         </AlertDialogContent>
       </AlertDialog>
 
       {/* Deactivate confirm */}
-      <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
+      <Dialog open={!!deactivateConfirm} onOpenChange={() => setDeactivateConfirm(null)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader><DialogTitle>Deactivate User</DialogTitle></DialogHeader>
           <p className="text-sm text-muted-foreground py-2">
-            Deactivate <strong>{deleteConfirm?.full_name || deleteConfirm?.email}</strong>? Their account will be disabled but their history and project memberships are preserved. They can be reactivated later.
+            Deactivate <strong>{deactivateConfirm?.full_name || deactivateConfirm?.email}</strong>?
+            Their account will be disabled and they will be removed from all active project teams.
+            Historical data (RFIs, tasks, documents, audit logs) is preserved.
+            They can be reactivated later.
           </p>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
-            <Button variant="destructive" disabled={deactivateUserMutation.isPending}
-              onClick={() => deactivateUserMutation.mutate(deleteConfirm.id)}>
-              {deactivateUserMutation.isPending ? 'Deactivating...' : 'Deactivate'}
+            <Button variant="outline" onClick={() => setDeactivateConfirm(null)}>Cancel</Button>
+            <Button variant="destructive" disabled={deactivateMutation.isPending}
+              onClick={() => deactivateMutation.mutate(deactivateConfirm)}>
+              {deactivateMutation.isPending ? 'Deactivating...' : 'Deactivate'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -212,27 +211,17 @@ function PendingInvitationsTab() {
   });
 
   const resendMutation = useMutation({
-    mutationFn: (invitedUserId) =>
-      base44.functions.invoke('invitationService', { action: 'resend', invitedUserId }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['invitedUsers'] });
-      toast({ title: 'Invitation resent' });
-    },
+    mutationFn: (id) => base44.functions.invoke('invitationService', { action: 'resend', invitedUserId: id }),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['invitedUsers'] }); toast({ title: 'Invitation resent' }); },
     onError: (e) => toast({ title: 'Failed to resend', description: e.message, variant: 'destructive' }),
   });
 
   const cancelMutation = useMutation({
-    mutationFn: (invitedUserId) =>
-      base44.functions.invoke('invitationService', { action: 'cancel', invitedUserId }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['invitedUsers'] });
-      queryClient.invalidateQueries({ queryKey: ['pendingAssignments'] });
-      toast({ title: 'Invitation cancelled' });
-    },
+    mutationFn: (id) => base44.functions.invoke('invitationService', { action: 'cancel', invitedUserId: id }),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['invitedUsers'] }); toast({ title: 'Invitation cancelled' }); },
     onError: (e) => toast({ title: 'Failed to cancel', description: e.message, variant: 'destructive' }),
   });
 
-  // Only show Pending status invitations
   const filtered = invitedUsers.filter(i =>
     i.status === 'Pending' &&
     (!search || i.email?.toLowerCase().includes(search.toLowerCase()))
@@ -242,12 +231,7 @@ function PendingInvitationsTab() {
     <div className="space-y-4">
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input
-          className="pl-9"
-          placeholder="Search by email..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
+        <Input className="pl-9" placeholder="Search by email..." value={search} onChange={e => setSearch(e.target.value)} />
       </div>
 
       {isLoading && <p className="text-sm text-muted-foreground py-4 text-center">Loading...</p>}
@@ -269,41 +253,24 @@ function PendingInvitationsTab() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap mb-1">
                       <span className="font-medium text-sm">{inv.email}</span>
-                      {inv.app_role && (
-                        <Badge variant="outline" className="text-xs">{inv.app_role}</Badge>
-                      )}
-                      {isExpired && (
-                        <Badge variant="outline" className="text-xs text-red-600 border-red-300 bg-red-50">Expired</Badge>
-                      )}
-                      {inv.resend_count > 0 && (
-                        <span className="text-xs text-muted-foreground">Sent {inv.resend_count + 1}×</span>
-                      )}
+                      {inv.app_role && <Badge variant="outline" className={`text-xs ${roleColour(inv.app_role)}`}>{inv.app_role}</Badge>}
+                      {isExpired && <Badge variant="outline" className="text-xs text-red-600 border-red-300 bg-red-50">Expired</Badge>}
+                      {inv.resend_count > 0 && <span className="text-xs text-muted-foreground">Sent {inv.resend_count + 1}×</span>}
                     </div>
                     <div className="text-xs text-muted-foreground space-y-0.5">
-                      {inv.last_invited_at && (
-                        <p>Sent: {format(new Date(inv.last_invited_at), 'dd MMM yyyy')}</p>
-                      )}
-                      {isExpired && inv.token_expires_at && (
-                        <p className="text-red-500">Expired: {format(new Date(inv.token_expires_at), 'dd MMM yyyy')}</p>
-                      )}
+                      {inv.last_invited_at && <p>Sent: {format(new Date(inv.last_invited_at), 'dd MMM yyyy')}</p>}
+                      {isExpired && inv.token_expires_at && <p className="text-red-500">Expired: {format(new Date(inv.token_expires_at), 'dd MMM yyyy')}</p>}
                       {inv.invited_by_email && <p>Invited by: {inv.invited_by_email}</p>}
                     </div>
                   </div>
                   <div className="flex gap-2 flex-shrink-0">
-                    <Button
-                      size="sm" variant="outline"
-                      className="h-8 gap-1.5 text-xs"
-                      disabled={resendMutation.isPending}
-                      onClick={() => resendMutation.mutate(inv.id)}
-                    >
+                    <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs"
+                      disabled={resendMutation.isPending} onClick={() => resendMutation.mutate(inv.id)}>
                       <RotateCcw className="w-3 h-3" /> Resend
                     </Button>
-                    <Button
-                      size="sm" variant="outline"
+                    <Button size="sm" variant="outline"
                       className="h-8 gap-1.5 text-xs text-destructive border-destructive/40 hover:bg-destructive/5"
-                      disabled={cancelMutation.isPending}
-                      onClick={() => cancelMutation.mutate(inv.id)}
-                    >
+                      disabled={cancelMutation.isPending} onClick={() => cancelMutation.mutate(inv.id)}>
                       <XCircle className="w-3 h-3" /> Cancel
                     </Button>
                   </div>
@@ -317,63 +284,57 @@ function PendingInvitationsTab() {
   );
 }
 
-// ─── Contacts Tab ─────────────────────────────────────────────────────────────
+// ─── Deactivated Users Tab ────────────────────────────────────────────────────
 
-function ContactsTab() {
-  const [search, setSearch] = useState('');
-  const { data: contacts = [], isLoading } = useQuery({
-    queryKey: ['tenderContacts'],
-    queryFn: () => base44.entities.TenderContact.list('-created_date', 500),
+function DeactivatedUsersTab() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const { data: users = [], isLoading } = useQuery({
+    queryKey: ['users'],
+    queryFn: () => base44.entities.User.list(),
+    enabled: user?.role === 'admin',
   });
 
-  const filtered = contacts.filter(c =>
-    !search ||
-    c.full_name?.toLowerCase().includes(search.toLowerCase()) ||
-    c.email?.toLowerCase().includes(search.toLowerCase()) ||
-    c.business_name?.toLowerCase().includes(search.toLowerCase()) ||
-    c.trade?.toLowerCase().includes(search.toLowerCase())
-  );
+  const deactivatedUsers = users.filter(u => u.data?.disabled === true);
+
+  const reactivateMutation = useMutation({
+    mutationFn: (userId) => base44.entities.User.update(userId, { data: { disabled: false } }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      toast({ title: 'User reactivated', description: 'They can now log in. Project access must be granted manually.' });
+    },
+    onError: (e) => toast({ title: 'Reactivation failed', description: e.message, variant: 'destructive' }),
+  });
+
+  if (isLoading) return <p className="text-sm text-muted-foreground py-6 text-center">Loading...</p>;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            className="pl-9"
-            placeholder="Search contacts..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-        </div>
-        <p className="text-xs text-muted-foreground whitespace-nowrap">{filtered.length} contacts</p>
-      </div>
-
-      {isLoading && <p className="text-sm text-muted-foreground py-4 text-center">Loading...</p>}
-      {!isLoading && filtered.length === 0 && (
+    <div className="space-y-2">
+      {deactivatedUsers.length === 0 && (
         <div className="text-center py-10 text-muted-foreground">
-          <BookUser className="w-8 h-8 mx-auto mb-2 opacity-40" />
-          <p className="text-sm">No contacts found</p>
-          <p className="text-xs mt-1">Contacts are added via the Subcontractor Directory or Tender workflow</p>
+          <UserX className="w-8 h-8 mx-auto mb-2 opacity-40" />
+          <p className="text-sm">No deactivated users</p>
         </div>
       )}
 
-      <div className="space-y-2">
-        {filtered.map(c => (
-          <div key={c.id} className="flex items-center gap-3 p-3 bg-muted/40 rounded-lg border border-transparent hover:border-border transition-colors">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-medium text-sm">{c.full_name}</span>
-                {c.business_name && <span className="text-xs text-muted-foreground">{c.business_name}</span>}
-                {c.trade && <Badge variant="secondary" className="text-xs">{c.trade}</Badge>}
-              </div>
-              <div className="text-xs text-muted-foreground mt-0.5">
-                {[c.email, c.phone].filter(Boolean).join(' · ')}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
+      {deactivatedUsers.map(u => (
+        <UserRow key={u.id} u={u} actions={
+          <Button size="sm" variant="outline"
+            className="h-8 gap-1.5 text-xs text-green-700 border-green-400 hover:bg-green-50"
+            disabled={reactivateMutation.isPending}
+            onClick={() => reactivateMutation.mutate(u.id)}>
+            <ShieldCheck className="w-3 h-3" /> Reactivate
+          </Button>
+        } />
+      ))}
+
+      {deactivatedUsers.length > 0 && (
+        <p className="text-xs text-muted-foreground pt-2">
+          Reactivating a user restores login access only. Project memberships must be re-added manually.
+        </p>
+      )}
     </div>
   );
 }
@@ -383,29 +344,27 @@ function ContactsTab() {
 export default function PeopleSettings() {
   return (
     <div className="space-y-1">
-      <Tabs defaultValue="users">
+      <Tabs defaultValue="active">
         <TabsList className="mb-4">
-          <TabsTrigger value="users" className="gap-1.5">
-            <Users className="w-3.5 h-3.5" /> Users
+          <TabsTrigger value="active" className="gap-1.5">
+            <Users className="w-3.5 h-3.5" /> Active Users
           </TabsTrigger>
           <TabsTrigger value="pending" className="gap-1.5">
             <Clock className="w-3.5 h-3.5" /> Pending Invitations
           </TabsTrigger>
-          <TabsTrigger value="contacts" className="gap-1.5">
-            <BookUser className="w-3.5 h-3.5" /> Contacts
+          <TabsTrigger value="deactivated" className="gap-1.5">
+            <UserX className="w-3.5 h-3.5" /> Deactivated Users
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="users">
-          <UsersTab />
+        <TabsContent value="active">
+          <ActiveUsersTab />
         </TabsContent>
-
         <TabsContent value="pending">
           <PendingInvitationsTab />
         </TabsContent>
-
-        <TabsContent value="contacts">
-          <ContactsTab />
+        <TabsContent value="deactivated">
+          <DeactivatedUsersTab />
         </TabsContent>
       </Tabs>
     </div>
