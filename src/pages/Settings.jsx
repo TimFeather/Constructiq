@@ -16,7 +16,6 @@ import { useToast } from '@/components/ui/use-toast';
 import PageHeader from '@/components/shared/PageHeader';
 import { DEFAULT_TEMPLATES } from '@/lib/emailTemplates';
 import { isAdmin as checkAdmin, canAccess } from '@/lib/permissions';
-import UserManagement from '@/components/settings/UserManagement';
 import AppearanceSettings from '@/components/settings/AppearanceSettings';
 import RoleManager from '@/components/settings/RoleManager';
 import SubcontractorDirectory from '@/components/settings/SubcontractorDirectory';
@@ -164,11 +163,6 @@ export default function Settings() {
           {isAdmin && (
             <TabsTrigger value="people">
               <Users className="w-3.5 h-3.5 mr-1" /> People
-            </TabsTrigger>
-          )}
-          {isAdmin && (
-            <TabsTrigger value="users">
-              <Shield className="w-3.5 h-3.5 mr-1" /> Users
             </TabsTrigger>
           )}
           {isAdmin && (
@@ -336,13 +330,6 @@ export default function Settings() {
         {isAdmin && (
           <TabsContent value="people">
             <PeopleSettings />
-          </TabsContent>
-        )}
-
-        {/* User Management (Admin only) */}
-        {isAdmin && (
-          <TabsContent value="users">
-            <UserManagement />
           </TabsContent>
         )}
 

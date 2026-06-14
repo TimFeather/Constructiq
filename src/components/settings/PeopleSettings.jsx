@@ -1,33 +1,170 @@
-/**
- * PeopleSettings
- * Settings → People tab
- * Tabs: Users | Pending Invitations | Contacts
- */
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Users, Clock, BookUser, RotateCcw, XCircle, CheckCircle2, Search, UserPlus, Mail } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { Users, Clock, BookUser, RotateCcw, XCircle, Search, Pencil, Trash2 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { format } from 'date-fns';
-import UserManagement from '@/components/settings/UserManagement';
 
-const statusBadge = (status) => {
-  const map = {
-    Pending:   'bg-amber-50 text-amber-700 border-amber-300',
-    Accepted:  'bg-green-50 text-green-700 border-green-300',
-    Expired:   'bg-gray-100 text-gray-500 border-gray-300',
-    Cancelled: 'bg-red-50 text-red-600 border-red-300',
+// ─── Users Tab ────────────────────────────────────────────────────────────────
+
+function UsersTab() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [editingUser, setEditingUser] = useState(null);
+  const [editRole, setEditRole] = useState('');
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [pendingRoleChange, setPendingRoleChange] = useState(null);
+
+  const { data: users = [], isLoading } = useQuery({
+    queryKey: ['users'],
+    queryFn: () => base44.entities.User.list(),
+    enabled: user?.role === 'admin',
+  });
+
+  const updateUserMutation = useMutation({
+    mutationFn: ({ userId, role }) => base44.entities.User.update(userId, { role }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      setEditingUser(null);
+      setPendingRoleChange(null);
+    },
+  });
+
+  const deleteUserMutation = useMutation({
+    mutationFn: (userId) => base44.entities.User.delete(userId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      setDeleteConfirm(null);
+    },
+  });
+
+  const roleColour = (role) => {
+    if (role === 'admin')    return 'bg-purple-100 text-purple-700 border-purple-300';
+    if (role === 'internal') return 'bg-blue-100 text-blue-700 border-blue-300';
+    if (role === 'pricing')  return 'bg-amber-100 text-amber-700 border-amber-300';
+    return 'bg-gray-100 text-gray-600';
   };
-  return map[status] || 'bg-gray-100 text-gray-500';
-};
+
+  if (isLoading) return <p className="text-sm text-muted-foreground py-6 text-center">Loading...</p>;
+
+  return (
+    <div className="space-y-2">
+      {users.length === 0 && (
+        <div className="text-center py-10 text-muted-foreground">
+          <Users className="w-8 h-8 mx-auto mb-2 opacity-40" />
+          <p className="text-sm">No registered users</p>
+        </div>
+      )}
+
+      {users.map(u => (
+        <div key={u.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">{u.full_name || u.email}</p>
+            <p className="text-xs text-muted-foreground">{u.email}</p>
+            <Badge variant="outline" className={`text-xs mt-1 ${roleColour(u.role || 'external')}`}>
+              {u.role || 'external'}
+            </Badge>
+          </div>
+          {u.id === user?.id ? (
+            <Badge variant="secondary" className="text-xs flex-shrink-0">You</Badge>
+          ) : (
+            <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+              <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs"
+                onClick={() => { setEditingUser(u); setEditRole(u.role || 'external'); }}>
+                <Pencil className="w-3 h-3" /> Edit Role
+              </Button>
+              <Button size="sm" variant="destructive" className="h-8 gap-1.5 text-xs"
+                onClick={() => setDeleteConfirm(u)}>
+                <Trash2 className="w-3 h-3" /> Remove
+              </Button>
+            </div>
+          )}
+        </div>
+      ))}
+
+      {/* Edit role dialog */}
+      <Dialog open={!!editingUser} onOpenChange={() => setEditingUser(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Edit Role — {editingUser?.full_name || editingUser?.email}</DialogTitle>
+          </DialogHeader>
+          <div className="py-2">
+            <Label>Platform Role</Label>
+            <Select value={editRole} onValueChange={setEditRole}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="admin">Admin</SelectItem>
+                <SelectItem value="internal">Internal</SelectItem>
+                <SelectItem value="pricing">Pricing</SelectItem>
+                <SelectItem value="external">External</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingUser(null)}>Cancel</Button>
+            <Button onClick={() => {
+              if (editRole !== (editingUser.role || 'external')) {
+                setPendingRoleChange({ userId: editingUser.id, currentRole: editingUser.role || 'external', newRole: editRole, userName: editingUser.full_name || editingUser.email });
+              } else {
+                setEditingUser(null);
+              }
+            }}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Role change confirm */}
+      <AlertDialog open={!!pendingRoleChange} onOpenChange={open => { if (!open) setPendingRoleChange(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Change user role?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Change <strong>{pendingRoleChange?.userName}</strong> from <strong>{pendingRoleChange?.currentRole}</strong> to <strong>{pendingRoleChange?.newRole}</strong>.
+              This affects what they can access in ConstructIQ.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogAction
+            onClick={() => updateUserMutation.mutate({ userId: pendingRoleChange.userId, role: pendingRoleChange.newRole })}
+            disabled={updateUserMutation.isPending}
+          >
+            {updateUserMutation.isPending ? 'Saving...' : 'Confirm'}
+          </AlertDialogAction>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete confirm */}
+      <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader><DialogTitle>Remove User</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground py-2">
+            Remove <strong>{deleteConfirm?.full_name || deleteConfirm?.email}</strong>? This cannot be undone.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
+            <Button variant="destructive" disabled={deleteUserMutation.isPending}
+              onClick={() => deleteUserMutation.mutate(deleteConfirm.id)}>
+              {deleteUserMutation.isPending ? 'Removing...' : 'Remove'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ─── Pending Invitations Tab ──────────────────────────────────────────────────
 
 function PendingInvitationsTab() {
   const { user } = useAuth();
@@ -40,19 +177,6 @@ function PendingInvitationsTab() {
     queryFn: () => base44.entities.InvitedUser.list('-created_date', 200),
     enabled: user?.role === 'admin',
   });
-
-  const { data: assignments = [] } = useQuery({
-    queryKey: ['pendingAssignments'],
-    queryFn: () => base44.entities.PendingProjectAssignment.list('-created_date', 500),
-    enabled: user?.role === 'admin',
-  });
-
-  const { data: projects = [] } = useQuery({
-    queryKey: ['projects'],
-    queryFn: () => base44.entities.Project.list(),
-  });
-
-  const projectMap = Object.fromEntries(projects.map(p => [p.id, p.name]));
 
   const resendMutation = useMutation({
     mutationFn: (invitedUserId) =>
@@ -75,9 +199,10 @@ function PendingInvitationsTab() {
     onError: (e) => toast({ title: 'Failed to cancel', description: e.message, variant: 'destructive' }),
   });
 
+  // Only show Pending status invitations
   const filtered = invitedUsers.filter(i =>
-    !search ||
-    i.email?.toLowerCase().includes(search.toLowerCase())
+    i.status === 'Pending' &&
+    (!search || i.email?.toLowerCase().includes(search.toLowerCase()))
   );
 
   return (
@@ -103,7 +228,6 @@ function PendingInvitationsTab() {
 
       <div className="space-y-3">
         {filtered.map(inv => {
-          const invAssignments = assignments.filter(a => a.invitation_id === inv.id);
           const isExpired = inv.token_expires_at && new Date(inv.token_expires_at) < new Date();
           return (
             <Card key={inv.id} className="border">
@@ -112,63 +236,44 @@ function PendingInvitationsTab() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap mb-1">
                       <span className="font-medium text-sm">{inv.email}</span>
-                      <Badge variant="outline" className={`text-xs ${statusBadge(inv.status)}`}>
-                        {isExpired && inv.status === 'Pending' ? 'Expired' : inv.status}
-                      </Badge>
+                      {inv.app_role && (
+                        <Badge variant="outline" className="text-xs">{inv.app_role}</Badge>
+                      )}
+                      {isExpired && (
+                        <Badge variant="outline" className="text-xs text-red-600 border-red-300 bg-red-50">Expired</Badge>
+                      )}
                       {inv.resend_count > 0 && (
-                        <span className="text-xs text-muted-foreground">
-                          Sent {inv.resend_count + 1}×
-                        </span>
+                        <span className="text-xs text-muted-foreground">Sent {inv.resend_count + 1}×</span>
                       )}
                     </div>
                     <div className="text-xs text-muted-foreground space-y-0.5">
                       {inv.last_invited_at && (
-                        <p>Last sent: {format(new Date(inv.last_invited_at), 'dd MMM yyyy')}</p>
+                        <p>Sent: {format(new Date(inv.last_invited_at), 'dd MMM yyyy')}</p>
                       )}
-                      {inv.token_expires_at && inv.status === 'Pending' && (
-                        <p className={isExpired ? 'text-red-500' : ''}>
-                          {isExpired ? 'Expired' : 'Expires'}: {format(new Date(inv.token_expires_at), 'dd MMM yyyy')}
-                        </p>
+                      {isExpired && inv.token_expires_at && (
+                        <p className="text-red-500">Expired: {format(new Date(inv.token_expires_at), 'dd MMM yyyy')}</p>
                       )}
                       {inv.invited_by_email && <p>Invited by: {inv.invited_by_email}</p>}
                     </div>
-                    {invAssignments.length > 0 && (
-                      <div className="mt-2 flex flex-wrap gap-1">
-                        {invAssignments.map(a => (
-                          <span key={a.id} className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ${
-                            a.status === 'Activated' ? 'bg-green-50 text-green-700 border-green-200' :
-                            a.status === 'Cancelled' ? 'bg-gray-100 text-gray-400 border-gray-200 line-through' :
-                            'bg-blue-50 text-blue-700 border-blue-200'
-                          }`}>
-                            {projectMap[a.project_id] || a.project_id} — {a.role}
-                          </span>
-                        ))}
-                      </div>
-                    )}
                   </div>
-                  {['Pending', 'Expired'].includes(inv.status) && (
-                    <div className="flex gap-2 flex-shrink-0">
-                      <Button
-                        size="sm" variant="outline"
-                        className="h-8 gap-1.5 text-xs"
-                        disabled={resendMutation.isPending}
-                        onClick={() => resendMutation.mutate(inv.id)}
-                      >
-                        <RotateCcw className="w-3 h-3" /> Resend
-                      </Button>
-                      <Button
-                        size="sm" variant="outline"
-                        className="h-8 gap-1.5 text-xs text-destructive border-destructive/40 hover:bg-destructive/5"
-                        disabled={cancelMutation.isPending}
-                        onClick={() => cancelMutation.mutate(inv.id)}
-                      >
-                        <XCircle className="w-3 h-3" /> Cancel
-                      </Button>
-                    </div>
-                  )}
-                  {inv.status === 'Accepted' && (
-                    <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0 mt-1" />
-                  )}
+                  <div className="flex gap-2 flex-shrink-0">
+                    <Button
+                      size="sm" variant="outline"
+                      className="h-8 gap-1.5 text-xs"
+                      disabled={resendMutation.isPending}
+                      onClick={() => resendMutation.mutate(inv.id)}
+                    >
+                      <RotateCcw className="w-3 h-3" /> Resend
+                    </Button>
+                    <Button
+                      size="sm" variant="outline"
+                      className="h-8 gap-1.5 text-xs text-destructive border-destructive/40 hover:bg-destructive/5"
+                      disabled={cancelMutation.isPending}
+                      onClick={() => cancelMutation.mutate(inv.id)}
+                    >
+                      <XCircle className="w-3 h-3" /> Cancel
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -178,6 +283,8 @@ function PendingInvitationsTab() {
     </div>
   );
 }
+
+// ─── Contacts Tab ─────────────────────────────────────────────────────────────
 
 function ContactsTab() {
   const [search, setSearch] = useState('');
@@ -238,6 +345,8 @@ function ContactsTab() {
   );
 }
 
+// ─── Root ─────────────────────────────────────────────────────────────────────
+
 export default function PeopleSettings() {
   return (
     <div className="space-y-1">
@@ -255,7 +364,7 @@ export default function PeopleSettings() {
         </TabsList>
 
         <TabsContent value="users">
-          <UserManagement />
+          <UsersTab />
         </TabsContent>
 
         <TabsContent value="pending">
