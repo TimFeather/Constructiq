@@ -13,6 +13,9 @@
  */
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
 
+// Valid permission roles — only these may ever be written to User.role
+const VALID_APP_ROLES = ['admin', 'internal', 'pricing', 'external'];
+
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
@@ -93,6 +96,14 @@ Deno.serve(async (req) => {
       const inviteRecords = await base44.asServiceRole.entities.InvitedUser.filter({ email });
       const pendingInvite = inviteRecords.find(i => i.status === 'Pending');
       if (pendingInvite) {
+        // Sanitize app_role before applying — project roles (e.g. Architect, Client) must never
+        // be written to User.role. Fall back to 'external' for any unrecognised value.
+        const rawRole = (pendingInvite.app_role || '').toLowerCase().trim();
+        const safeRole = VALID_APP_ROLES.includes(rawRole) ? rawRole : 'external';
+        if (safeRole !== rawRole) {
+          console.warn(`[processPendingAssignments] Invalid app_role "${pendingInvite.app_role}" — defaulting to external`);
+        }
+
         await base44.asServiceRole.entities.InvitedUser.update(pendingInvite.id, { status: 'Accepted' });
         await base44.asServiceRole.entities.AuditLog.create({
           action: 'User Registered',
@@ -101,7 +112,7 @@ Deno.serve(async (req) => {
           invitation_id: pendingInvite.id,
           user_id: user.id,
           user_name: user.full_name || user.email,
-          description: `${user.email} registered and accepted invitation`,
+          description: `${user.email} registered and accepted invitation (permission role: ${safeRole})`,
           created_date: now,
         });
       }

@@ -20,6 +20,15 @@ const APP_URL = Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz';
 const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
 const TOKEN_EXPIRY_DAYS = 30;
 
+// Valid permission roles — no other value may be written to User.role
+const VALID_APP_ROLES = ['admin', 'internal', 'pricing', 'external'];
+
+// Sanitize any value to a valid permission role — project roles fall back to 'external'
+function toPermissionRole(role) {
+  const r = (role || '').toLowerCase().trim();
+  return VALID_APP_ROLES.includes(r) ? r : 'external';
+}
+
 function generateToken() {
   return crypto.randomUUID();
 }
@@ -135,10 +144,14 @@ Deno.serve(async (req) => {
     // ── ACTION: invite ─────────────────────────────────────────────────────
     // Creates or reuses InvitedUser, creates PendingProjectAssignment, sends email
     if (action === 'invite') {
-      const { email, fullName, businessName, phone, trade, projectId, projectName, role } = body;
+      const { email, fullName, businessName, phone, trade, projectId, projectName, role, appRole } = body;
       if (!email || !projectId || !role) {
         return Response.json({ error: 'email, projectId, role required' }, { status: 400 });
       }
+
+      // Derive the permission role: use explicit appRole if provided and valid,
+      // otherwise default to 'external' (project participant roles never map to User.role)
+      const permissionRole = toPermissionRole(appRole || 'external');
 
       const normalEmail = email.toLowerCase().trim();
       const now = new Date().toISOString();
@@ -157,7 +170,7 @@ Deno.serve(async (req) => {
         const token = generateToken();
         invitedUser = await base44.asServiceRole.entities.InvitedUser.create({
           email: normalEmail,
-          app_role: 'external',
+          app_role: permissionRole,
           invited_by_email: user.email,
           status: 'Pending',
           token,
