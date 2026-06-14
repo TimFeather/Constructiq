@@ -41,11 +41,12 @@ function UsersTab() {
     },
   });
 
-  const deleteUserMutation = useMutation({
-    mutationFn: (userId) => base44.entities.User.delete(userId),
+  const deactivateUserMutation = useMutation({
+    mutationFn: (userId) => base44.entities.User.update(userId, { disabled: true }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
       setDeleteConfirm(null);
+      toast({ title: 'User deactivated', description: 'Their account is disabled but their history is preserved.' });
     },
   });
 
@@ -84,9 +85,9 @@ function UsersTab() {
                 onClick={() => { setEditingUser(u); setEditRole(u.role || 'external'); }}>
                 <Pencil className="w-3 h-3" /> Edit Role
               </Button>
-              <Button size="sm" variant="destructive" className="h-8 gap-1.5 text-xs"
+              <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs text-destructive border-destructive/30 hover:bg-destructive/5"
                 onClick={() => setDeleteConfirm(u)}>
-                <Trash2 className="w-3 h-3" /> Remove
+                <Trash2 className="w-3 h-3" /> Deactivate
               </Button>
             </div>
           )}
@@ -144,18 +145,18 @@ function UsersTab() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Delete confirm */}
+      {/* Deactivate confirm */}
       <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
         <DialogContent className="sm:max-w-sm">
-          <DialogHeader><DialogTitle>Remove User</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Deactivate User</DialogTitle></DialogHeader>
           <p className="text-sm text-muted-foreground py-2">
-            Remove <strong>{deleteConfirm?.full_name || deleteConfirm?.email}</strong>? This cannot be undone.
+            Deactivate <strong>{deleteConfirm?.full_name || deleteConfirm?.email}</strong>? Their account will be disabled but their history and project memberships are preserved. They can be reactivated later.
           </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
-            <Button variant="destructive" disabled={deleteUserMutation.isPending}
-              onClick={() => deleteUserMutation.mutate(deleteConfirm.id)}>
-              {deleteUserMutation.isPending ? 'Removing...' : 'Remove'}
+            <Button variant="destructive" disabled={deactivateUserMutation.isPending}
+              onClick={() => deactivateUserMutation.mutate(deleteConfirm.id)}>
+              {deactivateUserMutation.isPending ? 'Deactivating...' : 'Deactivate'}
             </Button>
           </DialogFooter>
         </DialogContent>

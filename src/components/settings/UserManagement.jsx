@@ -59,8 +59,8 @@ export default function UserManagement() {
     }
   });
 
-  const deleteUserMutation = useMutation({
-    mutationFn: (userId) => base44.entities.User.delete(userId),
+  const deactivateUserMutation = useMutation({
+    mutationFn: (userId) => base44.entities.User.update(userId, { disabled: true }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
       setDeleteConfirm(null);
@@ -103,16 +103,16 @@ export default function UserManagement() {
       </Card>
 
       {/* Pending */}
-      {invitedUsers.length > 0 && (
+      {invitedUsers.filter(i => i.status === 'Pending').length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Clock className="w-4 h-4 text-amber-500" /> Pending Invitations ({invitedUsers.length})
+              <Clock className="w-4 h-4 text-amber-500" /> Pending Invitations ({invitedUsers.filter(i => i.status === 'Pending').length})
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {invitedUsers.map(inv => (
+              {invitedUsers.filter(i => i.status === 'Pending').map(inv => (
                 <div key={inv.id} className="flex items-center justify-between p-3 bg-amber-50 dark:bg-amber-950/20 rounded-lg border border-amber-200 dark:border-amber-800">
                   <div>
                     <p className="text-sm font-medium">{inv.email}</p>
@@ -153,8 +153,8 @@ export default function UserManagement() {
                     <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={() => openEdit(u)}>
                       <Pencil className="w-3 h-3" /> Edit
                     </Button>
-                    <Button size="sm" variant="destructive" className="h-8 gap-1.5 text-xs" onClick={() => setDeleteConfirm(u)}>
-                      <Trash2 className="w-3 h-3" /> Delete
+                    <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs text-destructive border-destructive/30 hover:bg-destructive/5" onClick={() => setDeleteConfirm(u)}>
+                      <Trash2 className="w-3 h-3" /> Deactivate
                     </Button>
                   </div>
                 )}
@@ -229,20 +229,20 @@ export default function UserManagement() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Delete confirm */}
+      {/* Deactivate confirm */}
       <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Delete User</DialogTitle>
+            <DialogTitle>Deactivate User</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground py-2">
-            Are you sure you want to delete <strong>{deleteConfirm?.full_name || deleteConfirm?.email}</strong>? This cannot be undone.
+            Deactivate <strong>{deleteConfirm?.full_name || deleteConfirm?.email}</strong>? Their account will be disabled but their history and project memberships are preserved. They can be reactivated later.
           </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={() => deleteUserMutation.mutate(deleteConfirm.id)}
-              disabled={deleteUserMutation.isPending}>
-              {deleteUserMutation.isPending ? 'Deleting...' : 'Delete'}
+            <Button variant="destructive" onClick={() => deactivateUserMutation.mutate(deleteConfirm.id)}
+              disabled={deactivateUserMutation.isPending}>
+              {deactivateUserMutation.isPending ? 'Deactivating...' : 'Deactivate'}
             </Button>
           </DialogFooter>
         </DialogContent>
