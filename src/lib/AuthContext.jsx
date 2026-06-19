@@ -91,6 +91,14 @@ export const AuthProvider = ({ children }) => {
         return;
       }
 
+      // Check for context conflict: cached user belongs to a different email
+      const cachedEmail = localStorage.getItem('pending_email') || sessionStorage.getItem('pending_email');
+      if (cachedEmail && cachedEmail.toLowerCase() !== currentUser.email?.toLowerCase()) {
+        console.info('STALE SESSION DETECTED', { cachedEmail, authenticatedEmail: currentUser.email });
+        clearClientAuthState();
+        console.info('AUTH CONTEXT REBUILT');
+      }
+
       setUser(currentUser);
       setIsAuthenticated(true);
       setIsLoadingAuth(false);
@@ -106,6 +114,7 @@ export const AuthProvider = ({ children }) => {
       console.error('User auth check failed:', error);
       // Auth token exists but me() failed — stale/corrupt token; clear client state
       clearClientAuthState();
+      console.info('AUTH STATE RESET');
       setIsLoadingAuth(false);
       setIsAuthenticated(false);
       setAuthChecked(true);

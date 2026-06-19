@@ -25,10 +25,32 @@ export default function Register() {
   const [showOtp, setShowOtp] = useState(false);
   const [otpCode, setOtpCode] = useState("");
 
-  // Clear any stale client auth/onboarding state when the Register page loads.
-  // This prevents registration loops in normal browsers where previous session
-  // data persists and conflicts with a fresh onboarding attempt.
+  // On mount: detect and clear any stale onboarding/invitation/auth state.
+  // Prevents registration loops in normal browsers where previous session data
+  // persists from an incomplete onboarding attempt.
   useEffect(() => {
+    const hasInvitationToken = !!(
+      localStorage.getItem('invitation_token') ||
+      localStorage.getItem('invite_token') ||
+      sessionStorage.getItem('invitation_token') ||
+      sessionStorage.getItem('invite_token')
+    );
+    const hasOnboardingState = !!(
+      localStorage.getItem('onboarding') ||
+      localStorage.getItem('onboarding_step') ||
+      sessionStorage.getItem('onboarding')
+    );
+    const hasStaleRegistration = !!(
+      localStorage.getItem('pending_email') ||
+      sessionStorage.getItem('pending_email') ||
+      localStorage.getItem('registration_email')
+    );
+
+    if (hasInvitationToken || hasOnboardingState || hasStaleRegistration) {
+      console.info('STALE SESSION DETECTED', { hasInvitationToken, hasOnboardingState, hasStaleRegistration });
+    }
+
+    // Always clear — ensures a clean slate regardless of what was cached
     clearClientAuthState();
   }, []);
 
