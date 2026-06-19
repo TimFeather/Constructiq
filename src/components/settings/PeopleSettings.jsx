@@ -28,22 +28,43 @@ function roleColour(role) {
 
 // Shared user card layout
 function UserRow({ u, actions }) {
-  const userData = u?.data?.data || u?.data || {};
-  const firstName = userData.first_name ?? '';
-  const lastName = userData.last_name ?? '';
-  const fullName = `${firstName} ${lastName}`.trim() || '—';
-  const company = String(userData.business_name ?? '').trim() || '—';
-  const phone = String(userData.phone ?? '').trim() || '—';
+  const userData = u?.data || {};
+
+  const fullName =
+    `${userData.first_name || ''} ${userData.last_name || ''}`.trim() || '—';
+
+  const company =
+    (userData.business_name || '').trim() || '—';
+
+  const phone =
+    (userData.phone || '').trim() || '—';
+
   const role = u.role || 'external';
+
+  console.log("USER ROW FINAL", {
+    email: u.email,
+    userData,
+    fullName,
+    company,
+    phone
+  });
 
   return (
     <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50 gap-3">
       <div className="min-w-0 flex-1">
-        <div className="grid grid-cols-2 gap-x-6 gap-y-1">
-          <p className="text-sm font-medium truncate">{fullName}</p>
-          <p className="text-sm text-muted-foreground truncate">{company}</p>
-          <p className="text-xs text-muted-foreground truncate">{u.email}</p>
-          <p className="text-xs text-muted-foreground truncate">{phone}</p>
+        <div className="grid grid-cols-2 gap-x-6 gap-y-1 w-full">
+          <p className="text-sm font-medium truncate">
+            {fullName}
+          </p>
+          <p className="text-sm text-muted-foreground truncate">
+            {company}
+          </p>
+          <p className="text-xs text-muted-foreground truncate">
+            {u.email}
+          </p>
+          <p className="text-xs text-muted-foreground truncate">
+            {phone}
+          </p>
         </div>
         <Badge variant="outline" className={`text-xs mt-1.5 ${roleColour(role)}`}>{role}</Badge>
       </div>
