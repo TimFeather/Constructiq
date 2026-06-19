@@ -10,13 +10,13 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogHeader, AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
+  AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from
+'@/components/ui/alert-dialog';
 import {
   PanelLeftClose, PanelLeftOpen, Upload, Printer, ZoomIn, ZoomOut,
   Trash2, Target, Calendar, LayoutDashboard, CalendarDays,
-  ChevronsDownUp, ChevronsUpDown, Pencil,
-} from 'lucide-react';
+  ChevronsDownUp, ChevronsUpDown, Pencil } from
+'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import PageHeader from '@/components/shared/PageHeader';
@@ -77,13 +77,13 @@ export default function Programme() {
     if (!source || !target || isSyncing.current) return;
     isSyncing.current = true;
     target.scrollTop = source.scrollTop;
-    requestAnimationFrame(() => { isSyncing.current = false; });
+    requestAnimationFrame(() => {isSyncing.current = false;});
   }, []);
 
   const onToggleExpand = useCallback((id) => {
-    setExpandedIds(prev => {
+    setExpandedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
+      if (next.has(id)) next.delete(id);else next.add(id);
       return next;
     });
   }, []);
@@ -91,21 +91,21 @@ export default function Programme() {
   // ─── Data fetching ───────────────────────────────────────────────────────────
   const { data: allProjectsRaw = [], isLoading: isLoadingProjects } = useQuery({
     queryKey: ['projects'],
-    queryFn: () => base44.entities.Project.list('-created_date', 100),
+    queryFn: () => base44.entities.Project.list('-created_date', 100)
   });
 
-  const projects = isAdmin
-    ? allProjectsRaw
-    : allProjectsRaw.filter(p => p.team?.some(m => m.user_email === user?.email));
+  const projects = isAdmin ?
+  allProjectsRaw :
+  allProjectsRaw.filter((p) => p.team?.some((m) => m.user_email === user?.email));
 
-  const projectIds = new Set(projects.map(p => p.id));
+  const projectIds = new Set(projects.map((p) => p.id));
 
   const { data: allTasks = [] } = useQuery({
     queryKey: ['tasks', selectedProjectId],
-    queryFn: () => selectedProjectId === 'all'
-      ? base44.entities.Task.list('sort_order', 2000)
-      : base44.entities.Task.filter({ project_id: selectedProjectId }, 'sort_order', 2000),
-    staleTime: 30000,
+    queryFn: () => selectedProjectId === 'all' ?
+    base44.entities.Task.list('sort_order', 2000) :
+    base44.entities.Task.filter({ project_id: selectedProjectId }, 'sort_order', 2000),
+    staleTime: 30000
   });
 
   useEffect(() => {
@@ -116,13 +116,13 @@ export default function Programme() {
     return unsub;
   }, [queryClient]);
 
-  const accessibleTasks = allTasks.filter(t => projectIds.has(t.project_id));
-  const tasks = selectedProjectId === 'all'
-    ? accessibleTasks
-    : accessibleTasks.filter(t => t.project_id === selectedProjectId);
+  const accessibleTasks = allTasks.filter((t) => projectIds.has(t.project_id));
+  const tasks = selectedProjectId === 'all' ?
+  accessibleTasks :
+  accessibleTasks.filter((t) => t.project_id === selectedProjectId);
 
   const expandAll = useCallback(() => {
-    setExpandedIds(new Set(tasks.map(t => t.id)));
+    setExpandedIds(new Set(tasks.map((t) => t.id)));
   }, [tasks]);
 
   const collapseAll = useCallback(() => {
@@ -132,7 +132,7 @@ export default function Programme() {
   // Seed expandedIds when tasks first load (expand root tasks)
   useEffect(() => {
     if (tasks.length > 0) {
-      setExpandedIds(new Set(tasks.filter(t => !t.parent_id).map(t => t.id)));
+      setExpandedIds(new Set(tasks.filter((t) => !t.parent_id).map((t) => t.id)));
     }
   }, [selectedProjectId]);
 
@@ -151,7 +151,7 @@ export default function Programme() {
 
   const criticalTaskCount = useMemo(() => {
     let count = 0;
-    scheduledMap.forEach(r => { if (r.isCritical) count++; });
+    scheduledMap.forEach((r) => {if (r.isCritical) count++;});
     return count;
   }, [scheduledMap]);
 
@@ -166,7 +166,7 @@ export default function Programme() {
         stageOf: IMPORT_STAGES.length,
         pct,
         statusText: `${IMPORT_STAGES[stageIdx]}${detail ? ` — ${detail}` : ''}`,
-        error: null,
+        error: null
       });
     };
 
@@ -184,9 +184,9 @@ export default function Programme() {
       // Stage 2: parse
       setStage(1, 18);
       let parsedTasks = [];
-      if (ext === 'xml') parsedTasks = parseXML(text, selectedProjectId);
-      else if (ext === 'mpx') parsedTasks = parseMPX(text, selectedProjectId);
-      else if (ext === 'xlsx' || ext === 'xls' || ext === 'csv') parsedTasks = await parseExcelCSV(mppFile, selectedProjectId);
+      if (ext === 'xml') parsedTasks = parseXML(text, selectedProjectId);else
+      if (ext === 'mpx') parsedTasks = parseMPX(text, selectedProjectId);else
+      if (ext === 'xlsx' || ext === 'xls' || ext === 'csv') parsedTasks = await parseExcelCSV(mppFile, selectedProjectId);
       setStage(1, 25, `${parsedTasks.length} tasks found`);
 
       if (!parsedTasks.length) {
@@ -205,7 +205,7 @@ export default function Programme() {
         const chunk = tasksToCreate.slice(i, i + CREATE_BATCH);
         const result = await retry429(() => base44.entities.Task.bulkCreate(chunk));
         created.push(...result);
-        const pct = 30 + Math.round(((i + chunk.length) / tasksToCreate.length) * 25);
+        const pct = 30 + Math.round((i + chunk.length) / tasksToCreate.length * 25);
         setStage(2, pct, `${created.length} / ${tasksToCreate.length} tasks created`);
       }
       setStage(2, 55, `${created.length} tasks created`);
@@ -224,12 +224,12 @@ export default function Programme() {
         if (!dbId) return;
         const payload = {};
         if (pt._predecessorLinks?.length) {
-          const predecessors = pt._predecessorLinks
-            .map(link => {
-              const predDbId = uidToDbId.get(link._predUid);
-              if (!predDbId) return null;
-              return { predecessor_id: predDbId, task_id: predDbId, type: link.type, lag_hours: link.lag_hours, lag_days: Math.round(link.lag_hours / 8), is_elapsed: link.is_elapsed };
-            }).filter(Boolean);
+          const predecessors = pt._predecessorLinks.
+          map((link) => {
+            const predDbId = uidToDbId.get(link._predUid);
+            if (!predDbId) return null;
+            return { predecessor_id: predDbId, task_id: predDbId, type: link.type, lag_hours: link.lag_hours, lag_days: Math.round(link.lag_hours / 8), is_elapsed: link.is_elapsed };
+          }).filter(Boolean);
           if (predecessors.length) payload.predecessors = predecessors;
         }
         if (pt._parentUid != null) {
@@ -244,10 +244,10 @@ export default function Programme() {
       for (let i = 0; i < updates.length; i += DEP_BATCH) {
         const batch = updates.slice(i, i + DEP_BATCH);
         await Promise.all(batch.map(({ id, ...payload }) =>
-          retry429(() => base44.entities.Task.update(id, payload)).then(() => {
-            done++;
-            setStage(3, 60 + Math.round((done / updates.length) * 25), `${done} / ${updates.length} dependencies`);
-          })
+        retry429(() => base44.entities.Task.update(id, payload)).then(() => {
+          done++;
+          setStage(3, 60 + Math.round(done / updates.length * 25), `${done} / ${updates.length} dependencies`);
+        })
         ));
       }
 
@@ -255,7 +255,7 @@ export default function Programme() {
       setStage(4, 88, 'Building WBS structure');
       setStage(5, 95, 'Finalising');
 
-      setImportProgress(p => ({ ...p, pct: 100, statusText: 'Import complete!' }));
+      setImportProgress((p) => ({ ...p, pct: 100, statusText: 'Import complete!' }));
 
 
       setTimeout(async () => {
@@ -266,7 +266,7 @@ export default function Programme() {
       }, 1200);
 
     } catch (error) {
-      setImportProgress(p => ({ ...p, error: error.message || 'Import failed. Please check the file and try again.' }));
+      setImportProgress((p) => ({ ...p, error: error.message || 'Import failed. Please check the file and try again.' }));
     } finally {
       bulkOperationState.active = false;
     }
@@ -285,7 +285,7 @@ export default function Programme() {
       const freshTasks = await base44.entities.Task.filter(
         { project_id: selectedProjectId }, 'sort_order', 5000
       );
-      const allIds = freshTasks.map(t => t.id);
+      const allIds = freshTasks.map((t) => t.id);
       const total = allIds.length;
 
       if (total === 0) {
@@ -303,19 +303,19 @@ export default function Programme() {
       // Pass 1: concurrent batches with retry429
       for (let i = 0; i < allIds.length; i += DELETE_CONCURRENT) {
         const batch = allIds.slice(i, i + DELETE_CONCURRENT);
-        const results = await Promise.allSettled(batch.map(id => retry429(() => base44.entities.Task.delete(id))));
+        const results = await Promise.allSettled(batch.map((id) => retry429(() => base44.entities.Task.delete(id))));
         results.forEach((r, idx) => {
-          if (r.status === 'fulfilled') deleted++;
-          else failedIds.push(batch[idx]);
+          if (r.status === 'fulfilled') deleted++;else
+          failedIds.push(batch[idx]);
         });
-        const pct = Math.round((deleted / total) * 80);
+        const pct = Math.round(deleted / total * 80);
         setDeleteProgress({ pct, statusText: `${deleted} / ${total} deleted`, done: false, error: null });
       }
 
       // Pass 2: retry remaining failures sequentially
       for (let attempt = 0; attempt < 2 && failedIds.length > 0; attempt++) {
-        await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
-        setDeleteProgress(p => ({ ...p, pct: 82, statusText: `Retrying ${failedIds.length} failed…` }));
+        await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+        setDeleteProgress((p) => ({ ...p, pct: 82, statusText: `Retrying ${failedIds.length} failed…` }));
         const retrying = [...failedIds];
         failedIds = [];
         for (const id of retrying) {
@@ -329,32 +329,32 @@ export default function Programme() {
       }
 
       // Verify
-      setDeleteProgress(p => ({ ...p, pct: 88, statusText: 'Verifying…' }));
-      await new Promise(r => setTimeout(r, 400));
+      setDeleteProgress((p) => ({ ...p, pct: 88, statusText: 'Verifying…' }));
+      await new Promise((r) => setTimeout(r, 400));
       const remaining = await base44.entities.Task.filter({ project_id: selectedProjectId }, 'sort_order', 1);
 
       if (remaining.length > 0 || failedIds.length > 0) {
-        const msg = failedIds.length > 0
-          ? `${failedIds.length} of ${total} tasks could not be deleted. Please try again.`
-          : `Deletion incomplete — tasks still remain. Please try again.`;
-        setDeleteProgress(p => ({ ...p, pct: 88, error: msg }));
+        const msg = failedIds.length > 0 ?
+        `${failedIds.length} of ${total} tasks could not be deleted. Please try again.` :
+        `Deletion incomplete — tasks still remain. Please try again.`;
+        setDeleteProgress((p) => ({ ...p, pct: 88, error: msg }));
         await queryClient.refetchQueries({ queryKey: ['tasks'] });
         return;
       }
 
       // Wait for API quota recovery before allowing next operation
-      setDeleteProgress(p => ({ ...p, pct: 95, statusText: 'Waiting for API recovery…' }));
-      await new Promise(r => setTimeout(r, 15000));
+      setDeleteProgress((p) => ({ ...p, pct: 95, statusText: 'Waiting for API recovery…' }));
+      await new Promise((r) => setTimeout(r, 15000));
 
       await queryClient.refetchQueries({ queryKey: ['tasks'] });
-      setDeleteProgress(p => ({ ...p, pct: 100, statusText: `${total} tasks deleted`, done: true }));
+      setDeleteProgress((p) => ({ ...p, pct: 100, statusText: `${total} tasks deleted`, done: true }));
       setTimeout(() => {
         setDeleteProgress(null);
         toast({ title: 'Programme deleted', description: `${total} tasks removed successfully.`, duration: 4000 });
       }, 1200);
 
     } catch (error) {
-      setDeleteProgress(p => ({ ...p, error: error.message || 'Delete failed. Please try again.' }));
+      setDeleteProgress((p) => ({ ...p, error: error.message || 'Delete failed. Please try again.' }));
     } finally {
       bulkOperationState.active = false;
     }
@@ -377,8 +377,8 @@ export default function Programme() {
           <p className="text-muted-foreground text-sm max-w-sm">You need to be part of a project before you can view its programme.</p>
         </div>
         <Button asChild><Link to="/projects">Go to Projects</Link></Button>
-      </div>
-    );
+      </div>);
+
   }
 
   return (
@@ -387,21 +387,21 @@ export default function Programme() {
         title="Programme"
         description="View schedule, track progress and monitor health"
         actions={
-          <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
             <Select value={selectedProjectId} onValueChange={setSelectedProjectId}>
               <SelectTrigger className="w-44"><SelectValue placeholder="All Projects" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Projects</SelectItem>
-                {projects.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                {projects.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
               </SelectContent>
             </Select>
 
-            {criticalTaskCount > 0 && (
-              <Badge variant={showCriticalPath ? 'destructive' : 'outline'} className="cursor-pointer gap-1"
-                onClick={() => setShowCriticalPath(v => !v)}>
+            {criticalTaskCount > 0 &&
+          <Badge variant={showCriticalPath ? 'destructive' : 'outline'} className="cursor-pointer gap-1"
+          onClick={() => setShowCriticalPath((v) => !v)}>
                 <Target className="w-3 h-3" />{criticalTaskCount} critical
               </Badge>
-            )}
+          }
 
             <Button variant="outline" size="sm" onClick={expandAll} title="Expand all" className="gap-1.5 text-xs h-9"><ChevronsUpDown className="w-3.5 h-3.5" />Expand All</Button>
             <Button variant="outline" size="sm" onClick={collapseAll} title="Collapse all" className="gap-1.5 text-xs h-9"><ChevronsDownUp className="w-3.5 h-3.5" />Collapse</Button>
@@ -410,24 +410,24 @@ export default function Programme() {
             <Button variant="outline" size="icon" onClick={() => window.print()} title="Print"><Printer className="w-4 h-4" /></Button>
             <Button onClick={() => setShowImportDialog(true)} disabled={!!deleteProgress} className="gap-2"><Upload className="w-4 h-4" /> Import</Button>
             <Button variant="destructive" size="icon"
-              onClick={() => setShowDeleteConfirm(true)}
-              disabled={!selectedProjectId || selectedProjectId === 'all' || tasks.length === 0 || !!importProgress}
-              title="Delete all tasks">
+          onClick={() => setShowDeleteConfirm(true)}
+          disabled={!selectedProjectId || selectedProjectId === 'all' || tasks.length === 0 || !!importProgress}
+          title="Delete all tasks">
               <Trash2 className="w-4 h-4" />
             </Button>
           </div>
-        }
-      />
+        } />
+      
 
       <Tabs defaultValue="gantt" className="flex-1 flex flex-col overflow-hidden">
-        {isMobile && (
-          <div className="flex items-center gap-2 py-2 border-b bg-muted/20 overflow-x-auto flex-shrink-0">
+        {isMobile &&
+        <div className="flex items-center gap-2 py-2 border-b bg-muted/20 overflow-x-auto flex-shrink-0">
             <Button size="sm" variant="outline" onClick={expandAll} className="flex-shrink-0 h-8 text-xs gap-1"><ChevronsUpDown className="w-3 h-3" /> Expand All</Button>
             <Button size="sm" variant="outline" onClick={collapseAll} className="flex-shrink-0 h-8 text-xs gap-1"><ChevronsDownUp className="w-3 h-3" /> Collapse</Button>
             <Button size="sm" variant="outline" onClick={() => cycleZoom('out')} className="flex-shrink-0 h-8"><ZoomOut className="w-3.5 h-3.5" /></Button>
             <Button size="sm" variant="outline" onClick={() => cycleZoom('in')} className="flex-shrink-0 h-8"><ZoomIn className="w-3.5 h-3.5" /></Button>
           </div>
-        )}
+        }
         <div className="overflow-x-auto flex-shrink-0"><TabsList className="flex w-max">
           <TabsTrigger value="gantt">Gantt Chart</TabsTrigger>
           <TabsTrigger value="lookahead" className="gap-1.5"><CalendarDays className="w-3.5 h-3.5" /> Look Ahead</TabsTrigger>
@@ -435,10 +435,32 @@ export default function Programme() {
         </TabsList></div>
 
         {/* ── Gantt ── */}
-        <TabsContent value="gantt" className="flex-1 flex border rounded-lg overflow-hidden">
-          {isMobile ? (
-            <div className="flex-1 overflow-hidden">
+        <TabsContent value="gantt" className="flex-1 flex border rounded-lg overflow-hidden hidden">
+          {isMobile ?
+          <div className="flex-1 overflow-hidden">
               <TaskList
+              tasks={tasks}
+              visibleTasks={visibleTasks}
+              scheduledMap={scheduledMap}
+              expandedIds={expandedIds}
+              onToggleExpand={onToggleExpand}
+              onTaskClick={setSelectedTask}
+              onEditTask={setEditingTask}
+              scrollRef={taskScrollRef}
+              onScroll={() => {}} />
+            
+            </div> :
+
+          <>
+              <button onClick={() => setTaskListCollapsed(!taskListCollapsed)}
+            className="flex items-center justify-center w-8 bg-muted/30 hover:bg-muted transition-colors border-r flex-shrink-0"
+            title={taskListCollapsed ? 'Show task list' : 'Hide task list'}>
+                {taskListCollapsed ? <PanelLeftOpen className="w-4 h-4 text-muted-foreground" /> : <PanelLeftClose className="w-4 h-4 text-muted-foreground" />}
+              </button>
+
+              {!taskListCollapsed &&
+            <div className="w-[520px] xl:w-[620px] flex-shrink-0 overflow-hidden">
+                  <TaskList
                 tasks={tasks}
                 visibleTasks={visibleTasks}
                 scheduledMap={scheduledMap}
@@ -447,53 +469,31 @@ export default function Programme() {
                 onTaskClick={setSelectedTask}
                 onEditTask={setEditingTask}
                 scrollRef={taskScrollRef}
-                onScroll={() => {}}
-              />
-            </div>
-          ) : (
-            <>
-              <button onClick={() => setTaskListCollapsed(!taskListCollapsed)}
-                className="flex items-center justify-center w-8 bg-muted/30 hover:bg-muted transition-colors border-r flex-shrink-0"
-                title={taskListCollapsed ? 'Show task list' : 'Hide task list'}>
-                {taskListCollapsed ? <PanelLeftOpen className="w-4 h-4 text-muted-foreground" /> : <PanelLeftClose className="w-4 h-4 text-muted-foreground" />}
-              </button>
-
-              {!taskListCollapsed && (
-                <div className="w-[520px] xl:w-[620px] flex-shrink-0 overflow-hidden">
-                  <TaskList
-                    tasks={tasks}
-                    visibleTasks={visibleTasks}
-                    scheduledMap={scheduledMap}
-                    expandedIds={expandedIds}
-                    onToggleExpand={onToggleExpand}
-                    onTaskClick={setSelectedTask}
-                    onEditTask={setEditingTask}
-                    scrollRef={taskScrollRef}
-                    onScroll={() => {
-                      if (taskScrollRef.current && ganttScrollRef.current) {
-                        syncScroll(taskScrollRef.current, ganttScrollRef.current);
-                      }
-                    }}
-                  />
-                </div>
-              )}
-
-              <GanttChart
-                tasks={tasks}
-                visibleTasks={visibleTasks}
-                scheduledMap={scheduledMap}
-                zoom={zoom}
-                scrollRef={ganttScrollRef}
                 onScroll={() => {
                   if (taskScrollRef.current && ganttScrollRef.current) {
-                    syncScroll(ganttScrollRef.current, taskScrollRef.current);
+                    syncScroll(taskScrollRef.current, ganttScrollRef.current);
                   }
-                }}
-                baselineMap={null}
-                onTaskClick={setSelectedTask}
-              />
+                }} />
+              
+                </div>
+            }
+
+              <GanttChart
+              tasks={tasks}
+              visibleTasks={visibleTasks}
+              scheduledMap={scheduledMap}
+              zoom={zoom}
+              scrollRef={ganttScrollRef}
+              onScroll={() => {
+                if (taskScrollRef.current && ganttScrollRef.current) {
+                  syncScroll(ganttScrollRef.current, taskScrollRef.current);
+                }
+              }}
+              baselineMap={null}
+              onTaskClick={setSelectedTask} />
+            
             </>
-          )}
+          }
         </TabsContent>
 
         <TabsContent value="lookahead" className="flex-1 overflow-hidden border rounded-lg bg-card">
@@ -509,8 +509,8 @@ export default function Programme() {
       <TaskInlineEditor
         task={editingTask}
         open={!!editingTask}
-        onOpenChange={open => { if (!open) setEditingTask(null); }}
-      />
+        onOpenChange={(open) => {if (!open) setEditingTask(null);}} />
+      
 
       {/* Progress tracking panel */}
       <TaskProgressPanel
@@ -518,8 +518,8 @@ export default function Programme() {
         tasks={tasks}
         scheduledMap={scheduledMap}
         open={!!selectedTask}
-        onOpenChange={open => { if (!open) setSelectedTask(null); }}
-      />
+        onOpenChange={(open) => {if (!open) setSelectedTask(null);}} />
+      
 
       {/* Import progress modal */}
       <ProgressModal
@@ -530,9 +530,9 @@ export default function Programme() {
         pct={importProgress?.pct || 0}
         statusText={importProgress?.statusText}
         error={importProgress?.error}
-        onRetry={() => { setImportProgress(null); setShowImportDialog(true); }}
-        onClose={() => { setImportProgress(null); setMppFile(null); }}
-      />
+        onRetry={() => {setImportProgress(null);setShowImportDialog(true);}}
+        onClose={() => {setImportProgress(null);setMppFile(null);}} />
+      
 
       {/* Delete progress modal */}
       <ProgressModal
@@ -541,8 +541,8 @@ export default function Programme() {
         pct={deleteProgress?.pct || 0}
         statusText={deleteProgress?.statusText}
         error={deleteProgress?.error}
-        onClose={() => setDeleteProgress(null)}
-      />
+        onClose={() => setDeleteProgress(null)} />
+      
 
       {/* Delete confirm */}
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
@@ -575,25 +575,25 @@ export default function Programme() {
             </div>
             <div>
               <Label>Select Project *</Label>
-              <Select value={selectedProjectId !== 'all' ? selectedProjectId : (projects[0]?.id || '')} onValueChange={setSelectedProjectId}>
+              <Select value={selectedProjectId !== 'all' ? selectedProjectId : projects[0]?.id || ''} onValueChange={setSelectedProjectId}>
                 <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
-                <SelectContent>{projects.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
+                <SelectContent>{projects.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div>
               <Label>Schedule File *</Label>
-              <Input type="file" accept=".xml,.mpx,.xlsx,.xls,.csv" onChange={e => setMppFile(e.target.files?.[0] || null)} />
+              <Input type="file" accept=".xml,.mpx,.xlsx,.xls,.csv" onChange={(e) => setMppFile(e.target.files?.[0] || null)} />
               {mppFile && <p className="text-xs text-muted-foreground mt-1">Selected: {mppFile.name}</p>}
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setShowImportDialog(false); setMppFile(null); }}>Cancel</Button>
+            <Button variant="outline" onClick={() => {setShowImportDialog(false);setMppFile(null);}}>Cancel</Button>
             <Button onClick={handleMPPUpload} disabled={!mppFile || !selectedProjectId || selectedProjectId === 'all'}>
               Import Schedule
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
-  );
+    </div>);
+
 }
