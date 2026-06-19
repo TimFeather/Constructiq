@@ -496,11 +496,11 @@ export default function Programme() {
           )}
         </TabsContent>
 
-        <TabsContent value="lookahead" className="flex-1 overflow-hidden">
+        <TabsContent value="lookahead" className="flex-1 overflow-hidden border rounded-lg bg-card">
           <LookAhead tasks={tasks} scheduledMap={scheduledMap} />
         </TabsContent>
 
-        <TabsContent value="health" className="flex-1 overflow-hidden">
+        <TabsContent value="health" className="flex-1 overflow-hidden border rounded-lg bg-card">
           <ProgrammeHealth tasks={tasks} scheduledMap={scheduledMap} />
         </TabsContent>
       </Tabs>
