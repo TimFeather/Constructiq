@@ -28,11 +28,12 @@ function roleColour(role) {
 
 // Shared user card layout
 function UserRow({ u, actions }) {
-  const firstName = u?.data?.first_name ?? '';
-  const lastName = u?.data?.last_name ?? '';
+  const userData = u?.data?.data || u?.data || {};
+  const firstName = userData.first_name ?? '';
+  const lastName = userData.last_name ?? '';
   const fullName = `${firstName} ${lastName}`.trim() || '—';
-  const company = String(u?.data?.business_name ?? '').trim() || '—';
-  const phone = String(u?.data?.phone ?? '').trim() || '—';
+  const company = String(userData.business_name ?? '').trim() || '—';
+  const phone = String(userData.phone ?? '').trim() || '—';
   const role = u.role || 'external';
 
   return (
