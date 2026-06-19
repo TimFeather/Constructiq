@@ -11,7 +11,7 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Save, Shield, Bell, Mail, Palette, Tag, RefreshCw, Trash2, FolderOpen, FileSignature, Users } from 'lucide-react';
+import { Save, Shield, Bell, Mail, Palette, Tag, RefreshCw, Trash2, FolderOpen, FileSignature, Users, FlaskConical } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import PageHeader from '@/components/shared/PageHeader';
 import { DEFAULT_TEMPLATES } from '@/lib/emailTemplates';
@@ -24,6 +24,7 @@ import EmailTemplateEditor from '@/components/settings/EmailTemplateEditor';
 import DocumentFolderTemplates from '@/components/settings/DocumentFolderTemplates';
 import TenderSettingsPanel from '@/components/settings/TenderSettingsPanel';
 import PeopleSettings from '@/components/settings/PeopleSettings';
+import TestUtilities from '@/components/settings/TestUtilities';
 
 const ROLES = [
   'Architect', 'Client', 'External Project Manager',
@@ -193,6 +194,11 @@ export default function Settings() {
           {isAdmin && (
             <TabsTrigger value="tender-defaults">
               <FileSignature className="w-3.5 h-3.5 mr-1" /> Tender Defaults
+            </TabsTrigger>
+          )}
+          {isAdmin && (
+            <TabsTrigger value="system">
+              <FlaskConical className="w-3.5 h-3.5 mr-1" /> System
             </TabsTrigger>
           )}
         </TabsList></div>
@@ -406,6 +412,19 @@ export default function Settings() {
         {isAdmin && (
           <TabsContent value="tender-defaults">
             <TenderSettingsPanel />
+          </TabsContent>
+        )}
+        {isAdmin && (
+          <TabsContent value="system">
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-sm font-semibold mb-1">Test Utilities</h3>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Admin-only reset tools for development and QA. Disable via <code className="bg-muted px-1 rounded text-[11px]">TEST_UTILITIES_DISABLED=true</code> environment variable before deploying to production.
+                </p>
+                <TestUtilities />
+              </div>
+            </div>
           </TabsContent>
         )}
       </Tabs>
