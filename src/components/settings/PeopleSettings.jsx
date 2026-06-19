@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Users, Clock, RotateCcw, XCircle, Search, Pencil, ShieldOff, ShieldCheck, UserX } from 'lucide-react';
+import { isAdmin } from '@/lib/permissions';
 import { useToast } from '@/components/ui/use-toast';
 import { format } from 'date-fns';
 
@@ -77,7 +78,7 @@ function ActiveUsersTab() {
       const res = await base44.functions.invoke('getPeopleDirectory', {});
       return res.data?.users || [];
     },
-    enabled: user?.role === 'admin',
+    enabled: isAdmin(user),
   });
 
   const activeUsers = users.filter(u => u.disabled !== true);
@@ -225,7 +226,7 @@ function PendingInvitationsTab() {
   const { data: invitedUsers = [], isLoading } = useQuery({
     queryKey: ['invitedUsers'],
     queryFn: () => base44.entities.InvitedUser.list('-created_date', 200),
-    enabled: user?.role === 'admin',
+    enabled: isAdmin(user),
   });
 
   const resendMutation = useMutation({
@@ -315,7 +316,7 @@ function DeactivatedUsersTab() {
       const res = await base44.functions.invoke('getPeopleDirectory', {});
       return res.data?.users || [];
     },
-    enabled: user?.role === 'admin',
+    enabled: isAdmin(user),
   });
 
   const deactivatedUsers = users.filter(u => u.disabled === true);

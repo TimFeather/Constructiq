@@ -4,7 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { Link } from 'react-router-dom';
 import { Plus, Search, Calendar, Trash2 } from 'lucide-react';
-import { canEdit } from '@/lib/permissions';
+import { canEdit, canDelete, isAdmin } from '@/lib/permissions';
 import { normalizeEmail } from '@/lib/normalizeEmail';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,9 +20,9 @@ import { FolderKanban } from 'lucide-react';
 
 export default function Projects() {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const isAdminUser = isAdmin(user);
   const isAllowed = canEdit(user, 'projects');
-  const canDelete = isAllowed;
+  const canDeleteProject = canDelete(user, 'projects');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [showForm, setShowForm] = useState(false);
@@ -39,7 +39,7 @@ export default function Projects() {
     queryFn: () => base44.entities.Task.list('-created_date', 1000),
   });
 
-  const projects = isAdmin
+  const projects = isAdminUser
     ? allProjects
     : allProjects.filter(p => {
         console.log('MEMBERSHIP CHECK', {
@@ -154,7 +154,7 @@ export default function Projects() {
                   </CardContent>
                 </Card>
               </Link>
-              {canDelete && (
+              {canDeleteProject && (
                 <button
                   className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md bg-card border shadow-sm hover:bg-destructive hover:text-destructive-foreground hover:border-destructive"
                   onClick={e => { e.preventDefault(); setDeleteProjectId(project.id); }}

@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { Link } from 'react-router-dom';
+import { isAdmin } from '@/lib/permissions';
 import { Plus, Search, MessageSquareMore, Clock, User, ArrowLeft, Calendar, FolderKanban } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -52,7 +53,7 @@ const RFICard = ({ rfi, projectMap, rfiNumber }) => {
 
 export default function RFIs() {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const isAdminUser = isAdmin(user);
   const [selectedProjectId, setSelectedProjectId] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [formDefaultProjectId, setFormDefaultProjectId] = useState('');
@@ -67,7 +68,7 @@ export default function RFIs() {
     queryFn: () => base44.entities.Project.list('-created_date', 100),
   });
 
-  const projects = isAdmin
+  const projects = isAdminUser
     ? allProjects
     : allProjects.filter(p => p.team?.some(m => normalizeEmail(m.user_email) === normalizeEmail(user?.email)));
 
