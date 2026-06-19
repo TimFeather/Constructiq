@@ -161,6 +161,11 @@
           "user_condition": {
             "role": "pricing"
           }
+        },
+        {
+          "user_condition": {
+            "role": "external"
+          }
         }
       ]
     },
