@@ -82,8 +82,9 @@ function ActiveUsersTab() {
 
   const deactivateMutation = useMutation({
     mutationFn: async (u) => {
-      // 1. Mark user disabled
-      await base44.entities.User.update(u.id, { data: { disabled: true } });
+      // 1. Mark user disabled — merge into existing data to avoid creating data.data nesting
+      const existingData = u.data || {};
+      await base44.entities.User.update(u.id, { data: { ...existingData, disabled: true } });
       // 2. Remove from all active project teams
       await base44.functions.invoke('invitationService', {
         action: 'removeFromProjectTeams',
@@ -307,7 +308,11 @@ function DeactivatedUsersTab() {
   const deactivatedUsers = users.filter(u => u.data?.disabled === true);
 
   const reactivateMutation = useMutation({
-    mutationFn: (userId) => base44.entities.User.update(userId, { data: { disabled: false } }),
+    mutationFn: (userId) => {
+      const target = users.find(u => u.id === userId);
+      const existingData = target?.data || {};
+      return base44.entities.User.update(userId, { data: { ...existingData, disabled: false } });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
       toast({ title: 'User reactivated', description: 'They can now log in. Project access must be granted manually.' });
