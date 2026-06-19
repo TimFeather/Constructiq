@@ -2,6 +2,80 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
 
 const DISABLED = Deno.env.get('TEST_UTILITIES_DISABLED') === 'true';
 
+function normalizeEmail(email) {
+  return String(email || '').trim().toLowerCase();
+}
+
+/**
+ * Completely erase one user so they can re-register as if they never existed.
+ * Returns a verification report for the deleted email.
+ */
+async function purgeOneUser(base44, targetUser) {
+  const email = normalizeEmail(targetUser.email);
+
+  // 1. Remove from all project teams
+  const projects = await base44.asServiceRole.entities.Project.list();
+  for (const project of projects) {
+    const before = project.team || [];
+    const after = before.filter(m => normalizeEmail(m.user_email) !== email);
+    if (after.length !== before.length) {
+      await base44.asServiceRole.entities.Project.update(project.id, { team: after });
+    }
+  }
+
+  // 2. Delete PendingProjectAssignment records (marks token as consumed — blocks re-use)
+  const pending = await base44.asServiceRole.entities.PendingProjectAssignment.list();
+  for (const r of pending) {
+    if (normalizeEmail(r.email) === email) {
+      await base44.asServiceRole.entities.PendingProjectAssignment.delete(r.id);
+    }
+  }
+
+  // 3. Delete InvitedUser records (invalidates invitation tokens)
+  const invited = await base44.asServiceRole.entities.InvitedUser.list();
+  for (const r of invited) {
+    if (normalizeEmail(r.email) === email) {
+      await base44.asServiceRole.entities.InvitedUser.delete(r.id);
+    }
+  }
+
+  // 4. Delete the User entity record AND auth identity
+  //    base44.asServiceRole.entities.User.delete() removes both entity + auth identity
+  //    (sessions/tokens are invalidated server-side when the identity is gone)
+  await base44.asServiceRole.entities.User.delete(targetUser.id);
+
+  // 5. Verification — confirm nothing remains for this email
+  const [usersAfter, invitedAfter, pendingAfter, projectsAfter] = await Promise.all([
+    base44.asServiceRole.entities.User.list(),
+    base44.asServiceRole.entities.InvitedUser.list(),
+    base44.asServiceRole.entities.PendingProjectAssignment.list(),
+    base44.asServiceRole.entities.Project.list(),
+  ]);
+
+  const userRemaining = usersAfter.filter(u => normalizeEmail(u.email) === email).length;
+  const inviteRemaining = invitedAfter.filter(r => normalizeEmail(r.email) === email).length;
+  const pendingRemaining = pendingAfter.filter(r => normalizeEmail(r.email) === email).length;
+  const teamRemaining = projectsAfter.reduce((sum, p) =>
+    sum + (p.team || []).filter(m => normalizeEmail(m.user_email) === email).length, 0
+  );
+
+  console.log('PURGE COMPLETE', {
+    email,
+    userRemaining,
+    inviteRemaining,
+    pendingRemaining,
+    teamRemaining,
+  });
+
+  const clean = userRemaining === 0 && inviteRemaining === 0 && pendingRemaining === 0 && teamRemaining === 0;
+
+  return {
+    email,
+    clean,
+    verification: { userRemaining, inviteRemaining, pendingRemaining, teamRemaining },
+  };
+}
+
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
@@ -16,8 +90,6 @@ Deno.serve(async (req) => {
     const { action } = await req.json();
 
     // ─── 1. Reset Invitation State ───────────────────────────────────────────
-    // Deletes InvitedUser + PendingProjectAssignment records only.
-    // Does NOT touch User entities, auth identities, or project memberships.
     if (action === 'reset_invitation_state') {
       const invited = await base44.asServiceRole.entities.InvitedUser.list();
       for (const r of invited) {
@@ -33,93 +105,64 @@ Deno.serve(async (req) => {
     }
 
     // ─── 2. Purge Test Users ─────────────────────────────────────────────────
-    // Removes all registered non-admin users and their associated data.
+    // Full wipe: entity + auth identity + project refs + invitation tokens.
     // Keeps: logged-in admin, all other admins.
-    // Cleans: User entity, project team references, pending assignments, invited records.
     if (action === 'purge_test_users') {
       const allUsers = await base44.asServiceRole.entities.User.list();
       const toDelete = allUsers.filter(u => u.role !== 'admin' && u.id !== user.id);
 
-      const emails = new Set(toDelete.map(u => u.email));
+      const results = [];
+      const dirty = [];
 
-      // Remove from project teams
-      const projects = await base44.asServiceRole.entities.Project.list();
-      for (const project of projects) {
-        const team = (project.team || []).filter(m => !emails.has(m.user_email));
-        if (team.length !== (project.team || []).length) {
-          await base44.asServiceRole.entities.Project.update(project.id, { team });
-        }
-      }
-
-      // Delete their pending assignments
-      const pending = await base44.asServiceRole.entities.PendingProjectAssignment.list();
-      for (const r of pending) {
-        if (emails.has(r.email)) {
-          await base44.asServiceRole.entities.PendingProjectAssignment.delete(r.id);
-        }
-      }
-
-      // Delete their InvitedUser records
-      const invited = await base44.asServiceRole.entities.InvitedUser.list();
-      for (const r of invited) {
-        if (emails.has(r.email)) {
-          await base44.asServiceRole.entities.InvitedUser.delete(r.id);
-        }
-      }
-
-      // Delete User entity records (allows re-registration with same email)
       for (const u of toDelete) {
-        await base44.asServiceRole.entities.User.delete(u.id);
+        const result = await purgeOneUser(base44, u);
+        results.push(result);
+        if (!result.clean) dirty.push(result);
+      }
+
+      if (dirty.length > 0) {
+        return Response.json({
+          success: false,
+          message: `Purge incomplete — ${dirty.length} email(s) still have residual data.`,
+          dirty,
+          results,
+        }, { status: 500 });
       }
 
       return Response.json({
-        message: `Purged ${toDelete.length} non-admin user(s). Emails are free to re-register.`,
-        deleted_emails: [...emails]
+        success: true,
+        message: `Purged ${toDelete.length} non-admin user(s). All emails are clean for re-registration.`,
+        results,
       });
     }
 
     // ─── 3. Clear Deactivated Users ──────────────────────────────────────────
-    // Removes users where data.disabled = true.
-    // Same cleanup process as purge_test_users.
     if (action === 'clear_deactivated_users') {
       const allUsers = await base44.asServiceRole.entities.User.list();
       const toDelete = allUsers.filter(u => u.data?.disabled === true && u.id !== user.id);
 
-      const emails = new Set(toDelete.map(u => u.email));
+      const results = [];
+      const dirty = [];
 
-      // Remove from project teams
-      const projects = await base44.asServiceRole.entities.Project.list();
-      for (const project of projects) {
-        const team = (project.team || []).filter(m => !emails.has(m.user_email));
-        if (team.length !== (project.team || []).length) {
-          await base44.asServiceRole.entities.Project.update(project.id, { team });
-        }
-      }
-
-      // Delete their pending assignments
-      const pending = await base44.asServiceRole.entities.PendingProjectAssignment.list();
-      for (const r of pending) {
-        if (emails.has(r.email)) {
-          await base44.asServiceRole.entities.PendingProjectAssignment.delete(r.id);
-        }
-      }
-
-      // Delete their InvitedUser records
-      const invited = await base44.asServiceRole.entities.InvitedUser.list();
-      for (const r of invited) {
-        if (emails.has(r.email)) {
-          await base44.asServiceRole.entities.InvitedUser.delete(r.id);
-        }
-      }
-
-      // Delete User entity records
       for (const u of toDelete) {
-        await base44.asServiceRole.entities.User.delete(u.id);
+        const result = await purgeOneUser(base44, u);
+        results.push(result);
+        if (!result.clean) dirty.push(result);
+      }
+
+      if (dirty.length > 0) {
+        return Response.json({
+          success: false,
+          message: `Clear incomplete — ${dirty.length} email(s) still have residual data.`,
+          dirty,
+          results,
+        }, { status: 500 });
       }
 
       return Response.json({
-        message: `Removed ${toDelete.length} deactivated user(s). Emails are free to re-register.`,
-        deleted_emails: [...emails]
+        success: true,
+        message: `Removed ${toDelete.length} deactivated user(s). All emails are clean for re-registration.`,
+        results,
       });
     }
 
