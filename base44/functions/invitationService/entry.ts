@@ -20,6 +20,11 @@ const APP_URL = Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz';
 const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
 const TOKEN_EXPIRY_DAYS = 30;
 
+// Normalize email for consistent identity matching
+function normalizeEmail(email) {
+  return String(email || '').trim().toLowerCase();
+}
+
 // Valid permission roles — no other value may be written to User.role
 const VALID_APP_ROLES = ['admin', 'internal', 'pricing', 'external'];
 
@@ -122,13 +127,13 @@ Deno.serve(async (req) => {
       const { email } = body;
       if (!email) return Response.json({ error: 'email required' }, { status: 400 });
 
-      const normalEmail = email.toLowerCase().trim();
+      const normalEmail = normalizeEmail(email);
       const [users, invitedUsers] = await Promise.all([
         base44.asServiceRole.entities.User.list(),
         base44.asServiceRole.entities.InvitedUser.filter({ email: normalEmail }),
       ]);
 
-      const existingUser = users.find(u => u.email?.toLowerCase() === normalEmail);
+      const existingUser = users.find(u => normalizeEmail(u.email) === normalEmail);
       if (existingUser) {
         return Response.json({ status: 'existing_user', user: existingUser });
       }
@@ -153,7 +158,7 @@ Deno.serve(async (req) => {
       // otherwise default to 'external' (project participant roles never map to User.role)
       const permissionRole = toPermissionRole(appRole || 'external');
 
-      const normalEmail = email.toLowerCase().trim();
+      const normalEmail = normalizeEmail(email);
       const now = new Date().toISOString();
 
       // Load branding
@@ -169,7 +174,7 @@ Deno.serve(async (req) => {
         // New invite
         const token = generateToken();
         invitedUser = await base44.asServiceRole.entities.InvitedUser.create({
-          email: normalEmail,
+          email: normalizeEmail(normalEmail),
           app_role: permissionRole,
           project_role: projectRole || role || '',
           invited_by_email: user.email,
@@ -205,7 +210,7 @@ Deno.serve(async (req) => {
       let assignment;
       if (!activeAssignment) {
         assignment = await base44.asServiceRole.entities.PendingProjectAssignment.create({
-          email: normalEmail,
+          email: normalizeEmail(normalEmail),
           project_id: projectId,
           role,
           invited_by: user.email,
@@ -377,10 +382,10 @@ Deno.serve(async (req) => {
       if (!targetUser) return Response.json({ error: 'User not found' }, { status: 404 });
 
       const team = project.team || [];
-      const alreadyMember = team.some(m => m.user_email?.toLowerCase() === targetUser.email?.toLowerCase());
+      const alreadyMember = team.some(m => normalizeEmail(m.user_email) === normalizeEmail(targetUser.email));
       if (!alreadyMember) {
         team.push({
-          user_email: targetUser.email,
+          user_email: normalizeEmail(targetUser.email),
           full_name: fullName || targetUser.full_name || '',
           business_name: businessName || targetUser.business_name || '',
           phone: phone || targetUser.phone || '',
@@ -410,17 +415,17 @@ Deno.serve(async (req) => {
       const { targetEmail } = body;
       if (!targetEmail) return Response.json({ error: 'targetEmail required' }, { status: 400 });
 
-      const normalEmail = targetEmail.toLowerCase().trim();
+      const normalEmail = normalizeEmail(targetEmail);
       const now = new Date().toISOString();
 
       // Find all projects where this user is a team member
       const allProjects = await base44.asServiceRole.entities.Project.list();
       const affectedProjects = allProjects.filter(p =>
-        Array.isArray(p.team) && p.team.some(m => m.user_email?.toLowerCase() === normalEmail)
+        Array.isArray(p.team) && p.team.some(m => normalizeEmail(m.user_email) === normalEmail)
       );
 
       await Promise.all(affectedProjects.map(async (project) => {
-        const updatedTeam = project.team.filter(m => m.user_email?.toLowerCase() !== normalEmail);
+        const updatedTeam = project.team.filter(m => normalizeEmail(m.user_email) !== normalEmail);
         await base44.asServiceRole.entities.Project.update(project.id, { team: updatedTeam });
         await base44.asServiceRole.entities.AuditLog.create({
           action: 'User Removed From Project',

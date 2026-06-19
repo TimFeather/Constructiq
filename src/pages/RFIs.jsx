@@ -13,6 +13,7 @@ import StatusBadge from '@/components/shared/StatusBadge';
 import EmptyState from '@/components/shared/EmptyState';
 import RFIFormDialog from '@/components/rfis/RFIFormDialog';
 import { format } from 'date-fns';
+import { normalizeEmail } from '@/lib/normalizeEmail';
 
 const RFICard = ({ rfi, projectMap, rfiNumber }) => {
   const isOverdue = rfi.due_date && rfi.due_date < new Date().toISOString().split('T')[0] && rfi.status === 'Open';
@@ -68,7 +69,7 @@ export default function RFIs() {
 
   const projects = isAdmin
     ? allProjects
-    : allProjects.filter(p => p.team?.some(m => m.user_email === user?.email));
+    : allProjects.filter(p => p.team?.some(m => normalizeEmail(m.user_email) === normalizeEmail(user?.email)));
 
   const projectIds = new Set(projects.map(p => p.id));
   const rfis = allRfis.filter(r => projectIds.has(r.project_id));
@@ -88,8 +89,8 @@ export default function RFIs() {
 
   // RFIs assigned to me
   const myRfis = rfis.filter(r =>
-    r.assignees?.some(a => a.email === user?.email) ||
-    r.assigned_to_email === user?.email
+    r.assignees?.some(a => normalizeEmail(a.email) === normalizeEmail(user?.email)) ||
+    normalizeEmail(r.assigned_to_email) === normalizeEmail(user?.email)
   );
 
   const [projectSearch, setProjectSearch] = useState('');

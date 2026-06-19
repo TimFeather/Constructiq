@@ -16,6 +16,11 @@
  */
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
 
+// Normalize email for consistent identity matching
+function normalizeEmail(email) {
+  return String(email || '').trim().toLowerCase();
+}
+
 // Valid permission roles — only these may ever be written to User.role
 const VALID_APP_ROLES = ['admin', 'internal', 'pricing', 'external'];
 
@@ -55,11 +60,11 @@ Deno.serve(async (req) => {
         }
 
         const team = project.team || [];
-        const alreadyMember = team.some(m => m.user_email?.toLowerCase() === email);
+        const alreadyMember = team.some(m => normalizeEmail(m.user_email) === email);
 
         if (!alreadyMember) {
           team.push({
-            user_email: user.email,
+            user_email: normalizeEmail(user.email),
             full_name: assignment.full_name || user.full_name || '',
             business_name: assignment.business_name || user.business_name || '',
             phone: assignment.phone || user.phone || '',

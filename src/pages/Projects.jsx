@@ -5,6 +5,7 @@ import { useAuth } from '@/lib/AuthContext';
 import { Link } from 'react-router-dom';
 import { Plus, Search, Calendar, Trash2 } from 'lucide-react';
 import { canEdit } from '@/lib/permissions';
+import { normalizeEmail } from '@/lib/normalizeEmail';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -40,7 +41,13 @@ export default function Projects() {
 
   const projects = isAdmin
     ? allProjects
-    : allProjects.filter(p => p.team?.some(m => m.user_email === user?.email));
+    : allProjects.filter(p => {
+        console.log('MEMBERSHIP CHECK', {
+          sessionEmail: normalizeEmail(user?.email),
+          teamEmails: p.team?.map(t => normalizeEmail(t.user_email)),
+        });
+        return p.team?.some(m => normalizeEmail(m.user_email) === normalizeEmail(user?.email));
+      });
 
   const filtered = projects.filter(p => {
     const matchSearch = p.name?.toLowerCase().includes(search.toLowerCase());

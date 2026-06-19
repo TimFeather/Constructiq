@@ -15,6 +15,7 @@ import StatusBadge from '@/components/shared/StatusBadge';
 import EmptyState from '@/components/shared/EmptyState';
 import ProjectDocsPanel from '@/components/documents/ProjectDocsPanel';
 import { format } from 'date-fns';
+import { normalizeEmail } from '@/lib/normalizeEmail';
 
 function getFileType(name) {
   if (!name) return 'Other';
@@ -51,7 +52,7 @@ export default function Documents() {
 
   const projects = isAdmin
     ? allProjects
-    : allProjects.filter(p => p.team?.some(m => m.user_email === user?.email));
+    : allProjects.filter(p => p.team?.some(m => normalizeEmail(m.user_email) === normalizeEmail(user?.email)));
 
   const projectIds = new Set(projects.map(p => p.id));
   const documents = allDocuments.filter(d => projectIds.has(d.project_id));

@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/components/ui/use-toast';
 import { resolveTemplate, applyTemplate, buildEmailHtml } from '@/lib/emailTemplates';
 import { isUserDeactivated, filterActiveUsers } from '@/lib/userStatus';
+import { normalizeEmail } from '@/lib/normalizeEmail';
 
 // Fallback roles if ProjectRole entity is empty
 const FALLBACK_ROLES = [
@@ -169,7 +170,7 @@ export default function TeamManager({ project }) {
     if (!newMember.full_name || !newMember.role) return;
     setAdding(true);
     try {
-      const member = { ...newMember };
+      const member = { ...newMember, user_email: normalizeEmail(newMember.user_email) };
       if (member.role === 'Subcontractor' && customTrade) member.trade = customTrade;
       if (member.role === 'Other' && customRole) member.role = customRole;
 
@@ -289,10 +290,10 @@ export default function TeamManager({ project }) {
           {(project.team || []).length > 0 ? (
             <div className="space-y-2">
               {(project.team || []).map((member, i) => {
-                const matchedUser = allUsers.find(u => u.email?.toLowerCase() === member.user_email?.toLowerCase());
+                const matchedUser = allUsers.find(u => normalizeEmail(u.email) === normalizeEmail(member.user_email));
                 const isMemberDeactivated = matchedUser ? isUserDeactivated(matchedUser) : false;
                 return (
-                <div key={i} className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
+                  <div key={i} className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-medium text-sm">{member.full_name}</span>
@@ -326,7 +327,7 @@ export default function TeamManager({ project }) {
         {(project.team || []).length > 0 ? (
           <div className="space-y-2">
             {(project.team || []).map((member, i) => {
-              const matchedUser = allUsers.find(u => u.email?.toLowerCase() === member.user_email?.toLowerCase());
+              const matchedUser = allUsers.find(u => normalizeEmail(u.email) === normalizeEmail(member.user_email));
               const isRegistered = !!matchedUser;
               const isMemberDeactivated = matchedUser ? isUserDeactivated(matchedUser) : false;
               const isEditing = editingIndex === i;
