@@ -435,66 +435,66 @@ export default function Programme() {
         </TabsList></div>
 
         {/* ── Gantt ── */}
-        <TabsContent value="gantt" className="flex-1 flex border rounded-lg overflow-hidden hidden">
-          {isMobile ?
-          <div className="flex-1 overflow-hidden">
-              <TaskList
-              tasks={tasks}
-              visibleTasks={visibleTasks}
-              scheduledMap={scheduledMap}
-              expandedIds={expandedIds}
-              onToggleExpand={onToggleExpand}
-              onTaskClick={setSelectedTask}
-              onEditTask={setEditingTask}
-              scrollRef={taskScrollRef}
-              onScroll={() => {}} />
-            
-            </div> :
+        
 
-          <>
-              <button onClick={() => setTaskListCollapsed(!taskListCollapsed)}
-            className="flex items-center justify-center w-8 bg-muted/30 hover:bg-muted transition-colors border-r flex-shrink-0"
-            title={taskListCollapsed ? 'Show task list' : 'Hide task list'}>
-                {taskListCollapsed ? <PanelLeftOpen className="w-4 h-4 text-muted-foreground" /> : <PanelLeftClose className="w-4 h-4 text-muted-foreground" />}
-              </button>
 
-              {!taskListCollapsed &&
-            <div className="w-[520px] xl:w-[620px] flex-shrink-0 overflow-hidden">
-                  <TaskList
-                tasks={tasks}
-                visibleTasks={visibleTasks}
-                scheduledMap={scheduledMap}
-                expandedIds={expandedIds}
-                onToggleExpand={onToggleExpand}
-                onTaskClick={setSelectedTask}
-                onEditTask={setEditingTask}
-                scrollRef={taskScrollRef}
-                onScroll={() => {
-                  if (taskScrollRef.current && ganttScrollRef.current) {
-                    syncScroll(taskScrollRef.current, ganttScrollRef.current);
-                  }
-                }} />
-              
-                </div>
-            }
 
-              <GanttChart
-              tasks={tasks}
-              visibleTasks={visibleTasks}
-              scheduledMap={scheduledMap}
-              zoom={zoom}
-              scrollRef={ganttScrollRef}
-              onScroll={() => {
-                if (taskScrollRef.current && ganttScrollRef.current) {
-                  syncScroll(ganttScrollRef.current, taskScrollRef.current);
-                }
-              }}
-              baselineMap={null}
-              onTaskClick={setSelectedTask} />
-            
-            </>
-          }
-        </TabsContent>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        
 
         <TabsContent value="lookahead" className="flex-1 overflow-hidden border rounded-lg bg-card">
           <LookAhead tasks={tasks} scheduledMap={scheduledMap} />
