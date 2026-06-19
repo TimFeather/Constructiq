@@ -13,6 +13,14 @@
       "type": "string",
       "description": "Project team role e.g. Architect, Client, Subcontractor"
     },
+    "project_role": {
+      "type": "string",
+      "description": "ProjectRole name used at time of invitation"
+    },
+    "permission_role": {
+      "type": "string",
+      "description": "Derived permission role: admin|internal|pricing|external"
+    },
     "invited_by": {
       "type": "string",
       "description": "Email of the user who created this assignment"

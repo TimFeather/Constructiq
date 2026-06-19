@@ -13,9 +13,16 @@ import { useToast } from '@/components/ui/use-toast';
 import { resolveTemplate, applyTemplate, buildEmailHtml } from '@/lib/emailTemplates';
 import { isUserDeactivated, filterActiveUsers } from '@/lib/userStatus';
 
-const DEFAULT_ROLES = [
-  'Architect', 'Client', 'External Project Manager',
-  'Internal Project Manager', 'Site Manager', 'Quantity Surveyor', 'Subcontractor', 'Other'
+// Fallback roles if ProjectRole entity is empty
+const FALLBACK_ROLES = [
+  { name: 'Architect', permission_role: 'external' },
+  { name: 'Client', permission_role: 'external' },
+  { name: 'External Project Manager', permission_role: 'external' },
+  { name: 'Internal Project Manager', permission_role: 'internal' },
+  { name: 'Site Manager', permission_role: 'internal' },
+  { name: 'Quantity Surveyor', permission_role: 'pricing' },
+  { name: 'Subcontractor', permission_role: 'external' },
+  { name: 'Other', permission_role: 'external' },
 ];
 
 const TRADES = [
@@ -78,6 +85,14 @@ export default function TeamManager({ project }) {
     queryKey: ['emailBranding'],
     queryFn: () => base44.entities.EmailBranding.list().then(r => r[0] ?? {}),
   });
+
+  const { data: projectRolesRaw = [] } = useQuery({
+    queryKey: ['projectRoles'],
+    queryFn: () => base44.entities.ProjectRole.filter({ active: true }, 'sort_order', 100),
+    enabled: isAllowed,
+  });
+
+  const projectRoles = projectRolesRaw.length > 0 ? projectRolesRaw : FALLBACK_ROLES;
 
   const updateMutation = useMutation({
     mutationFn: (team) => base44.entities.Project.update(project.id, { team }),
@@ -158,6 +173,10 @@ export default function TeamManager({ project }) {
       if (member.role === 'Subcontractor' && customTrade) member.trade = customTrade;
       if (member.role === 'Other' && customRole) member.role = customRole;
 
+      // Look up permission_role from the selected ProjectRole
+      const selectedProjectRole = projectRoles.find(r => r.name === member.role);
+      const permissionRole = selectedProjectRole?.permission_role || 'external';
+
       if (emailStatus === 'existing_user' && emailStatusData?.user) {
         // Route through invitationService for direct add + audit log
         await base44.functions.invoke('invitationService', {
@@ -199,6 +218,8 @@ export default function TeamManager({ project }) {
           projectId: project.id,
           projectName: project.name,
           role: member.role,
+          appRole: permissionRole,
+          projectRole: member.role,
         });
 
         const data = res?.data;
@@ -322,7 +343,7 @@ export default function TeamManager({ project }) {
                           <Label className="text-xs">Role</Label>
                           <Select value={editValues.role || ''} onValueChange={val => setEditValues(v => ({ ...v, role: val }))}>
                             <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                            <SelectContent>{DEFAULT_ROLES.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
+                            <SelectContent>{projectRoles.map(r => <SelectItem key={r.name} value={r.name}>{r.name}</SelectItem>)}</SelectContent>
                           </Select>
                         </div>
                         <div>
@@ -404,7 +425,7 @@ export default function TeamManager({ project }) {
               <Select value={newMember.role} onValueChange={v => setNewMember({ ...newMember, role: v })}>
                 <SelectTrigger><SelectValue placeholder="Select role" /></SelectTrigger>
                 <SelectContent>
-                  {DEFAULT_ROLES.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                  {projectRoles.map(r => <SelectItem key={r.name} value={r.name}>{r.name}</SelectItem>)}
                 </SelectContent>
               </Select>
               {newMember.role === 'Other' && (

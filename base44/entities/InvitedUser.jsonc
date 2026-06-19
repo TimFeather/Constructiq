@@ -6,7 +6,12 @@
       "type": "string"
     },
     "app_role": {
-      "type": "string"
+      "type": "string",
+      "description": "Permission role: admin|internal|pricing|external"
+    },
+    "project_role": {
+      "type": "string",
+      "description": "Project role name e.g. Architect, Site Manager"
     },
     "invited_by_email": {
       "type": "string"

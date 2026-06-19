@@ -1,25 +1,23 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { UserPlus, Mail, Lock, Loader2, Phone, Building2 } from "lucide-react";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import AuthLayout from "@/components/AuthLayout";
 import GoogleIcon from "@/components/GoogleIcon";
 import { toast } from "@/components/ui/use-toast";
 
-const ROLES = [
-  'Architect', 'Client', 'External Project Manager',
-  'Internal Project Manager', 'Site Manager', 'Quantity Surveyor', 'Subcontractor'
-];
-
 export default function Register() {
+  // Read invitation metadata from URL params (future: could be passed via query string)
+  const urlParams = new URLSearchParams(window.location.search);
+  const prefillBusiness = urlParams.get('company') || '';
+
   const [form, setForm] = useState({
     email: "", password: "", confirmPassword: "",
-    first_name: "", last_name: "", phone: "", business_name: "", construction_role: "",
+    first_name: "", last_name: "", phone: "", business_name: prefillBusiness,
   });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -59,7 +57,6 @@ export default function Register() {
           last_name: form.last_name,
           phone: form.phone,
           business_name: form.business_name,
-          construction_role: form.construction_role,
         });
       } catch (_) { /* non-critical */ }
       window.location.href = "/";
@@ -160,15 +157,6 @@ export default function Register() {
             <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input id="business_name" placeholder="Your company" value={form.business_name} onChange={e => setForm({...form, business_name: e.target.value})} className="pl-10 h-12" />
           </div>
-        </div>
-        <div className="space-y-2">
-          <Label>Role</Label>
-          <Select value={form.construction_role} onValueChange={v => setForm({...form, construction_role: v})}>
-            <SelectTrigger className="h-12"><SelectValue placeholder="Select your role" /></SelectTrigger>
-            <SelectContent>
-              {ROLES.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
-            </SelectContent>
-          </Select>
         </div>
         <div className="space-y-2">
           <Label htmlFor="password">Password</Label>

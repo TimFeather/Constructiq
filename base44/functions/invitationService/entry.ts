@@ -144,7 +144,7 @@ Deno.serve(async (req) => {
     // ── ACTION: invite ─────────────────────────────────────────────────────
     // Creates or reuses InvitedUser, creates PendingProjectAssignment, sends email
     if (action === 'invite') {
-      const { email, fullName, businessName, phone, trade, projectId, projectName, role, appRole } = body;
+      const { email, fullName, businessName, phone, trade, projectId, projectName, role, appRole, projectRole } = body;
       if (!email || !projectId || !role) {
         return Response.json({ error: 'email, projectId, role required' }, { status: 400 });
       }
@@ -171,6 +171,7 @@ Deno.serve(async (req) => {
         invitedUser = await base44.asServiceRole.entities.InvitedUser.create({
           email: normalEmail,
           app_role: permissionRole,
+          project_role: projectRole || role || '',
           invited_by_email: user.email,
           status: 'Pending',
           token,
@@ -214,6 +215,8 @@ Deno.serve(async (req) => {
           business_name: businessName || '',
           phone: phone || '',
           trade: trade || '',
+          project_role: projectRole || role || '',
+          permission_role: permissionRole,
           created_date: now,
         });
       } else {
