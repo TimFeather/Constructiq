@@ -28,26 +28,13 @@ function roleColour(role) {
 
 // Shared user card layout
 function UserRow({ u, actions }) {
-  const userData = u?.data || {};
-
+  // Fields are flat — returned directly by getPeopleDirectory
   const fullName =
-    `${userData.first_name || ''} ${userData.last_name || ''}`.trim() || '—';
+    `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.full_name || '—';
 
-  const company =
-    (userData.business_name || '').trim() || '—';
-
-  const phone =
-    (userData.phone || '').trim() || '—';
-
+  const company = (u.business_name || '').trim() || '—';
+  const phone = (u.phone || '').trim() || '—';
   const role = u.role || 'external';
-
-  console.log("USER ROW FINAL", {
-    email: u.email,
-    userData,
-    fullName,
-    company,
-    phone
-  });
 
   return (
     <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50 gap-3">
@@ -86,11 +73,14 @@ function ActiveUsersTab() {
 
   const { data: users = [], isLoading } = useQuery({
     queryKey: ['users'],
-    queryFn: () => base44.entities.User.list(),
+    queryFn: async () => {
+      const res = await base44.functions.invoke('getPeopleDirectory', {});
+      return res.data?.users || [];
+    },
     enabled: user?.role === 'admin',
   });
 
-  const activeUsers = users.filter(u => u.data?.disabled !== true);
+  const activeUsers = users.filter(u => u.disabled !== true);
 
   const updateRoleMutation = useMutation({
     mutationFn: ({ userId, role }) => base44.entities.User.update(userId, { role }),
@@ -103,9 +93,8 @@ function ActiveUsersTab() {
 
   const deactivateMutation = useMutation({
     mutationFn: async (u) => {
-      // 1. Mark user disabled — merge into existing data to avoid creating data.data nesting
-      const existingData = u.data || {};
-      await base44.entities.User.update(u.id, { data: { ...existingData, disabled: true } });
+      // 1. Mark user disabled
+      await base44.entities.User.update(u.id, { data: { disabled: true } });
       // 2. Remove from all active project teams
       await base44.functions.invoke('invitationService', {
         action: 'removeFromProjectTeams',
@@ -322,18 +311,17 @@ function DeactivatedUsersTab() {
 
   const { data: users = [], isLoading } = useQuery({
     queryKey: ['users'],
-    queryFn: () => base44.entities.User.list(),
+    queryFn: async () => {
+      const res = await base44.functions.invoke('getPeopleDirectory', {});
+      return res.data?.users || [];
+    },
     enabled: user?.role === 'admin',
   });
 
-  const deactivatedUsers = users.filter(u => u.data?.disabled === true);
+  const deactivatedUsers = users.filter(u => u.disabled === true);
 
   const reactivateMutation = useMutation({
-    mutationFn: (userId) => {
-      const target = users.find(u => u.id === userId);
-      const existingData = target?.data || {};
-      return base44.entities.User.update(userId, { data: { ...existingData, disabled: false } });
-    },
+    mutationFn: (userId) => base44.entities.User.update(userId, { data: { disabled: false } }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
       toast({ title: 'User reactivated', description: 'They can now log in. Project access must be granted manually.' });
