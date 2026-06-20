@@ -24,6 +24,7 @@ import DocumentFolderTemplates from '@/components/settings/DocumentFolderTemplat
 import TenderSettingsPanel from '@/components/settings/TenderSettingsPanel';
 import PeopleSettings from '@/components/settings/PeopleSettings';
 import TestUtilities from '@/components/settings/TestUtilities';
+import SystemHealth from '@/components/settings/SystemHealth';
 
 
 export default function Settings() {
@@ -406,7 +407,12 @@ export default function Settings() {
         )}
         {isAdmin && (
           <TabsContent value="system">
-            <div className="space-y-4">
+            <div className="space-y-6">
+              <div>
+                <h3 className="text-sm font-semibold mb-1">System Health</h3>
+                <p className="text-xs text-muted-foreground mb-3">Read-only diagnostics for the current user session, permission state, and project membership.</p>
+                <SystemHealth />
+              </div>
               <div>
                 <h3 className="text-sm font-semibold mb-1">Test Utilities</h3>
                 <p className="text-xs text-muted-foreground mb-3">
