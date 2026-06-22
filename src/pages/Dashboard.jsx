@@ -1,7 +1,6 @@
 import React from 'react';
 import { Document, Project, RFI, Task } from '@/api/entities';
 import { useQuery } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { isAdmin } from '@/lib/permissions';
 import { Link } from 'react-router-dom';
@@ -40,7 +39,7 @@ export default function Dashboard() {
 
   const { data: allProjects = [] } = useQuery({
     queryKey: ['projects'],
-    queryFn: () => Project.list('-created_date', 100),
+    queryFn: () => Project.list('-created_at', 100),
   });
 
   const projects = userIsAdmin
@@ -51,13 +50,13 @@ export default function Dashboard() {
 
   const { data: allRfis = [] } = useQuery({
     queryKey: ['rfis'],
-    queryFn: () => RFI.list('-created_date', 200),
+    queryFn: () => RFI.list('-created_at', 200),
     enabled: projectIds.size > 0 || userIsAdmin,
   });
 
   const { data: allDocuments = [] } = useQuery({
     queryKey: ['documents'],
-    queryFn: () => Document.list('-created_date', 100),
+    queryFn: () => Document.list('-created_at', 100),
     enabled: projectIds.size > 0 || userIsAdmin,
   });
 

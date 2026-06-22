@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Project, RFI } from '@/api/entities';
 import { useQuery } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { Link } from 'react-router-dom';
 import { isAdmin } from '@/lib/permissions';
-import { Plus, Search, MessageSquareMore, Clock, User, ArrowLeft, Calendar, FolderKanban } from 'lucide-react';
+import { Plus, Search, MessageSquareMore, Clock, UserIcon, ArrowLeft, Calendar, FolderKanban } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -61,12 +60,12 @@ export default function RFIs() {
 
   const { data: allRfis = [], isLoading } = useQuery({
     queryKey: ['rfis'],
-    queryFn: () => RFI.list('-created_date', 200),
+    queryFn: () => RFI.list('-created_at', 200),
   });
 
   const { data: allProjects = [] } = useQuery({
     queryKey: ['projects'],
-    queryFn: () => Project.list('-created_date', 100),
+    queryFn: () => Project.list('-created_at', 100),
   });
 
   const projects = isAdminUser
@@ -176,7 +175,7 @@ export default function RFIs() {
       {/* Assigned to me */}
       <section className="mb-8">
         <h2 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-          <User className="w-4 h-4 text-primary" /> Assigned to Me
+          <UserIcon className="w-4 h-4 text-primary" /> Assigned to Me
         </h2>
         {isLoading ? (
           <div className="space-y-3">{[1,2].map(i => <div key={i} className="h-20 bg-muted rounded-lg animate-pulse" />)}</div>

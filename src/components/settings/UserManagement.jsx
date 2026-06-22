@@ -2,7 +2,6 @@ import { supabase } from '@/api/supabaseClient';
 import React, { useState } from 'react';
 import { InvitedUser, User } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -33,16 +32,16 @@ export default function UserManagement() {
 
   const { data: invitedUsers = [] } = useQuery({
     queryKey: ['invitedUsers'],
-    queryFn: () => InvitedUser.list('-created_date', 100),
+    queryFn: () => InvitedUser.list('-created_at', 100),
     enabled: user?.role === 'admin',
   });
 
   const inviteMutation = useMutation({
     mutationFn: async ({ email, role }) => {
-      await supabase.auth.admin.inviteUserByEmail(email);
       await InvitedUser.create({
         email,
         app_role: role,
+        status: 'Pending',
         invited_by_email: user?.email,
       });
     },

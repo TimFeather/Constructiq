@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Project, Task } from '@/api/entities';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -92,7 +91,7 @@ export default function Programme() {
   // ─── Data fetching ───────────────────────────────────────────────────────────
   const { data: allProjectsRaw = [], isLoading: isLoadingProjects } = useQuery({
     queryKey: ['projects'],
-    queryFn: () => Project.list('-created_date', 100),
+    queryFn: () => Project.list('-created_at', 100),
   });
 
   const projects = isAdmin
@@ -109,12 +108,14 @@ export default function Programme() {
     staleTime: 30000,
   });
 
+  // Realtime task refresh every 30s (replaces Base44 subscribe)
   useEffect(() => {
-    const unsub = Task.subscribe(() => {
-      if (bulkOperationState.active) return;
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
-    });
-    return unsub;
+    const interval = setInterval(() => {
+      if (!bulkOperationState.active) {
+        queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      }
+    }, 30000);
+    return () => clearInterval(interval);
   }, [queryClient]);
 
   const accessibleTasks = allTasks.filter(t => projectIds.has(t.project_id));
@@ -198,7 +199,7 @@ export default function Programme() {
 
       // Stage 3: chunked create with exponential backoff
       setStage(2, 30, `Creating ${parsedTasks.length} tasks`);
-      const tasksToCreate = parsedTasks.map(({ _mspUid, _predecessorLinks, _parentUid, ...t }) => t);
+      const tasksToCreate = parsedTasks.map(({ _mspUid, _predecessorLinks, _parentUid, _outlineLevel, is_summary, ...t }) => t);
 
       const CREATE_BATCH = 100;
       const created = [];
@@ -409,7 +410,7 @@ export default function Programme() {
             <Button variant="outline" size="icon" onClick={() => cycleZoom('out')} title={`Zoom out (${zoom})`}><ZoomOut className="w-4 h-4" /></Button>
             <Button variant="outline" size="icon" onClick={() => cycleZoom('in')} title={`Zoom in (${zoom})`}><ZoomIn className="w-4 h-4" /></Button>
             <Button variant="outline" size="icon" onClick={() => window.print()} title="Print"><Printer className="w-4 h-4" /></Button>
-            <Button onClick={() => setShowImportDialog(true)} disabled={!!deleteProgress} className="gap-2"><Upload className="w-4 h-4" /> Import</Button>
+            <Button onClick={() => { if (selectedProjectId === 'all' && projects[0]?.id) setSelectedProjectId(projects[0].id); setShowImportDialog(true); }} disabled={!!deleteProgress} className="gap-2"><Upload className="w-4 h-4" /> Import</Button>
             <Button variant="destructive" size="icon"
               onClick={() => setShowDeleteConfirm(true)}
               disabled={!selectedProjectId || selectedProjectId === 'all' || tasks.length === 0 || !!importProgress}

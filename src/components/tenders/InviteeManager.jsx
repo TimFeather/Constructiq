@@ -1,4 +1,4 @@
-import { invokeFunction } from '@/api/supabaseClient';
+import { invokeFunction, supabase } from '@/api/supabaseClient';
 /**
  * InviteeManager
  *
@@ -11,13 +11,12 @@ import { invokeFunction } from '@/api/supabaseClient';
 import React, { useState, useRef } from 'react';
 import { TenderContact, TenderInvitee, TenderSubmission } from '@/api/entities';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { Users, Plus, Trash2, Send, UserCheck, Search, RefreshCw, Archive } from 'lucide-react';
+import { Users, Plus, Trash2, Send, UserCheck, Search, RefreshCw, Archive, Link } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 
 const TRADES = [
@@ -74,9 +73,37 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
     enabled:  !!tender.id,
   });
 
+  // Invitation tokens (for Copy Link button)
+  const { data: invitations = [], refetch: refetchInvitations } = useQuery({
+    queryKey: ['tenderInvitations', tender.id],
+    queryFn:  async () => {
+      const { data, error } = await supabase.from('tender_invitations').select('*').eq('tender_id', tender.id);
+      if (error) throw error;
+      return data ?? [];
+    },
+    enabled:  !!tender.id,
+  });
+
+  // Map invitee_id → invitation record for quick lookup
+  const invitationByInviteeId = Object.fromEntries(invitations.map(inv => [inv.invitee_id, inv]));
+
+  const copySubmissionLink = (inv) => {
+    const invitation = invitationByInviteeId[inv.id];
+    if (!invitation?.token) {
+      toast({ title: 'No link yet', description: 'Issue the tender first to generate a submission link', duration: 4000 });
+      return;
+    }
+    const url = `${window.location.origin}/tender-submit/${invitation.token}`;
+    navigator.clipboard.writeText(url).then(() => {
+      toast({ title: 'Link copied', description: url, duration: 4000 });
+    }).catch(() => {
+      toast({ title: 'Link', description: url, duration: 8000 });
+    });
+  };
+
   const { data: contacts = [] } = useQuery({
     queryKey: ['tenderContacts'],
-    queryFn:  () => TenderContact.list('-created_date', 500).catch(() => []),
+    queryFn:  () => TenderContact.list('-created_at', 500).catch(() => []),
   });
 
   const invalidateAll = () => {
@@ -301,7 +328,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
       const { sent = 0, failed = 0, errors = [] } = result.data || {};
 
       invalidateAll();
-      await refetchInvitees();
+      await Promise.all([refetchInvitees(), refetchInvitations()]);
 
       setIssueResult({ sent, failed, errors });
 
@@ -513,6 +540,17 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
                 {/* Actions */}
                 {canManage && (
                   <div className="flex items-center gap-1 ml-3 flex-shrink-0">
+                    {invitationByInviteeId[inv.id] && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                        onClick={() => copySubmissionLink(inv)}
+                        title="Copy submission link"
+                      >
+                        <Link className="w-3.5 h-3.5" />
+                      </Button>
+                    )}
                     {canResend && (
                       <Button
                         variant="ghost"

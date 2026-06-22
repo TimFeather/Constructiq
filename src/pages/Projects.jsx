@@ -34,12 +34,12 @@ export default function Projects() {
 
   const { data: allProjects = [], isLoading } = useQuery({
     queryKey: ['projects'],
-    queryFn: () => Project.list('-created_date', 100),
+    queryFn: () => Project.list('-created_at', 100),
   });
 
   const { data: allTasks = [] } = useQuery({
     queryKey: ['tasks'],
-    queryFn: () => Task.list('-created_date', 1000),
+    queryFn: () => Task.list('-created_at', 1000),
   });
 
   const archiveMutation = useMutation({

@@ -3,13 +3,12 @@ import React, { useState } from 'react';
 import { EmailBranding, EmailTemplate, Project, RFI, User } from '@/api/entities';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ArrowLeft, Send, Clock, User, Paperclip, Trash2 } from 'lucide-react';
+import { ArrowLeft, Send, Clock, UserIcon, Paperclip, Trash2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
@@ -28,13 +27,13 @@ export default function RFIDetail() {
 
   const { data: rfi, isLoading } = useQuery({
     queryKey: ['rfi', id],
-    queryFn: () => RFI.filter({ id }, '-created_date', 1).then(results => results[0] ?? null),
+    queryFn: () => RFI.filter({ id }, '-created_at', 1).then(results => results[0] ?? null),
   });
 
   const { data: project } = useQuery({
     queryKey: ['project', rfi?.project_id],
     queryFn: () => rfi?.project_id
-      ? Project.filter({ id: rfi.project_id }, '-created_date', 1).then(r => r[0] ?? null)
+      ? Project.filter({ id: rfi.project_id }, '-created_at', 1).then(r => r[0] ?? null)
       : null,
     enabled: !!rfi?.project_id,
   });
@@ -219,14 +218,14 @@ export default function RFIDetail() {
                 <div className="mt-0.5 space-y-0.5">
                   {rfi.assignees.map((a, i) => (
                     <p key={i} className="text-sm font-medium flex items-center gap-1">
-                      <User className="w-3 h-3 flex-shrink-0" /> {a.name}
+                      <UserIcon className="w-3 h-3 flex-shrink-0" /> {a.name}
                       {a.role && <span className="text-xs text-muted-foreground font-normal">· {a.role}</span>}
                     </p>
                   ))}
                 </div>
               ) : (
                 <p className="text-sm font-medium mt-0.5 flex items-center gap-1">
-                  <User className="w-3 h-3" /> {rfi.assigned_to_name || '—'}
+                  <UserIcon className="w-3 h-3" /> {rfi.assigned_to_name || '—'}
                 </p>
               )}
             </div>

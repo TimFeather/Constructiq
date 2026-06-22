@@ -27,17 +27,17 @@ export default function ProjectDetail() {
 
   const { data: project, isLoading } = useQuery({
     queryKey: ['project', id],
-    queryFn: () => Project.filter({ id }, '-created_date', 1).then(results => results[0] ?? null),
+    queryFn: () => Project.filter({ id }, '-created_at', 1).then(results => results[0] ?? null),
   });
 
   const { data: projectDocs = [] } = useQuery({
     queryKey: ['documents', id],
-    queryFn: () => Document.filter({ project_id: id }, '-created_date', 50),
+    queryFn: () => Document.filter({ project_id: id }, '-created_at', 50),
   });
 
   const { data: projectRfis = [] } = useQuery({
     queryKey: ['rfis', id],
-    queryFn: () => RFI.filter({ project_id: id }, '-created_date', 50),
+    queryFn: () => RFI.filter({ project_id: id }, '-created_at', 50),
   });
 
   const { data: projectTasks = [] } = useQuery({

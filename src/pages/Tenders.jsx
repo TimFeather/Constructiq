@@ -2,7 +2,6 @@ import { invokeFunction } from '@/api/supabaseClient';
 import React, { useState } from 'react';
 import { Tender } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { canAccess, canManage as canManagePerm } from '@/lib/permissions';
 import { Link, useNavigate, Navigate } from 'react-router-dom';
@@ -71,7 +70,7 @@ export default function Tenders() {
 
   const { data: tenders = [], isLoading } = useQuery({
     queryKey: ['tenders'],
-    queryFn: () => Tender.list('-created_date', 200),
+    queryFn: () => Tender.list('-created_at', 200),
   });
 
   const createMutation = useMutation({

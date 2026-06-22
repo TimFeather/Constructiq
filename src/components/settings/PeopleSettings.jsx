@@ -2,7 +2,6 @@ import { invokeFunction } from '@/api/supabaseClient';
 import React, { useState } from 'react';
 import { InvitedUser, User } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent } from '@/components/ui/card';
@@ -97,7 +96,7 @@ function ActiveUsersTab() {
   const deactivateMutation = useMutation({
     mutationFn: async (u) => {
       // 1. Mark user disabled
-      await User.update(u.id, { data: { disabled: true } });
+      await User.update(u.id, { disabled: true });
       // 2. Remove from all active project teams
       await invokeFunction('invitationService', {
         action: 'removeFromProjectTeams',
@@ -227,7 +226,7 @@ function PendingInvitationsTab() {
 
   const { data: invitedUsers = [], isLoading } = useQuery({
     queryKey: ['invitedUsers'],
-    queryFn: () => InvitedUser.list('-created_date', 200),
+    queryFn: () => InvitedUser.list('-created_at', 200),
     enabled: isAdmin(user),
   });
 

@@ -3,7 +3,6 @@ import React, { useState, useEffect } from 'react';
 import { EmailBranding, EmailTemplate, RFI, User } from '@/api/entities';
 import { useAuth } from '@/lib/AuthContext';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { resolveTemplate, applyTemplate, buildEmailHtml } from '@/lib/emailTemplates';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -73,7 +72,7 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
 
   const createMutation = useMutation({
     mutationFn: async (data) => {
-      const projectRfis = await RFI.filter({ project_id: data.project_id }, '-created_date', 500);
+      const projectRfis = await RFI.filter({ project_id: data.project_id }, '-created_at', 500);
       const maxNumber = projectRfis.reduce((max, r) => Math.max(max, r.number || 0), 0);
       const nextNumber = maxNumber + 1;
       // keep legacy single-assignee fields populated with first assignee for backwards compat

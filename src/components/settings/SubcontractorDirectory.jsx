@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { TenderContact } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -29,7 +28,7 @@ export default function SubcontractorDirectory() {
 
   const { data: contacts = [], isLoading } = useQuery({
     queryKey: ['tenderContacts'],
-    queryFn: () => TenderContact.list('-created_date', 500),
+    queryFn: () => TenderContact.list('-created_at', 500),
   });
 
   const createMutation = useMutation({

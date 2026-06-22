@@ -3,7 +3,6 @@ import React, { useState } from 'react';
 import { Document, Project } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/components/ui/use-toast';
-import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { Search, FileText, Upload, ExternalLink, Folder, ArrowLeft, Calendar, FolderOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -44,12 +43,12 @@ export default function Documents() {
 
   const { data: allDocuments = [], isLoading } = useQuery({
     queryKey: ['documents'],
-    queryFn: () => Document.list('-created_date', 200),
+    queryFn: () => Document.list('-created_at', 200),
   });
 
   const { data: allProjects = [] } = useQuery({
     queryKey: ['projects'],
-    queryFn: () => Project.list('-created_date', 100),
+    queryFn: () => Project.list('-created_at', 100),
   });
 
   const projects = isAdmin

@@ -7,7 +7,6 @@ import { invokeFunction } from '@/api/supabaseClient';
 import React, { useState } from 'react';
 import { Tender, TenderContact, TenderInvitation, TenderInvitee } from '@/api/entities';
 import { Navigate } from 'react-router-dom';
-import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { CheckCircle2, XCircle, Loader2, PlayCircle, Trash2, AlertTriangle, FlaskConical } from 'lucide-react';
@@ -225,7 +224,7 @@ export default function TenderTestSuite() {
     // ── T10: No duplicate tender numbers across all existing tenders ───────
     addResult('T10: No duplicate tender numbers in database', RUNNING);
     try {
-      const all = await Tender.list('-created_date', 200);
+      const all = await Tender.list('-created_at', 200);
       const nums = all.map(t => t.tender_number).filter(Boolean);
       const seen = new Set();
       const dups = nums.filter(n => { if (seen.has(n)) return true; seen.add(n); return false; });
@@ -341,7 +340,7 @@ function IssueTenderDiagnostic() {
         const list = await Tender.filter({ id: tenderId.trim() });
         tender = list[0] || null;
       } else {
-        const list = await Tender.list('-created_date', 200);
+        const list = await Tender.list('-created_at', 200);
         tender = list.find(t => t.tender_number === tenderId.trim() || t.id === tenderId.trim()) || null;
       }
 

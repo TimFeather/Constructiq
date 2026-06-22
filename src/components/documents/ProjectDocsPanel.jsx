@@ -1,10 +1,9 @@
 import { uploadFile } from '@/api/supabaseClient';
 import React, { useState, useRef } from 'react';
-import { Document } from '@/api/entities';
+import { Document, DocumentFolderTemplate } from '@/api/entities';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,7 +24,7 @@ function getFileType(name) {
 
 const UNFILED = '__unfiled__';
 
-const DEFAULT_FOLDERS = [
+const FALLBACK_FOLDERS = [
   'Architectural Plans',
   'Engineering Drawings',
   'Geotech Reports',
@@ -33,7 +32,13 @@ const DEFAULT_FOLDERS = [
   'Sub Contractor Uploads',
 ];
 
-const SUBCONTRACTOR_FOLDER = 'Sub Contractor Uploads';
+const FALLBACK_PERMISSIONS = {
+  'Architectural Plans':  ['admin', 'internal', 'pricing'],
+  'Engineering Drawings': ['admin', 'internal', 'pricing'],
+  'Geotech Reports':      ['admin', 'internal', 'pricing'],
+  'Photos':               ['admin', 'internal', 'pricing'],
+  'Sub Contractor Uploads': ['admin', 'internal', 'pricing', 'external'],
+};
 
 export default function ProjectDocsPanel({ project, docs = [] }) {
   const { user } = useAuth();
@@ -55,19 +60,39 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
   const dropZoneRef = useRef(null);
   const queryClient = useQueryClient();
 
-  const isInternal = user?.role === 'admin' || user?.role === 'internal';
-  const isExternal = !isInternal;
-  const allowedFolders = isInternal ? null : [SUBCONTRACTOR_FOLDER];
+  const { data: templates = [] } = useQuery({
+    queryKey: ['documentFolderTemplates'],
+    queryFn: () => DocumentFolderTemplate.list('-created_at', 50),
+  });
 
-  // Folders that have docs (for filtering external view)
-  const foldersWithDocs = new Set(docs.map(d => d.folder).filter(Boolean));
+  const defaultTemplate = templates.find(t => t.is_default) ?? templates[0] ?? null;
+  const templateFolders = defaultTemplate?.folder_structure ?? FALLBACK_FOLDERS;
+  const templatePerms  = defaultTemplate?.folder_permissions ?? FALLBACK_PERMISSIONS;
+
+  const userRole = user?.role ?? 'external';
+  const isInternal = userRole === 'admin' || userRole === 'internal';
+  const isExternal = userRole === 'external';
+
+  // Folders visible to this role based on template permissions
+  const visibleTemplateFolders = templateFolders.filter(f => {
+    const allowed = templatePerms[f] ?? ['admin', 'internal', 'pricing'];
+    return allowed.includes(userRole);
+  });
+
+  // Folders that can be uploaded to (external users limited to their visible folders)
+  const allowedFolders = isInternal ? null : visibleTemplateFolders;
 
   const docFolders = docs.map(d => d.folder).filter(Boolean);
-  const allFolders = [...new Set([...DEFAULT_FOLDERS, ...docFolders, ...extraFolders])];
-  // For external users, only show folders that have docs
-  const folders = isExternal
-    ? allFolders.filter(f => foldersWithDocs.has(f))
-    : allFolders;
+  const allFolders = [...new Set([...templateFolders, ...docFolders, ...extraFolders])];
+
+  // Apply role-based visibility: external only sees permitted folders that also have docs
+  const foldersWithDocs = new Set(docs.map(d => d.folder).filter(Boolean));
+  const folders = allFolders.filter(f => {
+    const allowed = templatePerms[f] ?? ['admin', 'internal', 'pricing'];
+    if (!allowed.includes(userRole)) return false;
+    if (isExternal) return foldersWithDocs.has(f);
+    return true;
+  });
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['documents', project.id] });
@@ -203,7 +228,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
           </a>
           <span className="text-xs text-muted-foreground hidden sm:block flex-shrink-0">{doc.uploaded_by_name}</span>
           <span className="text-xs text-muted-foreground hidden lg:block flex-shrink-0">
-            {format(new Date(doc.created_date), 'MMM d, yyyy')}
+            {doc.created_date || doc.created_at ? format(new Date(doc.created_date || doc.created_at), 'MMM d, yyyy') : '—'}
           </span>
           {isInternal ? (
             <Select
