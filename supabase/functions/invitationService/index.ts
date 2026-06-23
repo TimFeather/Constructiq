@@ -257,6 +257,38 @@ Deno.serve(async (req) => {
       return Response.json({ success: true }, { headers: corsHeaders });
     }
 
+    // ── cancelProjectInvite — cancel pending invite for a specific project ───
+    if (action === 'cancelProjectInvite') {
+      const { email, projectId } = body;
+      if (!email || !projectId) return Response.json({ error: 'email and projectId required' }, { status: 400, headers: corsHeaders });
+      const normalEmail = normalizeEmail(email);
+
+      // Cancel pending_project_assignments for this email + project
+      await supabaseAdmin
+        .from('pending_project_assignments')
+        .update({ status: 'Cancelled' })
+        .eq('email', normalEmail)
+        .eq('project_id', projectId)
+        .eq('status', 'Pending');
+
+      // If invited_user has no remaining pending assignments, cancel their invite too
+      const { data: remaining } = await supabaseAdmin
+        .from('pending_project_assignments')
+        .select('id')
+        .eq('email', normalEmail)
+        .eq('status', 'Pending');
+
+      if (!remaining || remaining.length === 0) {
+        await supabaseAdmin
+          .from('invited_users')
+          .update({ status: 'Cancelled' })
+          .eq('email', normalEmail)
+          .eq('status', 'Pending');
+      }
+
+      return Response.json({ success: true }, { headers: corsHeaders });
+    }
+
     // ── cancel ───────────────────────────────────────────────────────────────
     if (action === 'cancel') {
       const { invitedUserId } = body;

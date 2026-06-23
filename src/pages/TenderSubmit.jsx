@@ -217,7 +217,8 @@ export default function TenderSubmit() {
         )}
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="mb-6">
+          <div className="overflow-x-auto -mx-1 px-1 pb-1 mb-6">
+          <TabsList className="inline-flex w-max">
             <TabsTrigger value="overview">Tender</TabsTrigger>
             <TabsTrigger value="documents">
               Documents {tender?.documents?.length > 0 && `(${tender.documents.length})`}
@@ -229,6 +230,7 @@ export default function TenderSubmit() {
               {submitted ? 'Update Submission' : 'Submit'}
             </TabsTrigger>}
           </TabsList>
+          </div>
 
           {/* ── OVERVIEW TAB ── */}
           <TabsContent value="overview" className="space-y-4">
@@ -331,17 +333,13 @@ export default function TenderSubmit() {
               <div className="border rounded-lg overflow-hidden bg-card">
                 <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/30">
                   <span className="text-sm font-medium">{tender.documents.length} document{tender.documents.length !== 1 ? 's' : ''}</span>
-                  <Button variant="outline" size="sm" className="gap-1.5" asChild>
-                    <a href="#" onClick={(e) => {
-                      e.preventDefault();
-                      tender.documents.forEach(doc => {
-                        const a = document.createElement('a');
-                        a.href = doc.file_url; a.target = '_blank'; a.rel = 'noopener noreferrer';
-                        a.click();
-                      });
-                    }}>
-                      <Download className="w-3.5 h-3.5" /> Download All
-                    </a>
+                  <Button variant="outline" size="sm" className="gap-1.5" onClick={async () => {
+                    for (const doc of tender.documents) {
+                      window.open(doc.file_url, '_blank', 'noopener,noreferrer');
+                      await new Promise(r => setTimeout(r, 600));
+                    }
+                  }}>
+                    <Download className="w-3.5 h-3.5" /> Open All
                   </Button>
                 </div>
                 <div className="divide-y">
@@ -395,6 +393,18 @@ export default function TenderSubmit() {
                     </div>
                     {notice.description && (
                       <p className="text-sm text-muted-foreground whitespace-pre-wrap">{notice.description}</p>
+                    )}
+                    {notice.attachments?.length > 0 && (
+                      <div className="pt-2 border-t space-y-1">
+                        <p className="text-xs font-medium text-muted-foreground">Attachments</p>
+                        {notice.attachments.map((att) => (
+                          <a key={att.id} href={att.file_url} target="_blank" rel="noopener noreferrer"
+                             className="flex items-center gap-2 text-xs text-primary hover:underline">
+                            <FileText className="w-3.5 h-3.5 flex-shrink-0" />
+                            {att.file_name || 'Attachment'}
+                          </a>
+                        ))}
+                      </div>
                     )}
                   </div>
                 ))}

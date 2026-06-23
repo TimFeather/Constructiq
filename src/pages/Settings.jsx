@@ -147,6 +147,7 @@ export default function Settings() {
     { key: 'tender_sub_awarded', label: 'Sub Awarded' },
     { key: 'tender_sub_unsuccessful', label: 'Sub Not Selected' },
     { key: 'user_invite', label: 'User Invite' },
+    { key: 'contract_instruction', label: 'Contract Instruction Issued' },
   ];
 
   return (

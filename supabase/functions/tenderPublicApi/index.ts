@@ -157,16 +157,19 @@ Deno.serve(async (req: Request) => {
         console.warn(`[tenderPublicApi] TenderSubmission lookup failed: ${e.message}`);
       }
 
-      // Load issued NTTs for the Correspondence tab on the portal
+      // Load issued NTTs + their attachments for the Correspondence tab on the portal
       let issuedNotices: any[] = [];
       try {
         const { data: noticesData } = await supabaseAdmin
           .from('tender_notices')
-          .select('id, notice_number, title, notice_type, issue_date, description')
+          .select('id, notice_number, title, notice_type, issue_date, description, tender_notice_attachments(id, file_url, file_name)')
           .eq('tender_id', tender.id)
           .eq('status', 'Issued')
           .order('issue_date', { ascending: false });
-        issuedNotices = noticesData ?? [];
+        issuedNotices = (noticesData ?? []).map((n: any) => ({
+          ...n,
+          attachments: n.tender_notice_attachments ?? [],
+        }));
       } catch (_e) { /* table may not exist yet — fail silently */ }
 
       return Response.json({

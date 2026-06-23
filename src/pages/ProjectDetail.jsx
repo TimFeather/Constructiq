@@ -135,7 +135,7 @@ export default function ProjectDetail() {
       </div>
 
       <Tabs defaultValue="team" className="space-y-4" onValueChange={setActiveTab}>
-        <TabsList>
+        <div className="overflow-x-auto -mx-1 px-1 pb-1"><TabsList className="inline-flex w-max">
           <TabsTrigger value="team">Team</TabsTrigger>
           <TabsTrigger value="documents" className="gap-1">
             <FileText className="w-3.5 h-3.5" /> Docs ({projectDocs.length})
@@ -154,7 +154,7 @@ export default function ProjectDetail() {
               <HardHat className="w-3.5 h-3.5" /> Awarded Contractors
             </TabsTrigger>
           )}
-        </TabsList>
+        </TabsList></div>
 
         <TabsContent value="team">
           <TeamManager project={project} />

@@ -68,9 +68,7 @@ export default function RFIs() {
     queryFn: () => Project.list('-created_at', 100),
   });
 
-  const projects = isAdminUser
-    ? allProjects
-    : allProjects.filter(p => p.team?.some(m => normalizeEmail(m.user_email) === normalizeEmail(user?.email)));
+  const projects = allProjects;
 
   const projectIds = new Set(projects.map(p => p.id));
   const rfis = allRfis.filter(r => projectIds.has(r.project_id));

@@ -258,8 +258,17 @@ export default function TeamManager({ project }) {
   };
 
   const removeMember = (index) => {
+    const member = (project.team || [])[index];
     const team = (project.team || []).filter((_, i) => i !== index);
     updateMutation.mutate(team);
+    // Clean up any pending invite for this member + project
+    if (member?.user_email) {
+      invokeFunction('invitationService', {
+        action: 'cancelProjectInvite',
+        email: member.user_email,
+        projectId: project.id,
+      }).catch(() => { /* non-critical */ });
+    }
   };
 
   const startEdit = (index) => {

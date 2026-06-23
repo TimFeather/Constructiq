@@ -103,6 +103,27 @@ export const DEFAULT_TEMPLATES = {
 <p>We appreciate the time and effort you put into your submission and hope to have the opportunity to work with you in the future.</p>
 <p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br>{sender_name}<br>{company_name}</p>`,
   },
+  contract_instruction: {
+    name: 'Contract Instruction Issued',
+    subject: 'Contract Instruction {ci_number} — {project_name}',
+    body_html: `
+<p>Hi <strong>{recipient_name}</strong>,</p>
+<p>A Contract Instruction has been issued on project <strong>{project_name}</strong>.</p>
+<table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;">
+  <tr><td style="padding:6px 0;color:#6b7280;width:160px;">Reference</td><td style="padding:6px 0;font-weight:500;">{ci_number}</td></tr>
+  <tr><td style="padding:6px 0;color:#6b7280;">Project</td><td style="padding:6px 0;font-weight:500;">{project_name}</td></tr>
+  <tr><td style="padding:6px 0;color:#6b7280;">Title</td><td style="padding:6px 0;font-weight:500;">{title}</td></tr>
+  <tr><td style="padding:6px 0;color:#6b7280;">Type</td><td style="padding:6px 0;">{instruction_type}</td></tr>
+  <tr><td style="padding:6px 0;color:#6b7280;">Issued</td><td style="padding:6px 0;">{issue_date}</td></tr>
+</table>
+<p style="color:#374151;"><strong>Description:</strong><br>{description}</p>
+{attachments_note}
+<p style="margin-top:24px;">
+  <a href="{url}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View Contract Instruction</a>
+</p>
+<p style="font-size:13px;color:#6b7280;margin-top:8px;">Note: Attachments can be viewed by logging into the project portal.</p>
+<p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br>{sender_name}</p>`,
+  },
   user_invite: {
     name: 'User Invite to ConstructIQ',
     subject: "You've been invited to ConstructIQ",
@@ -183,6 +204,18 @@ export const TEMPLATE_VARIABLES = {
     { key: 'tender_number', desc: 'Tender reference' },
     { key: 'sender_name', desc: 'Your name' },
     { key: 'company_name', desc: 'Your company name' },
+  ],
+  contract_instruction: [
+    { key: 'recipient_name', desc: 'Recipient name' },
+    { key: 'ci_number', desc: 'CI reference e.g. CI-001' },
+    { key: 'project_name', desc: 'Project name' },
+    { key: 'title', desc: 'CI title' },
+    { key: 'instruction_type', desc: 'Type of instruction' },
+    { key: 'issue_date', desc: 'Date issued' },
+    { key: 'description', desc: 'CI description' },
+    { key: 'attachments_note', desc: 'Optional paragraph about attachments' },
+    { key: 'url', desc: 'Link to the project' },
+    { key: 'sender_name', desc: 'Name of the person issuing' },
   ],
   user_invite: [
     { key: 'name', desc: 'Invitee full name or email' },
