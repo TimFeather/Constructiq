@@ -85,9 +85,11 @@ export default function Register() {
       if (verifyError) throw verifyError;
       // Save extra profile data
       if (data?.user) {
+        const fullName = [form.first_name, form.last_name].filter(Boolean).join(' ') || data.user.email;
         await supabase.from('users').upsert({
           id: data.user.id,
           email: data.user.email,
+          full_name: fullName,
           first_name: form.first_name,
           last_name: form.last_name,
           phone: form.phone,
@@ -120,7 +122,7 @@ export default function Register() {
 
   if (showOtp) {
     return (
-      <AuthLayout icon={Mail} title="Verify your email" subtitle={`We sent a code to ${form.email}`}>
+      <AuthLayout icon={Mail} title="Verify your email" subtitle={`We sent a confirmation email to ${form.email}`}>
         {error && <div className="mb-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">{error}</div>}
         <div className="flex justify-center mb-6">
           <InputOTP maxLength={6} value={otpCode} onChange={setOtpCode} autoFocus autoComplete="one-time-code">
@@ -132,8 +134,11 @@ export default function Register() {
         <Button className="w-full h-12 font-medium" onClick={handleVerify} disabled={loading || otpCode.length < 6}>
           {loading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying...</> : "Verify"}
         </Button>
-        <p className="text-center text-sm text-muted-foreground mt-4">
-          Didn't receive the code?{" "}
+        <p className="text-center text-sm text-muted-foreground mt-3">
+          Check your inbox for a 6-digit code or a confirmation link — either will work.
+        </p>
+        <p className="text-center text-sm text-muted-foreground mt-2">
+          Didn't receive it?{" "}
           <button onClick={handleResend} className="text-primary font-medium hover:underline">Resend</button>
         </p>
       </AuthLayout>

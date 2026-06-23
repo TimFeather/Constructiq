@@ -24,9 +24,9 @@ export const AuthProvider = ({ children }) => {
     });
 
     // Listen for auth state changes (login, logout, token refresh)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (session) {
-        loadUserProfile(session.user);
+        loadUserProfile(session.user, event === 'SIGNED_IN');
       } else {
         setUser(null);
         setIsAuthenticated(false);
@@ -38,7 +38,7 @@ export const AuthProvider = ({ children }) => {
     return () => subscription.unsubscribe();
   }, []);
 
-  const loadUserProfile = async (authUser) => {
+  const loadUserProfile = async (authUser, runWorkspaceSetup = false) => {
     try {
       setIsLoadingAuth(true);
 
@@ -77,6 +77,9 @@ export const AuthProvider = ({ children }) => {
       setUser(fullUser);
       setIsAuthenticated(true);
       setAuthError(null);
+
+      // Only run workspace setup on actual sign-in, not token refreshes
+      if (!runWorkspaceSetup) return;
 
       // Activate any pending project assignments on login
       try {

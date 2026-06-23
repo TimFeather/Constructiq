@@ -50,11 +50,8 @@ export default function Projects() {
     },
   });
 
-  const projects = isAdminUser
-    ? allProjects
-    : allProjects.filter(p =>
-        p.team?.some(m => normalizeEmail(m.user_email) === normalizeEmail(user?.email))
-      );
+  // All authenticated users can see all projects (external = read-only)
+  const projects = allProjects;
 
   const viewProjects = projects.filter(p =>
     viewMode === 'active'

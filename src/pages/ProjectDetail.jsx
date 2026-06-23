@@ -93,9 +93,11 @@ export default function ProjectDetail() {
                 Tender Source: {linkedTender.tender_number}
               </Link>
             )}
-            <Button onClick={() => setShowEdit(true)} variant="outline" className="gap-2">
-              <Pencil className="w-4 h-4" /> Edit
-            </Button>
+            {canManageProject && (
+              <Button onClick={() => setShowEdit(true)} variant="outline" className="gap-2">
+                <Pencil className="w-4 h-4" /> Edit
+              </Button>
+            )}
           </div>
         }
       />

@@ -299,6 +299,7 @@ export default function TeamManager({ project }) {
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-medium text-sm">{member.full_name}</span>
                       <Badge variant="outline" className="text-xs">{member.role}</Badge>
+                      {member.trade && <Badge variant="secondary" className="text-xs">{member.trade}</Badge>}
                       {isMemberDeactivated && (
                         <Badge variant="outline" className="text-xs text-red-600 border-red-300 bg-red-50">Deactivated</Badge>
                       )}
