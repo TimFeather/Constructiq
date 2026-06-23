@@ -180,6 +180,62 @@ Deno.serve(async (req: Request) => {
       return Response.json({ message: `Cleared ${deactivatedIds.length} deactivated users and their references` }, { headers: corsHeaders });
     }
 
+    // ── DELETE_ARCHIVED_TENDERS ──────────────────────────────────────
+    if (action === 'delete_archived_tenders') {
+      const { data: archivedTenders, error: fetchError } = await supabaseAdmin
+        .from('tenders')
+        .select('id')
+        .eq('status', 'Archived');
+
+      if (fetchError) throw fetchError;
+
+      const tenderIds = (archivedTenders || []).map((t: any) => t.id);
+
+      if (tenderIds.length === 0) {
+        return Response.json({ message: 'No archived tenders to delete' }, { headers: corsHeaders });
+      }
+
+      // Delete related records first (due to foreign key constraints)
+      await supabaseAdmin.from('tender_invitations').delete().in('tender_id', tenderIds);
+      await supabaseAdmin.from('tender_invitees').delete().in('tender_id', tenderIds);
+      await supabaseAdmin.from('tender_submissions').delete().in('tender_id', tenderIds);
+      await supabaseAdmin.from('tender_notices').delete().in('tender_id', tenderIds);
+
+      // Delete the tenders themselves
+      const { error: deleteError } = await supabaseAdmin.from('tenders').delete().in('id', tenderIds);
+      if (deleteError) throw deleteError;
+
+      return Response.json({ message: `Permanently deleted ${tenderIds.length} archived tender(s) and all related records` }, { headers: corsHeaders });
+    }
+
+    // ── DELETE_ARCHIVED_PROJECTS ─────────────────────────────────────
+    if (action === 'delete_archived_projects') {
+      const { data: archivedProjects, error: fetchError } = await supabaseAdmin
+        .from('projects')
+        .select('id')
+        .eq('status', 'Archived');
+
+      if (fetchError) throw fetchError;
+
+      const projectIds = (archivedProjects || []).map((p: any) => p.id);
+
+      if (projectIds.length === 0) {
+        return Response.json({ message: 'No archived projects to delete' }, { headers: corsHeaders });
+      }
+
+      // Delete related records first (due to foreign key constraints)
+      await supabaseAdmin.from('documents').delete().in('project_id', projectIds);
+      await supabaseAdmin.from('rfis').delete().in('project_id', projectIds);
+      await supabaseAdmin.from('tasks').delete().in('project_id', projectIds);
+      await supabaseAdmin.from('contract_instructions').delete().in('project_id', projectIds);
+
+      // Delete the projects themselves
+      const { error: deleteError } = await supabaseAdmin.from('projects').delete().in('id', projectIds);
+      if (deleteError) throw deleteError;
+
+      return Response.json({ message: `Permanently deleted ${projectIds.length} archived project(s) and all related records` }, { headers: corsHeaders });
+    }
+
     return Response.json({ error: 'Unknown action' }, { status: 400, headers: corsHeaders });
   } catch (e: any) {
     console.error('[testReset] error:', e);

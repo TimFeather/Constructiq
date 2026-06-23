@@ -25,6 +25,18 @@ const ACTIONS = [
     description: 'Permanently removes all users flagged as disabled (data.disabled = true), including their project memberships and invitation records.',
     danger: true,
   },
+  {
+    action: 'delete_archived_tenders',
+    label: 'Delete Archived Tenders',
+    description: 'Permanently deletes all tenders with status=Archived and all related records (invitations, submissions, notices).',
+    danger: true,
+  },
+  {
+    action: 'delete_archived_projects',
+    label: 'Delete Archived Projects',
+    description: 'Permanently deletes all projects with status=Archived and all related records (documents, RFIs, tasks, contract instructions).',
+    danger: true,
+  },
 ];
 
 function SummaryPanel() {
