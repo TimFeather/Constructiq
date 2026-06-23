@@ -26,6 +26,10 @@ export const AuthProvider = ({ children }) => {
 
     // Listen for auth state changes (login, logout, token refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // Skip silent token refreshes if already authenticated
+      if (event === 'TOKEN_REFRESHED' && isAuthenticated) {
+        return;
+      }
       if (session) {
         loadUserProfile(session.user, event === 'SIGNED_IN');
       } else {
@@ -42,7 +46,8 @@ export const AuthProvider = ({ children }) => {
 
   const loadUserProfile = async (authUser, runWorkspaceSetup = false) => {
     try {
-      setIsLoadingAuth(true);
+      // Only show loading state if this is first auth check or workspace setup
+      if (runWorkspaceSetup || !authChecked) setIsLoadingAuth(true);
 
       // Load the user's profile row from public.users
       const { data: profile, error } = await supabase
@@ -71,7 +76,7 @@ export const AuthProvider = ({ children }) => {
       if (profile?.disabled === true) {
         setAuthError({ type: 'account_deactivated', message: 'Account deactivated' });
         setIsAuthenticated(false);
-        setIsLoadingAuth(false);
+        if (runWorkspaceSetup || !authChecked) setIsLoadingAuth(false);
         setAuthChecked(true);
         return;
       }
@@ -117,7 +122,7 @@ export const AuthProvider = ({ children }) => {
       setAuthError({ type: 'unknown', message: error.message });
       setIsAuthenticated(false);
     } finally {
-      setIsLoadingAuth(false);
+      if (runWorkspaceSetup || !authChecked) setIsLoadingAuth(false);
       setAuthChecked(true);
     }
   };
