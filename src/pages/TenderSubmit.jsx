@@ -1,5 +1,7 @@
 import { invokeFunction } from '@/api/supabaseClient';
 import React, { useState, useEffect } from 'react';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
 import { useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,6 +18,46 @@ import { format, parseISO, isPast } from 'date-fns';
 function fmtDate(val) {
   if (!val) return null;
   try { return format(parseISO(val.split('T')[0]), 'dd MMMM yyyy'); } catch { return val; }
+}
+
+function DownloadAllButton({ documents, tenderTitle }) {
+  const [downloading, setDownloading] = useState(false);
+  const [progress, setProgress] = useState(0);
+
+  const handleDownloadAll = async () => {
+    if (!documents?.length) return;
+    setDownloading(true);
+    setProgress(0);
+    try {
+      const zip = new JSZip();
+      for (let i = 0; i < documents.length; i++) {
+        const doc = documents[i];
+        const response = await fetch(doc.file_url);
+        if (!response.ok) throw new Error(`Failed to fetch ${doc.name}`);
+        const blob = await response.blob();
+        const ext = doc.file_url.split('?')[0].split('.').pop() || '';
+        const fileName = doc.name || `document-${i + 1}`;
+        const safeName = fileName.includes('.') ? fileName : `${fileName}.${ext}`;
+        zip.file(safeName, blob);
+        setProgress(Math.round(((i + 1) / documents.length) * 100));
+      }
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const zipName = `${(tenderTitle || 'tender').replace(/[^a-z0-9]/gi, '-').toLowerCase()}-documents.zip`;
+      saveAs(zipBlob, zipName);
+    } catch (e) {
+      console.error('Download failed:', e);
+    } finally {
+      setDownloading(false);
+      setProgress(0);
+    }
+  };
+
+  return (
+    <Button variant="outline" size="sm" className="gap-1.5" onClick={handleDownloadAll} disabled={downloading}>
+      <Download className="w-3.5 h-3.5" />
+      {downloading ? `Zipping... ${progress}%` : 'Download All'}
+    </Button>
+  );
 }
 
 export default function TenderSubmit() {
@@ -333,14 +375,7 @@ export default function TenderSubmit() {
               <div className="border rounded-lg overflow-hidden bg-card">
                 <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/30">
                   <span className="text-sm font-medium">{tender.documents.length} document{tender.documents.length !== 1 ? 's' : ''}</span>
-                  <Button variant="outline" size="sm" className="gap-1.5" onClick={async () => {
-                    for (const doc of tender.documents) {
-                      window.open(doc.file_url, '_blank', 'noopener,noreferrer');
-                      await new Promise(r => setTimeout(r, 600));
-                    }
-                  }}>
-                    <Download className="w-3.5 h-3.5" /> Open All
-                  </Button>
+                  <DownloadAllButton documents={tender.documents} tenderTitle={tender.title} />
                 </div>
                 <div className="divide-y">
                   {tender.documents.map((doc, i) => (
