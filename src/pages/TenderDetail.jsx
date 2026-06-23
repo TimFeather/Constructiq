@@ -291,7 +291,7 @@ export default function TenderDetail() {
           setActiveTab(val);
         }
       }} className="space-y-4">
-        <TabsList className="flex-wrap">
+        <div className="overflow-x-auto -mx-1 px-1 pb-1"><TabsList className="inline-flex w-max">
           <TabsTrigger value="details">Details</TabsTrigger>
           <TabsTrigger value="documents">Documents {tender.documents?.length > 0 && <span className="ml-1 text-xs opacity-60">{tender.documents.length}</span>}</TabsTrigger>
           <TabsTrigger value="invitees">Invitees</TabsTrigger>
@@ -299,7 +299,7 @@ export default function TenderDetail() {
           <TabsTrigger value="submissions">Submissions</TabsTrigger>
           <TabsTrigger value="outcome">Outcome</TabsTrigger>
           <TabsTrigger value="activity">Activity</TabsTrigger>
-        </TabsList>
+        </TabsList></div>
 
         {/* Tab 1 — Details */}
         <TabsContent value="details" className="space-y-6">
