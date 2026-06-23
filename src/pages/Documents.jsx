@@ -1,4 +1,4 @@
-import { uploadFile } from '@/api/supabaseClient';
+import { uploadFile, sendEmail } from '@/api/supabaseClient';
 import React, { useState } from 'react';
 import { Document, Project } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -37,6 +37,7 @@ export default function Documents() {
   const [uploadForm, setUploadForm] = useState({ name: '', project_id: '', file: null, folder: '' });
   const [newFolder, setNewFolder] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [uploadPct, setUploadPct] = useState(0);
   const queryClient = useQueryClient();
 
   const isAdmin = ['admin', 'internal', 'pricing'].includes(user?.role);
@@ -59,29 +60,30 @@ export default function Documents() {
   const documents = allDocuments.filter(d => projectIds.has(d.project_id));
 
   const statusMutation = useMutation({
-    mutationFn: ({ id, status, ownerEmail }) => {
-      const promise = Document.update(id, { status });
-      // Send email notification on status change
+    mutationFn: ({ id, status }) => Document.update(id, { status }),
+    onSuccess: (_, { status, ownerEmail }) => {
+      queryClient.invalidateQueries({ queryKey: ['documents'] });
       if (ownerEmail) {
         sendEmail({
           to: ownerEmail,
           subject: `Document status changed to ${status}`,
-          body: `A document you uploaded has been updated to status: ${status}.`
+          body: `A document you uploaded has been updated to status: ${status}.`,
+        }).catch((err) => {
+          console.warn('[Documents] Status notification failed:', err?.message);
         });
       }
-      return promise;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['documents'] }),
   });
 
   const handleUpload = async () => {
     if (!uploadForm.file || !uploadForm.name || !uploadForm.project_id) return;
     setUploading(true);
+    setUploadPct(0);
     try {
       const folder = uploadForm.folder === '__new__'
         ? newFolder.trim()
         : (uploadForm.folder || undefined);
-      const { file_url } = await uploadFile(uploadForm.file );
+      const { file_url } = await uploadFile(uploadForm.file, 'Documents', setUploadPct);
       await Document.create({
         name: uploadForm.name,
         project_id: uploadForm.project_id,
@@ -98,7 +100,7 @@ export default function Documents() {
       setNewFolder('');
     } catch (err) {
       console.error('Upload failed:', err);
-      toast({ title: 'Upload failed', description: 'Please check your connection and try again.', variant: 'destructive' });
+      toast({ title: 'Upload failed', description: err?.message || 'Please check your connection and try again.', variant: 'destructive' });
     } finally {
       setUploading(false);
     }
@@ -253,10 +255,20 @@ export default function Documents() {
               <Input type="file" onChange={e => setUploadForm({...uploadForm, file: e.target.files[0]})} />
             </div>
           </div>
+          {uploading && (
+            <div className="space-y-1 px-1">
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>Uploading…</span><span>{uploadPct}%</span>
+              </div>
+              <div className="w-full bg-muted rounded-full h-2">
+                <div className="bg-primary h-2 rounded-full transition-all duration-200" style={{ width: `${uploadPct}%` }} />
+              </div>
+            </div>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowUpload(false)}>Cancel</Button>
             <Button onClick={handleUpload} disabled={uploading || !uploadForm.file || !uploadForm.name || !uploadForm.project_id}>
-              {uploading ? 'Uploading...' : 'Upload'}
+              {uploading ? `Uploading ${uploadPct}%…` : 'Upload'}
             </Button>
           </DialogFooter>
         </DialogContent>

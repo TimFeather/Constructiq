@@ -1,7 +1,6 @@
 import React from 'react';
 import { TenderInvitation, TenderInvitee } from '@/api/entities';
 import { useQuery } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { Users, Send, Eye, CheckCircle2, Clock } from 'lucide-react';
 
 export default function TenderInvitationStats({ tenderId }) {

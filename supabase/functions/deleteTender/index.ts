@@ -1,7 +1,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
@@ -32,20 +32,8 @@ Deno.serve(async (req) => {
     if (!tenderId) return fail('tenderId is required', 400);
     trace(`DELETE tender=${tenderId}`);
 
-    const deleteAll = async (table: string, field: string) => {
-      const { data } = await supabaseAdmin.from(table).select('id').eq(field, tenderId);
-      trace(`${table} count: ${data?.length ?? 0}`);
-      for (const r of data ?? []) {
-        await supabaseAdmin.from(table).delete().eq('id', r.id).catch((e: any) => trace(`${table} delete FAILED id=${r.id}: ${e.message}`));
-      }
-      trace(`${table} — ${data?.length ?? 0} deleted`);
-    };
-
-    await deleteAll('tender_submissions', 'tender_id');
-    await deleteAll('tender_invitations', 'tender_id');
-    await deleteAll('tender_invitees', 'tender_id');
-    await deleteAll('folders', 'tender_id');
-
+    // FK constraints on tender_submissions, tender_invitations, tender_invitees,
+    // and folders all have ON DELETE CASCADE — the parent delete handles everything.
     trace(`Deleting tender id=${tenderId}…`);
     const { error } = await supabaseAdmin.from('tenders').delete().eq('id', tenderId);
     if (error) return fail(`Tender delete failed: ${error.message}`);

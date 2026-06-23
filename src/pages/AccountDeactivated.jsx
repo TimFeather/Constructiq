@@ -1,7 +1,6 @@
 import { supabase } from '@/api/supabaseClient';
 import React from 'react';
 import { ShieldOff } from 'lucide-react';
-import { base44 } from '@/api/base44Client';
 
 export default function AccountDeactivated() {
   return (

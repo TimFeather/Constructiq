@@ -10,7 +10,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 import { Resend } from 'npm:resend@4.0.0';
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
@@ -117,19 +117,23 @@ Deno.serve(async (req: Request) => {
       const { noticeId } = payload;
       if (!noticeId) return Response.json({ error: 'noticeId required' }, { status: 400, headers: corsHeaders });
 
-      const { data: notice } = await supabaseAdmin
-        .from('tender_notices').select('*').eq('id', noticeId).single();
-      if (!notice) return Response.json({ error: 'Notice not found' }, { status: 404, headers: corsHeaders });
+      const { data: noticeRows, error: noticeErr } = await supabaseAdmin
+        .from('tender_notices').select('*').eq('id', noticeId);
+      if (noticeErr) return Response.json({ error: `DB error looking up notice: ${noticeErr.message}` }, { status: 500, headers: corsHeaders });
+      const notice = noticeRows?.[0];
+      if (!notice) return Response.json({ error: `Notice not found (id: ${noticeId})` }, { status: 404, headers: corsHeaders });
       if (notice.status === 'Issued') return Response.json({ error: 'Already issued' }, { status: 400, headers: corsHeaders });
 
       // Validate required fields
-      if (!notice.title || !notice.notice_type || !notice.description) {
-        return Response.json({ error: 'Title, type, and description are required before issuing' }, { status: 400, headers: corsHeaders });
+      if (!notice.title || !notice.notice_type) {
+        return Response.json({ error: 'Title and notice type are required before issuing' }, { status: 400, headers: corsHeaders });
       }
 
       // Get tender + active invitees
-      const { data: tender } = await supabaseAdmin
-        .from('tenders').select('*').eq('id', notice.tender_id).single();
+      const { data: tenderRows, error: tenderErr } = await supabaseAdmin
+        .from('tenders').select('*').eq('id', notice.tender_id);
+      if (tenderErr) return Response.json({ error: `DB error looking up tender: ${tenderErr.message}` }, { status: 500, headers: corsHeaders });
+      const tender = tenderRows?.[0];
       if (!tender) return Response.json({ error: 'Tender not found' }, { status: 404, headers: corsHeaders });
 
       const { data: invitations } = await supabaseAdmin
@@ -151,7 +155,7 @@ Deno.serve(async (req: Request) => {
       const branding    = (brandingsData ?? [])[0] || {};
       const brandColour = branding.brand_colour || '#1a56db';
       const fromName    = branding.sender_name  || branding.company_name || 'ConstructIQ';
-      const senderEmail = branding.sender_email || 'noreply@totalhomesolutions.co.nz';
+      const senderEmail = branding.sender_email || Deno.env.get('SENDER_EMAIL') || 'noreply@totalhomesolutions.co.nz';
       const fromEmail   = `${fromName} <${senderEmail}>`;
       const resend      = new Resend(Deno.env.get('RESEND_API_KEY'));
 
@@ -161,7 +165,7 @@ Deno.serve(async (req: Request) => {
 
       for (const inv of inviteeList) {
         if (!inv.invitee_email) continue;
-        const portalUrl = `${SITE_URL}/tender/submit/${inv.token}`;
+        const portalUrl = `${SITE_URL}/tender-submit/${inv.token}`;
         try {
           await resend.emails.send({
             from:    fromEmail,
@@ -237,6 +241,9 @@ Deno.serve(async (req: Request) => {
 
       const { data: tender } = await supabaseAdmin
         .from('tenders').select('*').eq('id', notice.tender_id).single();
+      if (!tender) {
+        return Response.json({ error: 'Tender not found' }, { status: 404, headers: corsHeaders });
+      }
 
       // Lookup tokens for failed recipients
       const { data: invitations } = await supabaseAdmin
@@ -249,13 +256,13 @@ Deno.serve(async (req: Request) => {
       const branding    = (brandingsData ?? [])[0] || {};
       const brandColour = branding.brand_colour || '#1a56db';
       const fromName    = branding.sender_name  || branding.company_name || 'ConstructIQ';
-      const senderEmail = branding.sender_email || 'noreply@totalhomesolutions.co.nz';
+      const senderEmail = branding.sender_email || Deno.env.get('SENDER_EMAIL') || 'noreply@totalhomesolutions.co.nz';
       const fromEmail   = `${fromName} <${senderEmail}>`;
       const resend      = new Resend(Deno.env.get('RESEND_API_KEY'));
 
       let sent = 0, failed = 0;
       for (const inv of (invitations ?? [])) {
-        const portalUrl = `${SITE_URL}/tender/submit/${inv.token}`;
+        const portalUrl = `${SITE_URL}/tender-submit/${inv.token}`;
         try {
           await resend.emails.send({
             from: fromEmail, to: inv.invitee_email,

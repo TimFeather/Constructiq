@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { ArrowLeft, Send, Clock, UserIcon, Paperclip, Trash2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import PageHeader from '@/components/shared/PageHeader';
@@ -21,6 +22,7 @@ export default function RFIDetail() {
   const { user } = useAuth();
   const [response, setResponse] = useState('');
   const [responseFile, setResponseFile] = useState(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const queryClient = useQueryClient();
 
   const isAdminOrInternal = user?.role === 'admin' || user?.role === 'internal';
@@ -176,7 +178,7 @@ export default function RFIDetail() {
             )}
             {!statusOptions.length && <StatusBadge status={rfi.status} />}
             {isAdminOrInternal && (
-              <Button variant="destructive" size="icon" onClick={() => deleteMutation.mutate()} disabled={deleteMutation.isPending} title="Delete RFI">
+              <Button variant="destructive" size="icon" onClick={() => setShowDeleteDialog(true)} disabled={deleteMutation.isPending} title="Delete RFI">
                 <Trash2 className="w-4 h-4" />
               </Button>
             )}
@@ -243,7 +245,7 @@ export default function RFIDetail() {
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Created</p>
-              <p className="text-sm font-medium mt-0.5">{format(new Date(rfi.created_date), 'MMM d, yyyy')}</p>
+              <p className="text-sm font-medium mt-0.5">{format(new Date(rfi.created_at), 'MMM d, yyyy')}</p>
             </div>
           </CardContent>
         </Card>
@@ -321,6 +323,26 @@ export default function RFIDetail() {
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete RFI?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete <strong>RFI-{String(rfi.number).padStart(3, '0')}: {rfi.title}</strong>? This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => deleteMutation.mutate()}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

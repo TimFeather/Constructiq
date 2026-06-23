@@ -48,9 +48,9 @@ function entity(table) {
     },
 
     async create(payload) {
-      const { data, error } = await supabase.from(table).insert(payload).select().single();
+      const { data, error } = await supabase.from(table).insert(payload).select();
       if (error) throw error;
-      return data;
+      return data?.[0] ?? null;
     },
 
     async bulkCreate(payloads) {
@@ -60,9 +60,9 @@ function entity(table) {
     },
 
     async update(id, payload) {
-      const { data, error } = await supabase.from(table).update(payload).eq('id', id).select().single();
+      const { data, error } = await supabase.from(table).update(payload).eq('id', id).select();
       if (error) throw error;
-      return data;
+      return data?.[0] ?? null;
     },
 
     async delete(id) {
@@ -83,7 +83,7 @@ export const Tender                    = entity('tenders');
 export const TenderInvitee             = entity('tender_invitees');
 export const TenderInvitation          = entity('tender_invitations');
 export const TenderSubmission          = entity('tender_submissions');
-export const TenderActivity            = entity('tender_activities');
+export const TenderActivity            = entity('tender_activity');
 export const TenderContact             = entity('tender_contacts');
 export const TenderCounter             = entity('tender_counter');
 export const TenderSettings            = entity('tender_settings');

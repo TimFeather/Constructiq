@@ -2,10 +2,10 @@
  * ProjectCIPanel — Contract Instructions tab for a project
  * CI = a communication from the principal authorising variations, scope changes, etc.
  */
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ContractInstruction } from '@/api/entities';
-import { invokeFunction } from '@/api/supabaseClient';
+import { invokeFunction, uploadFile } from '@/api/supabaseClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -18,7 +18,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Plus, Send, Archive, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
+import { Plus, Send, Archive, ChevronDown, ChevronUp, AlertTriangle, Upload, X } from 'lucide-react';
 import { format } from 'date-fns';
 
 const CI_TYPES = [
@@ -47,10 +47,11 @@ async function generateCINumber(projectId) {
 export default function ProjectCIPanel({ project, canManage }) {
   const queryClient = useQueryClient();
 
-  const { data: cis = [], isLoading } = useQuery({
+  const { data: cis = [], isLoading, isError, error } = useQuery({
     queryKey: ['contractInstructions', project.id],
     queryFn:  () => ContractInstruction.filter({ project_id: project.id }, '-created_at'),
     enabled:  !!project.id,
+    retry: 1,
   });
 
   const [search, setSearch]           = useState('');
@@ -124,6 +125,16 @@ export default function ProjectCIPanel({ project, canManage }) {
   };
 
   if (isLoading) return <div className="py-10 text-center text-muted-foreground text-sm">Loading...</div>;
+
+  if (isError) {
+    return (
+      <div className="py-10 text-center space-y-2">
+        <p className="text-sm font-medium text-destructive">Failed to load Contract Instructions</p>
+        <p className="text-xs text-muted-foreground max-w-sm mx-auto">{error?.message || 'Permission denied or table missing'}</p>
+        <p className="text-xs text-muted-foreground">Run the SQL migration to create the <code>contract_instructions</code> table and RLS policies.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -199,11 +210,26 @@ export default function ProjectCIPanel({ project, canManage }) {
                 </div>
               </div>
 
-              {expandedId === ci.id && ci.description && (
-                <div className="px-4 pb-4 pt-0 bg-muted/10 border-t text-sm">
-                  <p className="text-muted-foreground whitespace-pre-wrap">{ci.description}</p>
+              {expandedId === ci.id && (
+                <div className="px-4 pb-4 pt-0 bg-muted/10 border-t text-sm space-y-2">
+                  {ci.description && (
+                    <p className="text-muted-foreground whitespace-pre-wrap">{ci.description}</p>
+                  )}
+                  {ci.attachments?.length > 0 && (
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground mb-1">Attachments:</p>
+                      <div className="space-y-1">
+                        {ci.attachments.map((a, i) => (
+                          <a key={i} href={a.file_url} target="_blank" rel="noreferrer"
+                            className="flex items-center gap-1.5 text-xs text-primary hover:underline">
+                            📎 {a.file_name || 'Attachment'}
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   {ci.issued_by && (
-                    <p className="text-xs text-muted-foreground mt-2">Issued by: {ci.issued_by}</p>
+                    <p className="text-xs text-muted-foreground">Issued by: {ci.issued_by}</p>
                   )}
                 </div>
               )}
@@ -227,8 +253,23 @@ export default function ProjectCIPanel({ project, canManage }) {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Issue this Contract Instruction?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will notify all subcontractors on the project. Once issued, it cannot be deleted.
+            <AlertDialogDescription asChild>
+              <div>
+                <p className="mb-2">Once issued it cannot be deleted — only archived.</p>
+                {(() => {
+                  const recipients = (project.team || []).filter(m => m.role === 'Subcontractor' && m.user_email);
+                  return recipients.length > 0 ? (
+                    <div>
+                      <p className="text-xs font-medium text-foreground mb-1">Will notify {recipients.length} subcontractor{recipients.length !== 1 ? 's' : ''}:</p>
+                      <ul className="text-xs text-muted-foreground space-y-0.5">
+                        {recipients.map((r, i) => <li key={i}>• {r.full_name || r.user_email}</li>)}
+                      </ul>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-amber-600">No subcontractors on the project team will be notified.</p>
+                  );
+                })()}
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -259,10 +300,31 @@ export default function ProjectCIPanel({ project, canManage }) {
 }
 
 function CreateCIDialog({ project, onClose, onCreated }) {
-  const [form, setForm] = useState({ title: '', description: '', type: '' });
-  const [saving, setSaving] = useState(false);
-  const [error, setError]   = useState('');
-  const { user } = { user: null }; // CI numbers generated here for now
+  const [form, setForm]                   = useState({ title: '', description: '', type: '' });
+  const [uploadedFiles, setUploadedFiles] = useState([]);
+  const [uploading, setUploading]         = useState(false);
+  const [saving, setSaving]               = useState(false);
+  const [error, setError]                 = useState('');
+  const fileInputRef                      = useRef(null);
+
+  const handleFileUpload = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    setUploading(true); setError('');
+    try {
+      const results = [];
+      for (const file of files) {
+        const { file_url } = await uploadFile(file);
+        results.push({ file_url, file_name: file.name });
+      }
+      setUploadedFiles(prev => [...prev, ...results]);
+    } catch (e) {
+      setError(e?.message || 'Upload failed');
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   const handleSave = async () => {
     if (!form.title || !form.type) { setError('Title and type are required.'); return; }
@@ -276,7 +338,7 @@ function CreateCIDialog({ project, onClose, onCreated }) {
         description:      form.description,
         instruction_type: form.type,
         status:           'Draft',
-        attachments:      [],
+        attachments:      uploadedFiles,
         created_at:       new Date().toISOString(),
         updated_at:       new Date().toISOString(),
       });
@@ -290,7 +352,7 @@ function CreateCIDialog({ project, onClose, onCreated }) {
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Create Contract Instruction</DialogTitle>
         </DialogHeader>
@@ -319,6 +381,30 @@ function CreateCIDialog({ project, onClose, onCreated }) {
               onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
               rows={4} placeholder="Full description of the instruction..." className="mt-1" />
           </div>
+          <div>
+            <Label>Attachments</Label>
+            <div className="mt-1 border-2 border-dashed rounded-lg p-3 text-center">
+              <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileUpload} />
+              <Button type="button" variant="outline" size="sm" className="gap-2"
+                onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+                <Upload className="w-4 h-4" />
+                {uploading ? 'Uploading...' : 'Choose files'}
+              </Button>
+            </div>
+            {uploadedFiles.length > 0 && (
+              <div className="mt-2 space-y-1">
+                {uploadedFiles.map((f, i) => (
+                  <div key={i} className="flex items-center justify-between text-xs bg-green-50 border border-green-200 rounded px-2 py-1">
+                    <span className="text-green-800 truncate">{f.file_name}</span>
+                    <button onClick={() => setUploadedFiles(prev => prev.filter((_, j) => j !== i))}
+                      className="text-green-600 hover:text-red-500 ml-2 flex-shrink-0">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           {error && (
             <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
               <AlertTriangle className="w-4 h-4 flex-shrink-0" /> {error}
@@ -326,8 +412,8 @@ function CreateCIDialog({ project, onClose, onCreated }) {
           )}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
-          <Button onClick={handleSave} disabled={saving || !form.title || !form.type}>
+          <Button variant="outline" onClick={onClose} disabled={saving || uploading}>Cancel</Button>
+          <Button onClick={handleSave} disabled={saving || uploading || !form.title || !form.type}>
             {saving ? 'Saving...' : 'Save Draft'}
           </Button>
         </DialogFooter>

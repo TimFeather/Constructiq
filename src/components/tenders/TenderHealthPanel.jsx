@@ -6,7 +6,6 @@ import { invokeFunction } from '@/api/supabaseClient';
 import React, { useState } from 'react';
 import { TenderInvitee } from '@/api/entities';
 import { useQuery } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { CheckCircle2, XCircle, AlertTriangle, FileText, FolderOpen, Users, Send, ShieldCheck, Loader2 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';

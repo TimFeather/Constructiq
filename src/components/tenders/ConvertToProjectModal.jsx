@@ -63,11 +63,9 @@ export default function ConvertToProjectModal({ tender, open, onOpenChange }) {
         console.log(`[ConvertToProject] Subcontractors transferred to project team: ${awardedSubs.length}`);
       }
 
-      // Build project data
+      // Build project data — only columns that exist on projects table
       const projectData = {
         name: projectName,
-        client_name: tender.client_name,
-        location: tender.location,
         status: 'Active',
         team,
       };
@@ -94,9 +92,9 @@ export default function ConvertToProjectModal({ tender, open, onOpenChange }) {
         await Document.create(doc);
       }
 
-      // Update tender status
+      // Update tender status — Archived moves it to the Archive tab
       await Tender.update(tender.id, {
-        status: 'Converted',
+        status: 'Archived',
         converted_project_id: newProject.id,
       });
 
@@ -213,7 +211,7 @@ export default function ConvertToProjectModal({ tender, open, onOpenChange }) {
           <div className="flex items-start gap-2 p-3 bg-green-50 dark:bg-green-950/20 rounded-lg border border-green-200 dark:border-green-800">
             <CheckCircle2 className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
             <p className="text-xs text-green-700 dark:text-green-300">
-              This will create a new Active project and update the tender status to Converted.
+              This will create a new Active project and move the tender to the Archive tab.
             </p>
           </div>
         </div>

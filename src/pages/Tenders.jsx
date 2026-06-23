@@ -1,4 +1,4 @@
-import { invokeFunction } from '@/api/supabaseClient';
+import { invokeFunction, supabase } from '@/api/supabaseClient';
 import React, { useState } from 'react';
 import { Tender } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -17,9 +17,10 @@ import { format, differenceInDays, isPast, parseISO } from 'date-fns';
 const STATUS_STYLES = {
   Draft:        'bg-gray-100 text-gray-700',
   Issued:       'bg-blue-100 text-blue-700',
-  Closed:       'bg-amber-100 text-amber-700',
+  Submitted:    'bg-amber-100 text-amber-700',
   Awarded:      'bg-green-100 text-green-700',
   Unsuccessful: 'bg-red-100 text-red-700',
+  Archived:     'bg-purple-100 text-purple-700',
   Converted:    'bg-purple-100 text-purple-700',
 };
 
@@ -48,14 +49,14 @@ function closingDateLabel(tender) {
   return null;
 }
 
-const ACTIVE_STATUSES   = ['Draft', 'Issued', 'Closed', 'Awarded', 'Unsuccessful', 'On Hold', 'Cancelled'];
-const ARCHIVED_STATUSES = ['Converted', 'Archived'];
+const ACTIVE_STATUSES    = ['Draft', 'Issued', 'Awarded', 'Unsuccessful', 'On Hold', 'Cancelled'];
+const SUBMITTED_STATUSES = ['Submitted'];
+const ARCHIVED_STATUSES  = ['Archived', 'Converted'];
 
 const STATUS_STYLES_LIST = {
   ...STATUS_STYLES,
   'On Hold':  'bg-orange-100 text-orange-700',
   Cancelled:  'bg-gray-100 text-gray-500',
-  Archived:   'bg-gray-100 text-gray-500',
 };
 
 export default function Tenders() {
@@ -63,7 +64,7 @@ export default function Tenders() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [search, setSearch] = useState('');
-  const [view, setView] = useState('active');   // 'active' | 'archive'
+  const [view, setView] = useState('active');   // 'active' | 'submitted' | 'archive'
   const [statusTab, setStatusTab] = useState('All');
   const queryClient = useQueryClient();
   const canManage = canManagePerm(user, 'tenders');
@@ -71,6 +72,26 @@ export default function Tenders() {
   const { data: tenders = [], isLoading } = useQuery({
     queryKey: ['tenders'],
     queryFn: () => Tender.list('-created_at', 200),
+  });
+
+  // Invitee counts per tender (card display)
+  const { data: inviteeCounts = {} } = useQuery({
+    queryKey: ['tenderInviteeCounts'],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('tender_invitees')
+        .select('tender_id, status');
+      const map = {};
+      for (const row of (data ?? [])) {
+        if (!map[row.tender_id]) map[row.tender_id] = { total: 0, submitted: 0 };
+        map[row.tender_id].total++;
+        if (['Submitted', 'Awarded', 'Unsuccessful'].includes(row.status)) {
+          map[row.tender_id].submitted++;
+        }
+      }
+      return map;
+    },
+    staleTime: 60_000,
   });
 
   const createMutation = useMutation({
@@ -95,7 +116,7 @@ export default function Tenders() {
 
   if (!canAccess(user, 'tenders')) return <Navigate to="/" replace />;
 
-  const viewStatuses = view === 'active' ? ACTIVE_STATUSES : ARCHIVED_STATUSES;
+  const viewStatuses = view === 'active' ? ACTIVE_STATUSES : view === 'submitted' ? SUBMITTED_STATUSES : ARCHIVED_STATUSES;
   const statusTabs   = ['All', ...viewStatuses];
 
   const filtered = tenders.filter(t => {
@@ -127,6 +148,12 @@ export default function Tenders() {
           className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-colors ${view === 'active' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-muted/80'}`}
         >
           Active <span className="ml-1.5 opacity-70">{tenders.filter(t => ACTIVE_STATUSES.includes(t.status)).length}</span>
+        </button>
+        <button
+          onClick={() => { setView('submitted'); setStatusTab('All'); }}
+          className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-colors ${view === 'submitted' ? 'bg-green-600 text-white' : 'bg-muted text-muted-foreground hover:bg-muted/80'}`}
+        >
+          Submitted <span className="ml-1.5 opacity-70">{tenders.filter(t => SUBMITTED_STATUSES.includes(t.status)).length}</span>
         </button>
         <button
           onClick={() => { setView('archive'); setStatusTab('All'); }}
@@ -192,7 +219,7 @@ export default function Tenders() {
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map(tender => {
-            const submittedCount = (tender.invitees || []).filter(i => i.status === 'Submitted' || i.status === 'Awarded' || i.status === 'Unsuccessful').length;
+            const counts = inviteeCounts[tender.id] || { total: 0, submitted: 0 };
             const isOverdue = tender.status === 'Issued' && tender.closing_date && isPast(parseISO(tender.closing_date));
             return (
               <Link key={tender.id} to={`/tenders/${tender.id}`}>
@@ -231,7 +258,7 @@ export default function Tenders() {
                       )}
                       <div className="flex items-center gap-1.5 pt-1">
                         <Users className="w-3 h-3" />
-                        {(tender.invitees || []).length} invited · {submittedCount} submitted
+                        {counts.total} invited · {counts.submitted} submitted
                       </div>
                     </div>
                   </CardContent>

@@ -92,7 +92,15 @@ export const AuthProvider = ({ children }) => {
           queryClientInstance.invalidateQueries({ queryKey: ['projects'] });
         }
       } catch (e) {
-        console.warn('[AuthContext] processPendingAssignments failed:', e?.message);
+        console.warn('[AuthContext] processPendingAssignments failed, retrying in 3s:', e?.message);
+        // Retry once after a short delay — cold-start timeouts are common on first login
+        setTimeout(async () => {
+          try {
+            await supabase.functions.invoke('processPendingAssignments', {});
+          } catch (retryErr) {
+            console.warn('[AuthContext] processPendingAssignments retry also failed:', retryErr?.message);
+          }
+        }, 3000);
       } finally {
         setIsSettingUpWorkspace(false);
       }

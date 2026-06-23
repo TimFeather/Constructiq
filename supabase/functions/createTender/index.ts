@@ -1,7 +1,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
@@ -34,7 +34,7 @@ Deno.serve(async (req) => {
     const { data: profile } = await supabaseAdmin.from('users').select('*').eq('id', authUser.id).single();
 
     if (!profile) {
-      await supabaseAdmin.from('users').upsert({ id: authUser.id, email: authUser.email, role: 'admin' }, { onConflict: 'id' });
+      await supabaseAdmin.from('users').upsert({ id: authUser.id, email: authUser.email, role: 'external' }, { onConflict: 'id' });
       return fail(`Profile was missing — please try again`, 503);
     }
 

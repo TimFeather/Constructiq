@@ -2,7 +2,6 @@ import { supabase, invokeFunction } from '@/api/supabaseClient';
 import React, { useState, useEffect } from 'react';
 import { Project } from '@/api/entities';
 import { useQuery } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';

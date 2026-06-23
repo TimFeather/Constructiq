@@ -62,7 +62,7 @@ export default function Dashboard() {
 
   const { data: allTasks = [] } = useQuery({
     queryKey: ['tasks'],
-    queryFn: () => Task.list('-updated_date', 500),
+    queryFn: () => Task.list('-updated_at', 500),
     enabled: projectIds.size > 0 || userIsAdmin,
   });
 

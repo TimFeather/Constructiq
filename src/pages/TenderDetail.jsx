@@ -33,9 +33,10 @@ const TRADES = [
 const STATUS_STYLES = {
   Draft:        'bg-gray-100 text-gray-700',
   Issued:       'bg-blue-100 text-blue-700',
-  Closed:       'bg-amber-100 text-amber-700',
+  Submitted:    'bg-amber-100 text-amber-700',
   Awarded:      'bg-green-100 text-green-700',
   Unsuccessful: 'bg-red-100 text-red-700',
+  Archived:     'bg-purple-100 text-purple-700',
   Converted:    'bg-purple-100 text-purple-700',
   'On Hold':    'bg-orange-100 text-orange-700',
   Cancelled:    'bg-gray-100 text-gray-500 line-through',
@@ -78,9 +79,13 @@ export default function TenderDetail() {
       closing_date = parts[0];
       closing_time = parts[1]?.slice(0, 5) || '17:00';
     }
-    setForm({ ...tender, closing_date, closing_time });
+    // Normalise trade_packages — old data may be [{name, trade}] objects instead of strings
+    const trade_packages = (tender.trade_packages || []).map(t =>
+      typeof t === 'string' ? t : (t.name || t.trade || String(t))
+    );
+    setForm({ ...tender, closing_date, closing_time, trade_packages });
     setIsDirty(false);
-  }, [tender?.id, tender?.updated_date]);
+  }, [tender?.id, tender?.updated_at]);
 
   // Fetch admin+pricing users for Tender Lead selector
   const { data: allUsers = [] } = useQuery({
@@ -107,6 +112,16 @@ export default function TenderDetail() {
     })();
     setIsDirty(textChanged || valueChanged || tradeChanged || scoringChanged || contactsChanged || closingChanged);
   }, [form, tender]);
+
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (!isDirty) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isDirty]);
 
   const updateMutation = useMutation({
     mutationFn: (data) => invokeFunction('updateTender', { tenderId: id, data }),
@@ -197,7 +212,7 @@ export default function TenderDetail() {
 
   if (!canAccess(user, 'tenders')) return <Navigate to="/" replace />;
 
-  const isConverted = tender?.status === 'Converted';
+  const isConverted = tender?.status === 'Converted' || tender?.status === 'Archived' || !!tender?.converted_project_id;
   const effectiveCanManage = canManage && !isConverted;
 
   if (isLoading || !tender || !form) {
@@ -299,7 +314,7 @@ export default function TenderDetail() {
                 <Select value={form.status || 'Draft'} onValueChange={v => setForm(f => ({ ...f, status: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {['Draft', 'Issued', 'Closed', 'Awarded', 'Unsuccessful', 'Converted', 'On Hold', 'Cancelled'].map(s => (
+                    {['Draft', 'Issued', 'Submitted', 'Awarded', 'Unsuccessful', 'Archived', 'On Hold', 'Cancelled'].map(s => (
                       <SelectItem key={s} value={s}>{s}</SelectItem>
                     ))}
                   </SelectContent>

@@ -11,7 +11,6 @@ import { uploadFile } from '@/api/supabaseClient';
  *   8 – findDuplicates + per-file action (version / skip / replace)
  */
 
-import { base44 } from '@/api/base44Client';
 import { Folder } from '@/api/entities';
 
 export const ALLOWED_EXTS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'dwg', 'dxf', 'png', 'jpg', 'jpeg', 'zip'];

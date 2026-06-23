@@ -18,7 +18,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 import { Resend } from 'npm:resend@4.0.0';
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
@@ -91,7 +91,7 @@ Deno.serve(async (req: Request) => {
     const branding    = brandings[0] || {};
     const brandColour = branding.brand_colour || '#1a56db';
     const fromName    = branding.sender_name || branding.company_name || 'ConstructIQ';
-    const senderEmail = branding.sender_email || 'noreply@totalhomesolutions.co.nz';
+    const senderEmail = branding.sender_email || Deno.env.get('SENDER_EMAIL') || 'noreply@totalhomesolutions.co.nz';
     const fromEmail   = `${fromName} <${senderEmail}>`;
     const resend      = new Resend(RESEND_API_KEY);
     const tpl         = templates.find((t: any) => t.template_key === 'tender_invitation');

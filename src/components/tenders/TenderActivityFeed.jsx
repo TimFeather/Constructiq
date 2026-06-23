@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { TenderActivity } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -32,7 +31,7 @@ export default function TenderActivityFeed({ tenderId }) {
   const [note, setNote] = useState('');
   const [addingNote, setAddingNote] = useState(false);
 
-  const { data: activities = [], isLoading } = useQuery({
+  const { data: activities = [], isLoading, isError, error } = useQuery({
     queryKey: ['tenderActivity', tenderId],
     queryFn: () => TenderActivity.filter(
       { tender_id: tenderId },
@@ -41,6 +40,7 @@ export default function TenderActivityFeed({ tenderId }) {
     ),
     enabled: !!tenderId,
     refetchInterval: 30000,
+    retry: 1,
   });
 
   const addNoteMutation = useMutation({
@@ -64,6 +64,30 @@ export default function TenderActivityFeed({ tenderId }) {
     return (
       <div className="flex items-center justify-center py-12">
         <div className="w-6 h-6 border-4 border-muted border-t-primary rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="py-10 text-center space-y-2">
+        <Clock className="w-8 h-8 opacity-30 mx-auto" />
+        <p className="text-sm font-medium text-destructive">Activity feed unavailable</p>
+        <p className="text-xs text-muted-foreground max-w-sm mx-auto">{error?.message || 'Table not found'}</p>
+        <p className="text-xs text-muted-foreground">Run this in Supabase SQL editor to enable the activity feed:</p>
+        <pre className="text-left text-xs bg-muted p-3 rounded mx-auto max-w-lg overflow-x-auto whitespace-pre-wrap">{`CREATE TABLE IF NOT EXISTS tender_activity (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tender_id uuid NOT NULL REFERENCES tenders(id) ON DELETE CASCADE,
+  event_type text NOT NULL,
+  actor_name text,
+  actor_email text,
+  description text,
+  occurred_at timestamptz DEFAULT now(),
+  created_at timestamptz DEFAULT now()
+);
+ALTER TABLE tender_activity ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "ta_internal" ON tender_activity FOR ALL
+  USING ((SELECT role FROM users WHERE id = auth.uid()) IN ('admin','pricing','internal'));`}</pre>
       </div>
     );
   }
@@ -112,7 +136,7 @@ export default function TenderActivityFeed({ tenderId }) {
             {activities.map((event, idx) => {
               const config = EVENT_CONFIG[event.event_type] || EVENT_CONFIG.note_added;
               const Icon = config.icon;
-              const ts = event.occurred_at || event.created_date;
+              const ts = event.occurred_at || event.created_at;
 
               return (
                 <div key={event.id || idx} className="flex gap-3 pl-0">

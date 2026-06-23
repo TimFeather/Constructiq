@@ -41,6 +41,7 @@ export default function TenderTestSuite() {
   const [running, setRunning] = useState(false);
   const [createdIds, setCreatedIds] = useState([]);
 
+  if (import.meta.env.PROD) return <Navigate to="/" replace />;
   if (user && user.role !== 'admin') return <Navigate to="/" replace />;
 
   const addResult = (label, status, detail = '') =>

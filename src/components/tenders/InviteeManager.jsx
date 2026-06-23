@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Users, Plus, Trash2, Send, UserCheck, Search, RefreshCw, Archive, Link } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 
@@ -62,6 +62,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
 
   // Archive confirmation dialog
   const [archiveTarget, setArchiveTarget] = useState(null); // invitee record
+  const [deleteTarget, setDeleteTarget]   = useState(null); // invitee to confirm delete
 
   // Resend all loading
   const [resendingAll, setResendingAll] = useState(false);
@@ -572,7 +573,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-                        onClick={() => handleDeleteInvitee(inv)}
+                        onClick={() => setDeleteTarget(inv)}
                         disabled={isLoading}
                         title="Remove invitee"
                       >
@@ -615,6 +616,27 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
               {issuing ? 'Sending…' : tender.status === 'Issued' ? 'Send Invitations' : 'Issue Tender'}
             </Button>
           </div>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete invitee confirmation dialog */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove invitee?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Remove <strong>{deleteTarget?.full_name}</strong> from this tender? Their invitation will be revoked and cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => { handleDeleteInvitee(deleteTarget); setDeleteTarget(null); }}
+            >
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 

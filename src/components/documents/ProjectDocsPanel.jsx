@@ -1,4 +1,4 @@
-import { uploadFile } from '@/api/supabaseClient';
+import { uploadFile, sendEmail } from '@/api/supabaseClient';
 import React, { useState, useRef } from 'react';
 import { Document, DocumentFolderTemplate } from '@/api/entities';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
@@ -228,7 +228,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
           </a>
           <span className="text-xs text-muted-foreground hidden sm:block flex-shrink-0">{doc.uploaded_by_name}</span>
           <span className="text-xs text-muted-foreground hidden lg:block flex-shrink-0">
-            {doc.created_date || doc.created_at ? format(new Date(doc.created_date || doc.created_at), 'MMM d, yyyy') : '—'}
+            {doc.created_at ? format(new Date(doc.created_at), 'MMM d, yyyy') : '—'}
           </span>
           {isInternal ? (
             <Select

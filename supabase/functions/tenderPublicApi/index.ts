@@ -13,7 +13,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 import { Resend } from 'npm:resend@4.0.0';
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
@@ -326,7 +326,7 @@ Deno.serve(async (req: Request) => {
       const branding    = brandings[0] || {};
       const brandColour = branding.brand_colour || '#1a56db';
       const fromName    = branding.sender_name || branding.company_name || 'ConstructIQ';
-      const senderEmail = branding.sender_email || 'noreply@totalhomesolutions.co.nz';
+      const senderEmail = branding.sender_email || Deno.env.get('SENDER_EMAIL') || 'noreply@totalhomesolutions.co.nz';
       const fromEmail   = `${fromName} <${senderEmail}>`;
       const resend      = new Resend(Deno.env.get('RESEND_API_KEY'));
 
@@ -382,6 +382,34 @@ Deno.serve(async (req: Request) => {
       }
 
       return Response.json({ success: true }, { headers: corsHeaders });
+    }
+
+    // ── UPDATE INTENT ─────────────────────────────────────────────────────────
+    if (action === 'updateIntent') {
+      const { intent } = payload; // 'will_tender' | 'will_not_tender'
+      if (!intent || !['will_tender', 'will_not_tender'].includes(intent)) {
+        return Response.json({ error: 'intent must be will_tender or will_not_tender' }, { status: 400, headers: corsHeaders });
+      }
+
+      // Don't allow changing intent on a submitted invitation
+      if (invitation.status === 'Submitted') {
+        return Response.json({ error: 'Cannot change intent after submitting pricing.' }, { status: 400, headers: corsHeaders });
+      }
+
+      const newStatus = intent === 'will_not_tender' ? 'Declined' : 'Viewed';
+      await supabaseAdmin
+        .from('tender_invitations')
+        .update({ status: newStatus })
+        .eq('id', invitation.id);
+
+      if (invitation.invitee_id) {
+        await supabaseAdmin
+          .from('tender_invitees')
+          .update({ status: newStatus })
+          .eq('id', invitation.invitee_id);
+      }
+
+      return Response.json({ success: true, status: newStatus }, { headers: corsHeaders });
     }
 
     return Response.json({ error: 'Invalid action' }, { status: 400, headers: corsHeaders });

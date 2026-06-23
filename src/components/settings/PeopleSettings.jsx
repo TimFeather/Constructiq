@@ -323,7 +323,7 @@ function DeactivatedUsersTab() {
   const deactivatedUsers = users.filter(u => u.disabled === true);
 
   const reactivateMutation = useMutation({
-    mutationFn: (userId) => User.update(userId, { data: { disabled: false } }),
+    mutationFn: (userId) => User.update(userId, { disabled: false }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
       toast({ title: 'User reactivated', description: 'They can now log in. Project access must be granted manually.' });

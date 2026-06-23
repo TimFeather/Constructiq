@@ -7,6 +7,7 @@ import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { canAccess } from '@/lib/permissions';
+import ErrorBoundary from '@/components/shared/ErrorBoundary';
 
 import Login from '@/pages/Login';
 import Register from '@/pages/Register';
@@ -80,17 +81,17 @@ const AuthenticatedApp = () => {
 
       <Route element={<ProtectedRoute unauthenticatedElement={<Navigate to="/login" replace />} />}>
         <Route element={<AppLayout />}>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/projects" element={<Projects />} />
-          <Route path="/projects/:id" element={<ProjectDetail />} />
-          <Route path="/documents" element={<Documents />} />
-          <Route path="/rfis" element={<RFIs />} />
-          <Route path="/rfis/:id" element={<RFIDetail />} />
-          <Route path="/programme" element={<Programme />} />
-          <Route path="/tenders" element={<TendersRoute><Tenders /></TendersRoute>} />
-          <Route path="/tenders/:id" element={<TendersRoute><TenderDetail /></TendersRoute>} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="/tender-tests" element={<TenderTestSuite />} />
+          <Route path="/" element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
+          <Route path="/projects" element={<ErrorBoundary><Projects /></ErrorBoundary>} />
+          <Route path="/projects/:id" element={<ErrorBoundary><ProjectDetail /></ErrorBoundary>} />
+          <Route path="/documents" element={<ErrorBoundary><Documents /></ErrorBoundary>} />
+          <Route path="/rfis" element={<ErrorBoundary><RFIs /></ErrorBoundary>} />
+          <Route path="/rfis/:id" element={<ErrorBoundary><RFIDetail /></ErrorBoundary>} />
+          <Route path="/programme" element={<ErrorBoundary><Programme /></ErrorBoundary>} />
+          <Route path="/tenders" element={<TendersRoute><ErrorBoundary><Tenders /></ErrorBoundary></TendersRoute>} />
+          <Route path="/tenders/:id" element={<TendersRoute><ErrorBoundary><TenderDetail /></ErrorBoundary></TendersRoute>} />
+          <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
+          <Route path="/tender-tests" element={<TendersRoute><TenderTestSuite /></TendersRoute>} />
         </Route>
       </Route>
 
@@ -101,14 +102,16 @@ const AuthenticatedApp = () => {
 
 function App() {
   return (
-    <AuthProvider>
-      <QueryClientProvider client={queryClientInstance}>
-        <Router>
-          <AuthenticatedApp />
-        </Router>
-        <Toaster />
-      </QueryClientProvider>
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <QueryClientProvider client={queryClientInstance}>
+          <Router>
+            <AuthenticatedApp />
+          </Router>
+          <Toaster />
+        </QueryClientProvider>
+      </AuthProvider>
+    </ErrorBoundary>
   )
 }
 

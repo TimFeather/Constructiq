@@ -17,7 +17,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
@@ -90,13 +90,17 @@ Deno.serve(async (req: Request) => {
     let activated = 0;
     let skipped = 0;
 
+    // Batch load all projects in one query to avoid N+1
+    const projectIds = [...new Set(assignments.map((a: any) => a.project_id).filter(Boolean))];
+    const { data: batchProjectRows } = await supabaseAdmin
+      .from('projects')
+      .select('*')
+      .in('id', projectIds);
+    const projectMap = new Map((batchProjectRows ?? []).map((p: any) => [p.id, p]));
+
     for (const assignment of assignments) {
       try {
-        const { data: projectRows } = await supabaseAdmin
-          .from('projects')
-          .select('*')
-          .eq('id', assignment.project_id);
-        const project = (projectRows ?? [])[0];
+        const project = projectMap.get(assignment.project_id) ?? null;
 
         if (!project) {
           // Project no longer exists — cancel the assignment
@@ -199,31 +203,22 @@ Deno.serve(async (req: Request) => {
           profileUpdate.role = permissionRole;
         }
 
-        // Populate profile data — only fill missing fields, registration values win
-        const existingData: Record<string, any> = currentUser.data || {};
-        const dataUpdate: Record<string, any> = {};
-
-        if (!existingData.first_name && profileAssignment?.full_name) {
+        // Populate profile columns — only fill missing fields, registration values win.
+        // users table has first_name/last_name/phone/business_name as top-level columns.
+        if (!currentUser.first_name && profileAssignment?.full_name) {
           const parts = profileAssignment.full_name.trim().split(' ');
-          dataUpdate.first_name = parts[0] || '';
-          if (parts.length > 1) dataUpdate.last_name = parts.slice(1).join(' ');
+          profileUpdate.first_name = parts[0] || '';
+          if (parts.length > 1) profileUpdate.last_name = parts.slice(1).join(' ');
         }
-        if (!existingData.last_name && dataUpdate.last_name === undefined && profileAssignment?.full_name) {
+        if (!currentUser.last_name && !profileUpdate.last_name && profileAssignment?.full_name) {
           const parts = profileAssignment.full_name.trim().split(' ');
-          if (parts.length > 1) dataUpdate.last_name = parts.slice(1).join(' ');
+          if (parts.length > 1) profileUpdate.last_name = parts.slice(1).join(' ');
         }
-        if (!existingData.phone && profileAssignment?.phone) {
-          dataUpdate.phone = profileAssignment.phone;
+        if (!currentUser.phone && profileAssignment?.phone) {
+          profileUpdate.phone = profileAssignment.phone;
         }
-        if (!existingData.business_name && profileAssignment?.business_name) {
-          dataUpdate.business_name = profileAssignment.business_name;
-        }
-        if (!existingData.construction_role && projectRole) {
-          dataUpdate.construction_role = projectRole;
-        }
-
-        if (Object.keys(dataUpdate).length > 0) {
-          profileUpdate.data = { ...existingData, ...dataUpdate };
+        if (!currentUser.business_name && profileAssignment?.business_name) {
+          profileUpdate.business_name = profileAssignment.business_name;
         }
 
         if (Object.keys(profileUpdate).length > 0) {
@@ -242,7 +237,7 @@ Deno.serve(async (req: Request) => {
           .eq('id', pendingInvite.id);
 
         // Audit log — profile initialization
-        if (Object.keys(dataUpdate).length > 0 || shouldSetRole) {
+        if (Object.keys(profileUpdate).length > 0) {
           await supabaseAdmin.from('audit_logs').insert({
             action: 'User Profile Initialized From Invitation',
             entity_type: 'User',

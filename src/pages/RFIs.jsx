@@ -82,7 +82,7 @@ export default function RFIs() {
     if (!rfisByProject[r.project_id]) rfisByProject[r.project_id] = [];
     rfisByProject[r.project_id].push(r);
   });
-  Object.values(rfisByProject).forEach(list => list.sort((a, b) => new Date(a.created_date) - new Date(b.created_date)));
+  Object.values(rfisByProject).forEach(list => list.sort((a, b) => new Date(a.created_at) - new Date(b.created_at)));
   const projectRfiNumber = {};
   Object.values(rfisByProject).forEach(list => {
     list.forEach((r, i) => { projectRfiNumber[r.id] = i + 1; });

@@ -2,7 +2,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 import { Resend } from 'npm:resend@4.0.0';
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
@@ -73,7 +73,7 @@ async function sendInvitationEmail({ to, toName, projectName, inviterName, brand
 </td></tr></table></td></tr></table></body></html>`;
 
   return resend.emails.send({
-    from: `${fromName} <noreply@totalhomesolutions.co.nz>`,
+    from: `${fromName} <${Deno.env.get('SENDER_EMAIL') || 'noreply@totalhomesolutions.co.nz'}>`,
     to,
     subject: projectName ? `You've been invited to join "${projectName}" on ConstructIQ` : `You've been invited to join ConstructIQ`,
     html: htmlBody,
@@ -112,8 +112,11 @@ Deno.serve(async (req) => {
       const existingUser = (users ?? []).find((u: any) => normalizeEmail(u.email) === normalEmail);
       if (existingUser) return Response.json({ status: 'existing_user', user: existingUser }, { headers: corsHeaders });
 
-      const activeInvite = (invitedUsers ?? []).find((i: any) => ['Pending', 'Expired'].includes(i.status));
-      if (activeInvite) return Response.json({ status: 'pending', invitedUser: activeInvite }, { headers: corsHeaders });
+      const pendingInvite = (invitedUsers ?? []).find((i: any) => i.status === 'Pending');
+      if (pendingInvite) return Response.json({ status: 'pending', invitedUser: pendingInvite }, { headers: corsHeaders });
+
+      const expiredInvite = (invitedUsers ?? []).find((i: any) => i.status === 'Expired');
+      if (expiredInvite) return Response.json({ status: 'expired', invitedUser: expiredInvite }, { headers: corsHeaders });
 
       return Response.json({ status: 'new' }, { headers: corsHeaders });
     }
@@ -193,7 +196,19 @@ Deno.serve(async (req) => {
       }
 
       if (isNewInvite) {
-        sendInvitationEmail({ to: normalEmail, toName: fullName, projectName, inviterName: user.full_name || user.email, branding }).catch((e: any) => console.error('[invitationService] Email failed:', e.message));
+        sendInvitationEmail({ to: normalEmail, toName: fullName, projectName, inviterName: user.full_name || user.email, branding }).catch((e: any) => {
+          console.error('[invitationService] Email failed:', e.message);
+          supabaseAdmin.from('audit_logs').insert({
+            action: 'Email Failed',
+            entity_type: 'InvitedUser',
+            entity_id: invitedUser?.id,
+            project_id: projectId,
+            user_id: user.id,
+            user_name: user.full_name || user.email,
+            description: `Invitation email to ${normalEmail} failed: ${e.message}`,
+            created_at: new Date().toISOString(),
+          }).then(() => {});
+        });
       }
 
       supabaseAdmin.from('audit_logs').insert({
@@ -292,10 +307,11 @@ Deno.serve(async (req) => {
       if (!targetEmail) return Response.json({ error: 'targetEmail required' }, { status: 400, headers: corsHeaders });
       const normalEmail = normalizeEmail(targetEmail);
 
-      const { data: allProjects } = await supabaseAdmin.from('projects').select('*');
-      const affected = (allProjects ?? []).filter((p: any) =>
-        Array.isArray(p.team) && p.team.some((m: any) => normalizeEmail(m.user_email) === normalEmail)
-      );
+      // Filter in DB using JSONB containment — avoids loading all projects into memory
+      const { data: affected } = await supabaseAdmin
+        .from('projects')
+        .select('id, team')
+        .filter('team', 'cs', JSON.stringify([{ user_email: normalEmail }]));
 
       await Promise.all(affected.map(async (project: any) => {
         const updatedTeam = project.team.filter((m: any) => normalizeEmail(m.user_email) !== normalEmail);
@@ -317,7 +333,7 @@ Deno.serve(async (req) => {
       const branding    = (brandingsData ?? [])[0] || {};
       const brandColour = branding.brand_colour || '#1a56db';
       const fromName    = branding.sender_name   || branding.company_name || 'ConstructIQ';
-      const senderEmail = branding.sender_email  || 'noreply@totalhomesolutions.co.nz';
+      const senderEmail = branding.sender_email || Deno.env.get('SENDER_EMAIL') || 'noreply@totalhomesolutions.co.nz';
       const fromEmail   = `${fromName} <${senderEmail}>`;
       const resend      = new Resend(Deno.env.get('RESEND_API_KEY'));
 
@@ -376,6 +392,18 @@ Deno.serve(async (req) => {
               last_invited_at:  new Date().toISOString(),
               resend_count: 0,
             }, { onConflict: 'email' });
+
+            // Send invitation email so new users know they've been added
+            await sendInvitationEmail({
+              to: email,
+              toName: member.name || email,
+              projectName,
+              inviterName: null,
+              branding,
+            }).catch((_e: any) => {
+              console.warn(`[bulkInviteProjectTeam] Email failed for ${email}:`, _e?.message);
+            });
+
             results.push({ email, status: 'invited', isNewUser: true });
           } catch (_e) {
             results.push({ email, status: 'invite_failed', isNewUser: true });
@@ -396,7 +424,7 @@ Deno.serve(async (req) => {
       const branding    = (brandingsData ?? [])[0] || {};
       const brandColour = branding.brand_colour || '#1a56db';
       const fromName    = branding.sender_name   || branding.company_name || 'ConstructIQ';
-      const senderEmail = branding.sender_email  || 'noreply@totalhomesolutions.co.nz';
+      const senderEmail = branding.sender_email || Deno.env.get('SENDER_EMAIL') || 'noreply@totalhomesolutions.co.nz';
       const fromEmail   = `${fromName} <${senderEmail}>`;
       const resend      = new Resend(Deno.env.get('RESEND_API_KEY'));
 
@@ -426,7 +454,9 @@ Deno.serve(async (req) => {
 </table></body></html>`,
           });
           sent++;
-        } catch (_e) { /* non-blocking */ }
+        } catch (_e: any) {
+          console.warn(`[invitationService] notifyCI email failed for ${r.email}:`, _e?.message);
+        }
       }
       return Response.json({ success: true, sent }, { headers: corsHeaders });
     }

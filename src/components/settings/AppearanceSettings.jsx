@@ -1,7 +1,6 @@
 import { supabase, uploadFile } from '@/api/supabaseClient';
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,7 +15,10 @@ export default function AppearanceSettings({ user }) {
   const [uploading, setUploading] = useState(false);
 
   const saveMutation = useMutation({
-    mutationFn: (data) => supabase.from('users').update(data).eq('id', (await supabase.auth.getUser()).data.user.id),
+    mutationFn: async (data) => {
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      return supabase.from('users').update(data).eq('id', authUser.id);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['auth'] });
     }
@@ -26,9 +28,14 @@ export default function AppearanceSettings({ user }) {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
-    const { file_url } = await uploadFile(file);
-    setLogoUrl(file_url);
-    setUploading(false);
+    try {
+      const { file_url } = await uploadFile(file);
+      setLogoUrl(file_url);
+    } catch (err) {
+      console.error('Logo upload failed:', err);
+    } finally {
+      setUploading(false);
+    }
   };
 
   return (

@@ -30,6 +30,7 @@ export default function TenderSubmit() {
   const [uploading, setUploading]       = useState(false);
   const [editingSubmission, setEditingSubmission] = useState(false);
   const [activeTab, setActiveTab]       = useState('overview');
+  const [intentLoading, setIntentLoading] = useState(false);
 
   const [form, setForm] = useState({
     lump_sum_price: '',
@@ -44,7 +45,7 @@ export default function TenderSubmit() {
       .then(res => {
         setTender(res.data.tender);
         setInvitee(res.data.invitee);
-        if (res.data.invitee.submission?.submitted_at) {
+        if (res.data.invitee?.submission?.submitted_at) {
           setSubmitted(true);
           const s = res.data.invitee.submission;
           setForm({
@@ -59,12 +60,29 @@ export default function TenderSubmit() {
       .finally(() => setLoading(false));
   }, [token]);
 
+  const handleUpdateIntent = async (intent) => {
+    setIntentLoading(true);
+    try {
+      await invokeFunction('tenderPublicApi', { action: 'updateIntent', token, intent });
+      setInvitee(prev => prev ? { ...prev, status: intent === 'will_not_tender' ? 'Declined' : 'Viewed' } : prev);
+    } catch (e) {
+      console.error('Failed to update intent:', e.message);
+    } finally {
+      setIntentLoading(false);
+    }
+  };
+
   const isOverdue = tender?.closing_date &&
     isPast(parseISO(`${tender.closing_date.split('T')[0]}T23:59:59+12:00`));
 
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (file.size > 500 * 1024 * 1024) {
+      setSubmitError('File must be under 500 MB. Please compress or split the file.');
+      e.target.value = '';
+      return;
+    }
     setUploading(true);
     try {
       const base64 = await new Promise((resolve, reject) => {
@@ -244,14 +262,28 @@ export default function TenderSubmit() {
                         ? 'You have indicated you will not tender on this project.'
                         : 'You have been invited to tender on this project.'}
                     </p>
-                    <p className="text-blue-700 mt-0.5">You can change your response at any time before the tender deadline.</p>
+                    {!isOverdue && invitee?.status !== 'Submitted' && (
+                      <p className="text-blue-700 mt-0.5">You can change your response at any time before the tender deadline.</p>
+                    )}
                   </div>
-                  {!isOverdue && (
+                  {!isOverdue && invitee?.status !== 'Submitted' && (
                     <div className="flex gap-2 flex-shrink-0">
                       {invitee?.status !== 'Declined' ? (
-                        <span className="text-xs bg-blue-600 text-white px-2 py-1 rounded">Will tender</span>
+                        <button
+                          onClick={() => handleUpdateIntent('will_not_tender')}
+                          disabled={intentLoading}
+                          className="text-xs border border-gray-300 bg-white text-gray-700 px-2 py-1 rounded hover:bg-gray-50 disabled:opacity-50"
+                        >
+                          Will not tender
+                        </button>
                       ) : (
-                        <span className="text-xs bg-gray-200 text-gray-700 px-2 py-1 rounded">Will not tender</span>
+                        <button
+                          onClick={() => handleUpdateIntent('will_tender')}
+                          disabled={intentLoading}
+                          className="text-xs border border-blue-300 bg-white text-blue-700 px-2 py-1 rounded hover:bg-blue-50 disabled:opacity-50"
+                        >
+                          Will tender
+                        </button>
                       )}
                     </div>
                   )}

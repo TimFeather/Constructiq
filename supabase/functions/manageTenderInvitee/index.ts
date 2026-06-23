@@ -11,7 +11,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
@@ -130,7 +130,7 @@ Deno.serve(async (req: Request) => {
 
       // Create TenderInvitee
       trace('BEFORE_CREATE');
-      const { data: invitee } = await supabaseAdmin
+      const { data: invitee, error: createError } = await supabaseAdmin
         .from('tender_invitees')
         .insert({
           tender_id:     tenderId,
@@ -144,6 +144,7 @@ Deno.serve(async (req: Request) => {
         })
         .select()
         .single();
+      if (createError) return fail(`Insert failed: ${createError.message}`, 500);
       trace(`AFTER_CREATE id=${invitee?.id}`);
 
       // ── Verify-after-write ────────────────────────────────────────────────────

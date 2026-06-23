@@ -2,7 +2,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 import { Resend } from 'npm:resend@4.0.0';
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
@@ -17,6 +17,11 @@ Deno.serve(async (req) => {
     const jwt = req.headers.get('Authorization')?.replace('Bearer ', '') ?? '';
     const { data: { user: authUser } } = await supabaseAdmin.auth.getUser(jwt);
     if (!authUser) return Response.json({ error: 'Unauthorized' }, { status: 401, headers: corsHeaders });
+
+    const { data: senderProfile } = await supabaseAdmin.from('users').select('role').eq('id', authUser.id).single();
+    if (!['admin', 'pricing', 'internal'].includes(senderProfile?.role)) {
+      return Response.json({ error: 'Forbidden' }, { status: 403, headers: corsHeaders });
+    }
 
     const { to, toName, subject, htmlBody } = await req.json();
     if (!to || !subject || !htmlBody) {

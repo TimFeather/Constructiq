@@ -2,7 +2,6 @@ import { invokeFunction } from '@/api/supabaseClient';
 import React, { useState, useCallback } from 'react';
 import { EmailBranding, EmailTemplate, Project, ProjectRole, User } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

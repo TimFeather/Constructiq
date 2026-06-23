@@ -1,7 +1,6 @@
 import React from 'react';
 import { TenderSubmission } from '@/api/entities';
 import { useQuery } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { Card, CardContent } from '@/components/ui/card';
 import { Building2, Mail, Phone, HardHat } from 'lucide-react';
 

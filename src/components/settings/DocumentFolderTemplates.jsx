@@ -222,7 +222,7 @@ export default function DocumentFolderTemplates() {
                 {editingId === template.id ? (
                   <div className="space-y-1">
                     {/* Column headers */}
-                    <div className="grid grid-cols-[1fr_auto_auto_auto_28px_28px_28px] gap-x-2 items-center px-1 pb-1 border-b">
+                    <div className="grid grid-cols-[1fr_auto_auto_auto_auto_28px_28px_28px] gap-x-2 items-center px-1 pb-1 border-b">
                       <span className="text-xs font-medium text-muted-foreground">Folder</span>
                       {ALL_ROLES.map(r => (
                         <span key={r} className="text-[10px] font-medium text-muted-foreground text-center w-14">{ROLE_LABELS[r]}</span>
@@ -233,7 +233,7 @@ export default function DocumentFolderTemplates() {
                     </div>
 
                     {editFolders.map((folder, idx) => (
-                      <div key={idx} className="grid grid-cols-[1fr_auto_auto_auto_28px_28px_28px] gap-x-2 items-center py-1 hover:bg-muted/20 rounded px-1">
+                      <div key={idx} className="grid grid-cols-[1fr_auto_auto_auto_auto_28px_28px_28px] gap-x-2 items-center py-1 hover:bg-muted/20 rounded px-1">
                         <span className="text-sm truncate">{folder}</span>
                         {ALL_ROLES.map(role => (
                           <div key={role} className="flex justify-center w-14">

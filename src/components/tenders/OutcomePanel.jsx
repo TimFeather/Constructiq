@@ -12,7 +12,6 @@ import { invokeFunction } from '@/api/supabaseClient';
 import React, { useState, useEffect } from 'react';
 import { Project, TenderSubmission } from '@/api/entities';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -30,7 +29,7 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
   const { toast }   = useToast();
   const queryClient = useQueryClient();
 
-  const isLocked = tender.status === 'Converted' || !!tender.converted_project_id;
+  const isLocked = tender.status === 'Converted' || tender.status === 'Archived' || !!tender.converted_project_id;
 
   const [ourResult, setOurResult] = useState(tender.our_result || '');
   const [ourNotes, setOurNotes]   = useState(tender.our_result_notes || '');
@@ -350,7 +349,7 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
 
   // ── ACTIVE MODE ───────────────────────────────────────────────────────────
   const hasOutcomeData    = submissions.some(s => s.outcome);
-  const hasUnnotified     = submissions.some(s => s.outcome && !s.outcome_notification_status || s.outcome_notification_status === 'Failed' || (!s.outcome_notified_at && s.outcome));
+  const hasUnnotified     = submissions.some(s => (s.outcome && !s.outcome_notification_status) || s.outcome_notification_status === 'Failed' || (!s.outcome_notified_at && s.outcome));
   const allAssigned       = submissions.length > 0 && submissions.every(s => subOutcomes[s.id]);
 
   return (

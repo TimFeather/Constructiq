@@ -76,7 +76,7 @@ export const parseXML = (text, projectId) => {
       project_id: projectId,
       predecessors: [],
       _predecessorLinks: predLinks,
-      constraint: {
+      constraint_data: {
         type: constraintTypeMap[constraintType] || 'ASAP',
         date: constraintDate ? constraintDate.split('T')[0] : null,
       },
