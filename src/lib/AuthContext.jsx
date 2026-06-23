@@ -11,6 +11,7 @@ export const AuthProvider = ({ children }) => {
   const [authError, setAuthError] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [isSettingUpWorkspace, setIsSettingUpWorkspace] = useState(false);
+  const workspaceSetupDoneRef = React.useRef(false);
 
   useEffect(() => {
     // Check current session on mount
@@ -32,6 +33,7 @@ export const AuthProvider = ({ children }) => {
         setIsAuthenticated(false);
         setIsLoadingAuth(false);
         setAuthChecked(true);
+        workspaceSetupDoneRef.current = false;
       }
     });
 
@@ -78,8 +80,11 @@ export const AuthProvider = ({ children }) => {
       setIsAuthenticated(true);
       setAuthError(null);
 
-      // Only run workspace setup on actual sign-in, not token refreshes
-      if (!runWorkspaceSetup) return;
+      // Only run workspace setup on actual sign-in, not token refreshes or tab focus
+      // Guard with ref to prevent duplicate runs even if multiple auth events fire
+      if (!runWorkspaceSetup || workspaceSetupDoneRef.current) return;
+
+      workspaceSetupDoneRef.current = true;
 
       // Activate any pending project assignments on login
       try {
@@ -121,6 +126,7 @@ export const AuthProvider = ({ children }) => {
     await supabase.auth.signOut();
     setUser(null);
     setIsAuthenticated(false);
+    workspaceSetupDoneRef.current = false;
   };
 
   // Kept for compatibility with any component that calls navigateToLogin
