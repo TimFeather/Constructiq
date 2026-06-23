@@ -1,6 +1,7 @@
+import { invokeFunction } from '@/api/supabaseClient';
 import React, { useState } from 'react';
+import { InvitedUser, User } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent } from '@/components/ui/card';
@@ -75,7 +76,7 @@ function ActiveUsersTab() {
   const { data: users = [], isLoading } = useQuery({
     queryKey: ['users'],
     queryFn: async () => {
-      const res = await base44.functions.invoke('getPeopleDirectory', {});
+      const res = await invokeFunction('getPeopleDirectory', {});
       return res.data?.users || [];
     },
     enabled: isAdmin(user),
@@ -84,7 +85,7 @@ function ActiveUsersTab() {
   const activeUsers = users.filter(u => u.disabled !== true);
 
   const updateRoleMutation = useMutation({
-    mutationFn: ({ userId, role }) => base44.entities.User.update(userId, { role }),
+    mutationFn: ({ userId, role }) => User.update(userId, { role }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
       setEditingUser(null);
@@ -95,9 +96,9 @@ function ActiveUsersTab() {
   const deactivateMutation = useMutation({
     mutationFn: async (u) => {
       // 1. Mark user disabled
-      await base44.entities.User.update(u.id, { data: { disabled: true } });
+      await User.update(u.id, { disabled: true });
       // 2. Remove from all active project teams
-      await base44.functions.invoke('invitationService', {
+      await invokeFunction('invitationService', {
         action: 'removeFromProjectTeams',
         targetEmail: u.email,
       });
@@ -225,18 +226,18 @@ function PendingInvitationsTab() {
 
   const { data: invitedUsers = [], isLoading } = useQuery({
     queryKey: ['invitedUsers'],
-    queryFn: () => base44.entities.InvitedUser.list('-created_date', 200),
+    queryFn: () => InvitedUser.list('-created_at', 200),
     enabled: isAdmin(user),
   });
 
   const resendMutation = useMutation({
-    mutationFn: (id) => base44.functions.invoke('invitationService', { action: 'resend', invitedUserId: id }),
+    mutationFn: (id) => invokeFunction('invitationService', { action: 'resend', invitedUserId: id }),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['invitedUsers'] }); toast({ title: 'Invitation resent' }); },
     onError: (e) => toast({ title: 'Failed to resend', description: e.message, variant: 'destructive' }),
   });
 
   const cancelMutation = useMutation({
-    mutationFn: (id) => base44.functions.invoke('invitationService', { action: 'cancel', invitedUserId: id }),
+    mutationFn: (id) => invokeFunction('invitationService', { action: 'cancel', invitedUserId: id }),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['invitedUsers'] }); toast({ title: 'Invitation cancelled' }); },
     onError: (e) => toast({ title: 'Failed to cancel', description: e.message, variant: 'destructive' }),
   });
@@ -313,7 +314,7 @@ function DeactivatedUsersTab() {
   const { data: users = [], isLoading } = useQuery({
     queryKey: ['users'],
     queryFn: async () => {
-      const res = await base44.functions.invoke('getPeopleDirectory', {});
+      const res = await invokeFunction('getPeopleDirectory', {});
       return res.data?.users || [];
     },
     enabled: isAdmin(user),
@@ -322,7 +323,7 @@ function DeactivatedUsersTab() {
   const deactivatedUsers = users.filter(u => u.disabled === true);
 
   const reactivateMutation = useMutation({
-    mutationFn: (userId) => base44.entities.User.update(userId, { data: { disabled: false } }),
+    mutationFn: (userId) => User.update(userId, { disabled: false }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
       toast({ title: 'User reactivated', description: 'They can now log in. Project access must be granted manually.' });

@@ -1,7 +1,8 @@
+import { invokeFunction } from '@/api/supabaseClient';
 import React, { useState, useEffect } from 'react';
+import { EmailBranding, EmailTemplate, RFI, User } from '@/api/entities';
 import { useAuth } from '@/lib/AuthContext';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { resolveTemplate, applyTemplate, buildEmailHtml } from '@/lib/emailTemplates';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -31,17 +32,17 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
 
   const { data: emailTemplates = [] } = useQuery({
     queryKey: ['emailTemplates'],
-    queryFn: () => base44.entities.EmailTemplate.list(),
+    queryFn: () => EmailTemplate.list(),
   });
 
   const { data: emailBranding = {} } = useQuery({
     queryKey: ['emailBranding'],
-    queryFn: () => base44.entities.EmailBranding.list().then(r => r[0] ?? {}),
+    queryFn: () => EmailBranding.list().then(r => r[0] ?? {}),
   });
 
   const { data: allUsersRaw = [] } = useQuery({
     queryKey: ['users'],
-    queryFn: () => base44.entities.User.list(),
+    queryFn: () => User.list(),
   });
   const activeUserEmails = new Set(filterActiveUsers(allUsersRaw).map(u => u.email?.toLowerCase()));
 
@@ -71,12 +72,12 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
 
   const createMutation = useMutation({
     mutationFn: async (data) => {
-      const projectRfis = await base44.entities.RFI.filter({ project_id: data.project_id }, '-created_date', 500);
+      const projectRfis = await RFI.filter({ project_id: data.project_id }, '-created_at', 500);
       const maxNumber = projectRfis.reduce((max, r) => Math.max(max, r.number || 0), 0);
       const nextNumber = maxNumber + 1;
       // keep legacy single-assignee fields populated with first assignee for backwards compat
       const firstAssignee = selectedEmails[0];
-      const rfi = await base44.entities.RFI.create({
+      const rfi = await RFI.create({
       ...data,
       number: nextNumber,
       status: 'Open',
@@ -104,7 +105,7 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
           url: rfiUrl,
         });
         const htmlBody = buildEmailHtml(body, emailBranding);
-        base44.functions.invoke('sendEmail', { to: assignee.email, toName: assignee.name || '', subject, htmlBody }).catch(() => {});
+        invokeFunction('sendEmail', { to: assignee.email, toName: assignee.name || '', subject, htmlBody }).catch(() => {});
       });
       return rfi;
     },

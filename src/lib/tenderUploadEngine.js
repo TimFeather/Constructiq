@@ -1,3 +1,4 @@
+import { uploadFile } from '@/api/supabaseClient';
 /**
  * Tender Document Package Upload Engine
  *
@@ -10,7 +11,7 @@
  *   8 – findDuplicates + per-file action (version / skip / replace)
  */
 
-import { base44 } from '@/api/base44Client';
+import { Folder } from '@/api/entities';
 
 export const ALLOWED_EXTS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'dwg', 'dxf', 'png', 'jpg', 'jpeg', 'zip'];
 const CONCURRENT_UPLOADS = 5;
@@ -109,7 +110,7 @@ export function findDuplicates(files, existingDocs) {
 // ---------------------------------------------------------------------------
 export async function createFolders(folders, tenderId, onProgress) {
   // Fetch existing folders to avoid duplicates
-  const existingFolders = await base44.entities.Folder.filter({ tender_id: tenderId });
+  const existingFolders = await Folder.filter({ tender_id: tenderId });
   const folderMap = {};
   for (const f of existingFolders) {
     folderMap[f.full_path] = f.id;
@@ -124,7 +125,7 @@ export async function createFolders(folders, tenderId, onProgress) {
     const parentPath = parts.length > 1 ? parts.slice(0, -1).join('/') : null;
     const parent_folder_id = parentPath ? (folderMap[parentPath] || null) : null;
 
-    const newFolder = await base44.entities.Folder.create({
+    const newFolder = await Folder.create({
       name,
       full_path: fullPath,
       tender_id: tenderId,
@@ -150,7 +151,7 @@ async function uploadWithRetry(file, maxRetries = 3) {
   let lastErr;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      const { file_url } = await base44.integrations.Core.UploadFile({ file });
+      const { file_url } = await uploadFile(file);
       return file_url;
     } catch (err) {
       lastErr = err;

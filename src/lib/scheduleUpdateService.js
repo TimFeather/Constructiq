@@ -2,7 +2,7 @@
  * ScheduleUpdateService — Single Source of Truth for all schedule mutations.
  *
  * ALL task edits that affect scheduling MUST go through this service.
- * No component may call base44.entities.Task.update() directly for
+ * No component may call Task.update() directly for
  * date/duration/dependency/constraint changes.
  *
  * Pipeline for every mutation:
@@ -14,6 +14,7 @@
  */
 
 import { runScheduleEngine, computeCascade } from './scheduling/scheduleEngine.js';
+import { Task } from '@/api/entities';
 import { wouldCreateCycle } from './scheduling/scheduleEngine.js';
 
 /**
@@ -23,7 +24,7 @@ import { wouldCreateCycle } from './scheduling/scheduleEngine.js';
  * @param {string}   taskId     - The task being directly edited
  * @param {Object}   changes    - Fields being changed on that task
  * @param {Array}    allTasks   - Full current task list from the database
- * @param {Function} updateFn   - async (id, data) => void  [base44.entities.Task.update]
+ * @param {Function} updateFn   - async (id, data) => void  [Task.update]
  * @param {string}   [projectStart] - Project anchor date
  * @returns {Promise<{ patches: Array, scheduledMap: Map }>}
  */

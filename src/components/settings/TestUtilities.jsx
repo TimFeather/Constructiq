@@ -1,5 +1,5 @@
+import { invokeFunction } from '@/api/supabaseClient';
 import React, { useState } from 'react';
-import { base44 } from '@/api/base44Client';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -35,7 +35,7 @@ function SummaryPanel() {
   const load = async () => {
     setLoading(true);
     try {
-      const res = await base44.functions.invoke('testReset', { action: 'environment_summary' });
+      const res = await invokeFunction('testReset', { action: 'environment_summary' });
       if (res.data?.disabled) {
         toast({ title: 'Utilities disabled', description: res.data.message });
       } else {
@@ -101,7 +101,7 @@ export default function TestUtilities() {
     setRunning(action);
     setLastResult(null);
     try {
-      const res = await base44.functions.invoke('testReset', { action });
+      const res = await invokeFunction('testReset', { action });
       const data = res.data;
       if (data?.disabled) {
         setLastResult({ ok: false, message: data.message });

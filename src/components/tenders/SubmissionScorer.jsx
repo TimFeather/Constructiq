@@ -6,15 +6,14 @@
  * Scoring criteria are still stored on the Tender record.
  */
 import React, { useState, useEffect, useMemo } from 'react';
+import { TenderSubmission } from '@/api/entities';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ChevronDown, ChevronUp, Download, Plus, Trash2, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
 function calcWeightedScore(submission, criteria) {
   if (!submission?.scores?.length) return null;
@@ -198,7 +197,7 @@ export default function SubmissionScorer({ tender, onUpdate, canManage }) {
 
   const { data: submissions = [] } = useQuery({
     queryKey: ['tenderSubmissions', tender.id],
-    queryFn:  () => base44.entities.TenderSubmission.filter({ tender_id: tender.id }),
+    queryFn:  () => TenderSubmission.filter({ tender_id: tender.id }),
     enabled:  !!tender.id,
     // Poll every 30s while tender is Issued so incoming submissions appear without manual refresh
     refetchInterval: tender.status === 'Issued' ? 30000 : false,
@@ -216,7 +215,7 @@ export default function SubmissionScorer({ tender, onUpdate, canManage }) {
 
   const saveScores = async (submissionId, scoresArr) => {
     setSavingScores(submissionId);
-    await base44.entities.TenderSubmission.update(submissionId, { scores: scoresArr });
+    await TenderSubmission.update(submissionId, { scores: scoresArr });
     queryClient.invalidateQueries({ queryKey: ['tenderSubmissions', tender.id] });
     setSavingScores(null);
   };
@@ -245,15 +244,6 @@ export default function SubmissionScorer({ tender, onUpdate, canManage }) {
     }
     return groups;
   }, [filteredSubmissions]);
-
-  const chartData = [...submissions]
-    .filter(s => !!s.lump_sum_price)
-    .sort((a, b) => a.lump_sum_price - b.lump_sum_price)
-    .map(s => ({
-      name:  s.invitee_name || 'Unknown',
-      price: s.lump_sum_price,
-      score: calcWeightedScore(s, criteria) || 0,
-    }));
 
   return (
     <div className="space-y-6">
@@ -399,25 +389,6 @@ export default function SubmissionScorer({ tender, onUpdate, canManage }) {
         </div>
       )}
 
-      {/* Price comparison chart */}
-      {chartData.length >= 2 && (
-        <Card>
-          <CardHeader><CardTitle className="text-sm">Price Comparison</CardTitle></CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={chartData} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
-                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
-                <Tooltip formatter={(v) => `NZD ${Number(v).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}`} />
-                <Bar dataKey="price" name="Price" radius={[3, 3, 0, 0]}>
-                  {chartData.map((_, i) => <Cell key={i} fill={i === 0 ? '#10b981' : '#3b82f6'} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-            <p className="text-xs text-muted-foreground mt-2 text-center">Lowest to highest — green = lowest price</p>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

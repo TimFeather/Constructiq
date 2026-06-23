@@ -1,6 +1,6 @@
+import { supabase } from '@/api/supabaseClient';
 import React from 'react';
 import { ShieldOff } from 'lucide-react';
-import { base44 } from '@/api/base44Client';
 
 export default function AccountDeactivated() {
   return (
@@ -14,7 +14,7 @@ export default function AccountDeactivated() {
           Your ConstructIQ account has been deactivated. Please contact your administrator.
         </p>
         <button
-          onClick={() => base44.auth.logout('/login')}
+          onClick={() => supabase.auth.signOut()}
           className="text-sm text-primary hover:underline"
         >
           Sign out

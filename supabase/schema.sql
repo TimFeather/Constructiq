@@ -3,17 +3,10 @@
 -- Run this entire file in the Supabase SQL Editor
 -- ============================================================
 
--- ── Helper: app role check ────────────────────────────────
--- Reads the role from public.users for the authenticated user.
--- Used by all RLS policies.
+-- ── Helper stub (replaced after users table exists) ─────
 create or replace function public.get_my_role()
-returns text
-language sql
-stable
-security definer
-as $$
-  select role from public.users where id = auth.uid()
-$$;
+returns text language sql stable security definer
+as $$ select 'external'::text $$;
 
 -- ── 1. users ─────────────────────────────────────────────
 create table public.users (
@@ -55,6 +48,17 @@ $$;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
+
+-- ── Helper: app role check ────────────────────────────────
+-- Must be created after public.users exists
+create or replace function public.get_my_role()
+returns text
+language sql
+stable
+security definer
+as $$
+  select role from public.users where id = auth.uid()
+$$;
 
 -- ── 2. projects ──────────────────────────────────────────
 create table public.projects (
@@ -320,9 +324,9 @@ create table public.tender_invitations (
   updated_at           timestamptz default now()
 );
 alter table public.tender_invitations enable row level security;
--- Public read by token (for tender submission page — no auth required)
-create policy "tender_invitations_public_read" on public.tender_invitations
-  for select using (true);
+-- Internal read only — tenderPublicApi uses SERVICE_ROLE_KEY and bypasses RLS
+create policy "tender_invitations_internal_read" on public.tender_invitations
+  for select using (get_my_role() in ('admin', 'pricing', 'internal'));
 -- Writes only via service role (Edge Functions)
 
 -- ── 10. tender_submissions ───────────────────────────────
@@ -363,9 +367,8 @@ create policy "tender_submissions_update" on public.tender_submissions for updat
 create policy "tender_submissions_delete" on public.tender_submissions for delete using (
   get_my_role() in ('admin','pricing')
 );
--- Public insert (subcontractors submit without auth)
-create policy "tender_submissions_public_insert" on public.tender_submissions
-  for insert with check (true);
+-- All submission inserts go through tenderPublicApi edge function (service role)
+-- No direct REST insert allowed
 
 -- ── 11. tender_activities ────────────────────────────────
 create table public.tender_activities (
@@ -587,18 +590,103 @@ create policy "email_templates_write" on public.email_templates for all using (
 
 -- ── 21. document_folder_templates ────────────────────────
 create table public.document_folder_templates (
-  id               uuid primary key default gen_random_uuid(),
-  name             text not null,
-  is_default       boolean default false,
-  folder_structure jsonb default '[]',
-  created_by_id    uuid references public.users(id),
-  created_at       timestamptz default now(),
-  updated_at       timestamptz default now()
+  id                 uuid primary key default gen_random_uuid(),
+  name               text not null,
+  is_default         boolean default false,
+  folder_structure   jsonb default '[]',
+  folder_permissions jsonb default '{}',
+  created_by_id      uuid references public.users(id),
+  created_at         timestamptz default now(),
+  updated_at         timestamptz default now()
 );
 alter table public.document_folder_templates enable row level security;
 create policy "doc_folder_templates_all" on public.document_folder_templates for all using (
   get_my_role() = 'admin'
 );
+create policy "doc_folder_templates_select" on public.document_folder_templates for select using (
+  get_my_role() in ('admin', 'pricing', 'internal', 'external')
+);
+
+-- ── 22. tender_notices ────────────────────────────────────
+create table public.tender_notices (
+  id                      uuid primary key default gen_random_uuid(),
+  tender_id               uuid not null references public.tenders(id) on delete cascade,
+  notice_number           text not null,
+  title                   text not null,
+  description             text,
+  notice_type             text not null check (notice_type in ('Clarification','Additional Information','Revised Documents','Scope Change','Closing Date Extension')),
+  status                  text not null default 'Draft' check (status in ('Draft','Issued','Archived')),
+  issue_date              timestamptz,
+  issued_by               text,
+  changes_close_date      boolean default false,
+  old_close_date          text,
+  proposed_new_close_date text,
+  created_at              timestamptz default now(),
+  updated_at              timestamptz default now()
+);
+alter table public.tender_notices enable row level security;
+create policy "tender_notices_internal_crud" on public.tender_notices
+  for all using (get_my_role() in ('admin', 'pricing'));
+create policy "tender_notices_public_read" on public.tender_notices
+  for select using (status = 'Issued');
+
+-- ── 23. tender_notice_attachments ────────────────────────
+create table public.tender_notice_attachments (
+  id                       uuid primary key default gen_random_uuid(),
+  notice_id                uuid not null references public.tender_notices(id) on delete cascade,
+  document_id              uuid,
+  file_url                 text,
+  file_name                text,
+  superseded_document_id   uuid,
+  replacement_document_id  uuid,
+  created_at               timestamptz default now()
+);
+alter table public.tender_notice_attachments enable row level security;
+create policy "tender_notice_attachments_all" on public.tender_notice_attachments
+  for all using (
+    get_my_role() in ('admin', 'pricing') or exists (
+      select 1 from public.tender_notices tn
+      where tn.id = notice_id and tn.status = 'Issued'
+    )
+  );
+
+-- ── 24. contract_instructions ────────────────────────────
+create table public.contract_instructions (
+  id               uuid primary key default gen_random_uuid(),
+  project_id       uuid not null references public.projects(id) on delete cascade,
+  ci_number        text not null,
+  title            text not null,
+  description      text,
+  instruction_type text not null check (instruction_type in ('Variation Approval','Scope Change','Direction','Information','Instruction')),
+  status           text not null default 'Draft' check (status in ('Draft','Issued','Archived')),
+  issue_date       timestamptz,
+  issued_by        text,
+  attachments      jsonb default '[]',
+  created_at       timestamptz default now(),
+  updated_at       timestamptz default now()
+);
+alter table public.contract_instructions enable row level security;
+create policy "ci_all" on public.contract_instructions
+  for all using (get_my_role() in ('admin', 'pricing', 'internal'));
+create policy "ci_external_read" on public.contract_instructions
+  for select using (
+    get_my_role() = 'external'
+    and exists (
+      select 1 from public.projects p
+      where p.id = project_id
+      and p.team @> jsonb_build_array(jsonb_build_object('user_email',
+        (select email from public.users where id = auth.uid())))
+    )
+  );
+
+-- ── Post-migration constraints ────────────────────────────
+-- Run via migration 001_security_fixes.sql:
+--   alter table public.projects drop constraint if exists projects_status_check;
+--   alter table public.projects add constraint projects_status_check
+--     check (status in ('Active', 'On Hold', 'Complete', 'Archived'));
+--   alter table public.tender_invitees alter column full_name set not null;
+--   create unique index if not exists uq_tender_invitees_tender_email
+--     on public.tender_invitees(tender_id, lower(email)) where email is not null;
 
 -- ── Seed: default tender counter row ─────────────────────
 insert into public.tender_counter (current_value) values (0);

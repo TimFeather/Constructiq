@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { Document, Project, Tender, TenderSubmission } from '@/api/entities';
+import { invokeFunction } from '@/api/supabaseClient';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,7 +22,7 @@ export default function ConvertToProjectModal({ tender, open, onOpenChange }) {
 
   const { data: allSubmissions = [] } = useQuery({
     queryKey: ['tenderSubmissions', tender?.id],
-    queryFn: () => base44.entities.TenderSubmission.filter({ tender_id: tender.id }),
+    queryFn: () => TenderSubmission.filter({ tender_id: tender.id }),
     enabled: !!tender?.id && open,
   });
 
@@ -62,11 +63,9 @@ export default function ConvertToProjectModal({ tender, open, onOpenChange }) {
         console.log(`[ConvertToProject] Subcontractors transferred to project team: ${awardedSubs.length}`);
       }
 
-      // Build project data
+      // Build project data — only columns that exist on projects table
       const projectData = {
         name: projectName,
-        client_name: tender.client_name,
-        location: tender.location,
         status: 'Active',
         team,
       };
@@ -74,7 +73,7 @@ export default function ConvertToProjectModal({ tender, open, onOpenChange }) {
         projectData.description = tender.description;
       }
 
-      const newProject = await base44.entities.Project.create(projectData);
+      const newProject = await Project.create(projectData);
 
       // Copy selected docs
       const docsToCreate = (tender.documents || [])
@@ -90,14 +89,24 @@ export default function ConvertToProjectModal({ tender, open, onOpenChange }) {
         }));
 
       for (const doc of docsToCreate) {
-        await base44.entities.Document.create(doc);
+        await Document.create(doc);
       }
 
-      // Update tender status
-      await base44.entities.Tender.update(tender.id, {
-        status: 'Converted',
+      // Update tender status — Archived moves it to the Archive tab
+      await Tender.update(tender.id, {
+        status: 'Archived',
         converted_project_id: newProject.id,
       });
+
+      // Invite / notify all team members (non-blocking)
+      if (team.length > 0) {
+        invokeFunction('invitationService', {
+          action:      'bulkInviteProjectTeam',
+          projectId:   newProject.id,
+          projectName: newProject.name,
+          teamMembers: team.map(m => ({ email: m.user_email, name: m.full_name, role: m.role })),
+        }).catch(() => { /* non-blocking — project still created */ });
+      }
 
       queryClient.invalidateQueries({ queryKey: ['tenders'] });
       queryClient.invalidateQueries({ queryKey: ['projects'] });
@@ -202,7 +211,7 @@ export default function ConvertToProjectModal({ tender, open, onOpenChange }) {
           <div className="flex items-start gap-2 p-3 bg-green-50 dark:bg-green-950/20 rounded-lg border border-green-200 dark:border-green-800">
             <CheckCircle2 className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
             <p className="text-xs text-green-700 dark:text-green-300">
-              This will create a new Active project and update the tender status to Converted.
+              This will create a new Active project and move the tender to the Archive tab.
             </p>
           </div>
         </div>

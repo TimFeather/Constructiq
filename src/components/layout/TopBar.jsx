@@ -1,6 +1,7 @@
+import { supabase } from '@/api/supabaseClient';
 import React from 'react';
 import { useAuth } from '@/lib/AuthContext';
-import { Menu, LogOut, User } from 'lucide-react';
+import { Menu, LogOut, User as UserIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
@@ -8,10 +9,9 @@ import {
   DropdownMenuSeparator, DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { Link } from 'react-router-dom';
-import { base44 } from '@/api/base44Client';
 
 export default function TopBar({ onMenuToggle, projectName }) {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const initials = user?.full_name
     ? user.full_name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
     : 'U';
@@ -54,13 +54,13 @@ export default function TopBar({ onMenuToggle, projectName }) {
         <DropdownMenuContent align="end" className="w-48">
           <DropdownMenuItem asChild>
             <Link to="/settings" className="flex items-center gap-2">
-              <User className="w-4 h-4" />
+              <UserIcon className="w-4 h-4" />
               {user?.role === 'admin' ? 'Settings' : 'Profile & Notifications'}
             </Link>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
-            onClick={() => base44.auth.logout()}
+            onClick={logout}
             className="text-destructive focus:text-destructive"
           >
             <LogOut className="w-4 h-4 mr-2" /> Log out

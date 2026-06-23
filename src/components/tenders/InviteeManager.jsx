@@ -1,3 +1,4 @@
+import { invokeFunction, supabase } from '@/api/supabaseClient';
 /**
  * InviteeManager
  *
@@ -8,14 +9,14 @@
  * v2: Actions column (Resend, Delete/Archive), Resend All Outstanding button.
  */
 import React, { useState, useRef } from 'react';
+import { TenderContact, TenderInvitee, TenderSubmission } from '@/api/entities';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { Users, Plus, Trash2, Send, UserCheck, Search, RefreshCw, Archive } from 'lucide-react';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { Users, Plus, Trash2, Send, UserCheck, Search, RefreshCw, Archive, Link } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 
 const TRADES = [
@@ -61,6 +62,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
 
   // Archive confirmation dialog
   const [archiveTarget, setArchiveTarget] = useState(null); // invitee record
+  const [deleteTarget, setDeleteTarget]   = useState(null); // invitee to confirm delete
 
   // Resend all loading
   const [resendingAll, setResendingAll] = useState(false);
@@ -68,13 +70,41 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
   // ── Primary data: TenderInvitee ───────────────────────────────────────────
   const { data: invitees = [], refetch: refetchInvitees } = useQuery({
     queryKey: ['tenderInvitees', tender.id],
-    queryFn:  () => base44.entities.TenderInvitee.filter({ tender_id: tender.id }),
+    queryFn:  () => TenderInvitee.filter({ tender_id: tender.id }),
     enabled:  !!tender.id,
   });
 
+  // Invitation tokens (for Copy Link button)
+  const { data: invitations = [], refetch: refetchInvitations } = useQuery({
+    queryKey: ['tenderInvitations', tender.id],
+    queryFn:  async () => {
+      const { data, error } = await supabase.from('tender_invitations').select('*').eq('tender_id', tender.id);
+      if (error) throw error;
+      return data ?? [];
+    },
+    enabled:  !!tender.id,
+  });
+
+  // Map invitee_id → invitation record for quick lookup
+  const invitationByInviteeId = Object.fromEntries(invitations.map(inv => [inv.invitee_id, inv]));
+
+  const copySubmissionLink = (inv) => {
+    const invitation = invitationByInviteeId[inv.id];
+    if (!invitation?.token) {
+      toast({ title: 'No link yet', description: 'Issue the tender first to generate a submission link', duration: 4000 });
+      return;
+    }
+    const url = `${window.location.origin}/tender-submit/${invitation.token}`;
+    navigator.clipboard.writeText(url).then(() => {
+      toast({ title: 'Link copied', description: url, duration: 4000 });
+    }).catch(() => {
+      toast({ title: 'Link', description: url, duration: 8000 });
+    });
+  };
+
   const { data: contacts = [] } = useQuery({
     queryKey: ['tenderContacts'],
-    queryFn:  () => base44.entities.TenderContact.list('-created_date', 500).catch(() => []),
+    queryFn:  () => TenderContact.list('-created_at', 500).catch(() => []),
   });
 
   const invalidateAll = () => {
@@ -143,7 +173,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
 
     setAdding(true);
     try {
-      const result = await base44.functions.invoke('manageTenderInvitee', {
+      const result = await invokeFunction('manageTenderInvitee', {
         action:       'create',
         tenderId:     tender.id,
         fullName:     full_name,
@@ -184,7 +214,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
     if (actionLoading[inv.id]) return;
     setActionLoading(s => ({ ...s, [inv.id]: 'resending' }));
     try {
-      await base44.functions.invoke('resendInvitation', { inviteeId: inv.id });
+      await invokeFunction('resendInvitation', { inviteeId: inv.id });
       toast({ title: `Invitation resent to ${inv.full_name}`, duration: 3000 });
       invalidateAll();
       await refetchInvitees();
@@ -206,7 +236,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
     let succeeded = 0, failed = 0;
     for (const inv of outstanding) {
       try {
-        await base44.functions.invoke('resendInvitation', { inviteeId: inv.id });
+        await invokeFunction('resendInvitation', { inviteeId: inv.id });
         succeeded++;
       } catch {
         failed++;
@@ -225,7 +255,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
   // ── Delete / Archive invitee ──────────────────────────────────────────────
   const handleDeleteInvitee = async (inv) => {
     // Check if a submission exists
-    const submissions = await base44.entities.TenderSubmission.filter({ invitee_id: inv.id }).catch(() => []);
+    const submissions = await TenderSubmission.filter({ invitee_id: inv.id }).catch(() => []);
     if (submissions.length > 0) {
       // Show archive confirmation
       setArchiveTarget(inv);
@@ -234,7 +264,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
     // Hard delete
     setActionLoading(s => ({ ...s, [inv.id]: 'deleting' }));
     try {
-      await base44.functions.invoke('manageTenderInvitee', { action: 'delete', inviteeId: inv.id });
+      await invokeFunction('manageTenderInvitee', { action: 'delete', inviteeId: inv.id });
       invalidateAll();
       await refetchInvitees();
       toast({ title: `${inv.full_name} removed`, duration: 2500 });
@@ -251,7 +281,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
     setArchiveTarget(null);
     setActionLoading(s => ({ ...s, [inv.id]: 'deleting' }));
     try {
-      await base44.entities.TenderInvitee.update(inv.id, { status: 'Archived' });
+      await TenderInvitee.update(inv.id, { status: 'Archived' });
       invalidateAll();
       await refetchInvitees();
       toast({ title: `${inv.full_name} archived`, duration: 2500 });
@@ -280,7 +310,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
         issue_date: tender.issue_date || new Date().toISOString().split('T')[0],
       });
 
-      const result = await base44.functions.invoke('sendTenderInvitations', {
+      const result = await invokeFunction('sendTenderInvitations', {
         tenderId: tender.id,
         tenderInfo: {
           title:                tender.title,
@@ -299,7 +329,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
       const { sent = 0, failed = 0, errors = [] } = result.data || {};
 
       invalidateAll();
-      await refetchInvitees();
+      await Promise.all([refetchInvitees(), refetchInvitations()]);
 
       setIssueResult({ sent, failed, errors });
 
@@ -511,6 +541,17 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
                 {/* Actions */}
                 {canManage && (
                   <div className="flex items-center gap-1 ml-3 flex-shrink-0">
+                    {invitationByInviteeId[inv.id] && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                        onClick={() => copySubmissionLink(inv)}
+                        title="Copy submission link"
+                      >
+                        <Link className="w-3.5 h-3.5" />
+                      </Button>
+                    )}
                     {canResend && (
                       <Button
                         variant="ghost"
@@ -532,7 +573,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-                        onClick={() => handleDeleteInvitee(inv)}
+                        onClick={() => setDeleteTarget(inv)}
                         disabled={isLoading}
                         title="Remove invitee"
                       >
@@ -575,6 +616,27 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
               {issuing ? 'Sending…' : tender.status === 'Issued' ? 'Send Invitations' : 'Issue Tender'}
             </Button>
           </div>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete invitee confirmation dialog */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove invitee?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Remove <strong>{deleteTarget?.full_name}</strong> from this tender? Their invitation will be revoked and cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => { handleDeleteInvitee(deleteTarget); setDeleteTarget(null); }}
+            >
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 

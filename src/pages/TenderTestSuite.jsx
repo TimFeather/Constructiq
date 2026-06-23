@@ -1,11 +1,12 @@
+import { invokeFunction } from '@/api/supabaseClient';
 /**
  * TenderTestSuite — Phase 7
  * Automated regression tests for the Tender subsystem.
  * Admin only. Accessible at /tender-tests
  */
 import React, { useState } from 'react';
+import { Tender, TenderContact, TenderInvitation, TenderInvitee } from '@/api/entities';
 import { Navigate } from 'react-router-dom';
-import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { CheckCircle2, XCircle, Loader2, PlayCircle, Trash2, AlertTriangle, FlaskConical } from 'lucide-react';
@@ -40,6 +41,7 @@ export default function TenderTestSuite() {
   const [running, setRunning] = useState(false);
   const [createdIds, setCreatedIds] = useState([]);
 
+  if (import.meta.env.PROD) return <Navigate to="/" replace />;
   if (user && user.role !== 'admin') return <Navigate to="/" replace />;
 
   const addResult = (label, status, detail = '') =>
@@ -60,7 +62,7 @@ export default function TenderTestSuite() {
     // ── T1: Create 1 tender ───────────────────────────────────────────────
     addResult('T1: Create single tender', RUNNING);
     try {
-      const r = await base44.functions.invoke('createTender', {});
+      const r = await invokeFunction('createTender', {});
       const t = r.data?.tender;
       if (!t?.id) throw new Error('No tender id returned');
       if (!t.tender_number?.startsWith('TDR-')) throw new Error(`Bad tender number: ${t.tender_number}`);
@@ -73,7 +75,7 @@ export default function TenderTestSuite() {
     // ── T2: Create 5 concurrent tenders (race condition test) ─────────────
     addResult('T2: Create 5 concurrent tenders (no duplicate numbers)', RUNNING);
     try {
-      const promises = Array.from({ length: 5 }, () => base44.functions.invoke('createTender', {}));
+      const promises = Array.from({ length: 5 }, () => invokeFunction('createTender', {}));
       const results2 = await Promise.all(promises);
       const tenders = results2.map(r => r.data?.tender).filter(Boolean);
       tenders.forEach(t => ids.push(t.id));
@@ -99,7 +101,7 @@ export default function TenderTestSuite() {
       if (!testTenderId) throw new Error('No test tender available');
       const token = crypto.randomUUID();
       testToken = token;
-      const inv = await base44.entities.TenderInvitation.create({
+      const inv = await TenderInvitation.create({
         token,
         tender_id:     testTenderId,
         invitee_email: 'test-invitee@example.com',
@@ -118,7 +120,7 @@ export default function TenderTestSuite() {
     try {
       if (!testTenderId || !testToken) throw new Error('No test tender/token');
       // Check: reading invitations should show only 1 for this email
-      const list = await base44.entities.TenderInvitation.filter({ tender_id: testTenderId });
+      const list = await TenderInvitation.filter({ tender_id: testTenderId });
       const dups = list.filter(i => i.invitee_email === 'test-invitee@example.com');
       if (dups.length > 1) {
         updateLastResult(FAIL, `Found ${dups.length} records for same email — duplicates exist`);
@@ -133,9 +135,9 @@ export default function TenderTestSuite() {
     addResult('T5: Remove invitee (TenderInvitation deleted)', RUNNING);
     try {
       if (!testInvitationId) throw new Error('No test invitation available');
-      await base44.entities.TenderInvitation.delete(testInvitationId);
+      await TenderInvitation.delete(testInvitationId);
       // Verify it's gone
-      const list = await base44.entities.TenderInvitation.filter({ tender_id: testTenderId });
+      const list = await TenderInvitation.filter({ tender_id: testTenderId });
       const stillExists = list.some(i => i.id === testInvitationId);
       if (stillExists) throw new Error('Record still exists after delete');
       updateLastResult(PASS, `Invitation id=${testInvitationId} deleted and verified gone`);
@@ -149,7 +151,7 @@ export default function TenderTestSuite() {
     try {
       if (!testTenderId) throw new Error('No test tender available');
       // Create a TenderContact
-      const contact = await base44.entities.TenderContact.create({
+      const contact = await TenderContact.create({
         full_name:     'DB Test Contact',
         business_name: 'Test Co',
         email:         `db-test-${Date.now()}@example.com`,
@@ -158,7 +160,7 @@ export default function TenderTestSuite() {
       dbContactId = contact.id;
       // Add as invitation
       const token2 = crypto.randomUUID();
-      const inv2 = await base44.entities.TenderInvitation.create({
+      const inv2 = await TenderInvitation.create({
         token:         token2,
         tender_id:     testTenderId,
         invitee_email: contact.email,
@@ -175,7 +177,7 @@ export default function TenderTestSuite() {
     addResult('T7: Health check — invitations have token and tender_id', RUNNING);
     try {
       if (!testTenderId) throw new Error('No test tender');
-      const invList = await base44.entities.TenderInvitation.filter({ tender_id: testTenderId });
+      const invList = await TenderInvitation.filter({ tender_id: testTenderId });
       const missingToken    = invList.filter(i => !i.token);
       const missingTenderId = invList.filter(i => !i.tender_id);
       if (missingToken.length > 0) throw new Error(`${missingToken.length} invitations missing token`);
@@ -188,10 +190,10 @@ export default function TenderTestSuite() {
     // ── T8: Delete empty tender ───────────────────────────────────────────
     addResult('T8: Delete empty tender', RUNNING);
     try {
-      const emptyR = await base44.functions.invoke('createTender', {});
+      const emptyR = await invokeFunction('createTender', {});
       const emptyT = emptyR.data?.tender;
       if (!emptyT?.id) throw new Error('Could not create test tender');
-      const delR = await base44.functions.invoke('deleteTender', { tenderId: emptyT.id });
+      const delR = await invokeFunction('deleteTender', { tenderId: emptyT.id });
       if (!delR.data?.success) throw new Error(delR.data?.error || 'deleteTender returned no success');
       updateLastResult(PASS, `Tender ${emptyT.tender_number} deleted`);
     } catch (e) {
@@ -201,19 +203,19 @@ export default function TenderTestSuite() {
     // ── T9: Delete tender with invitees ───────────────────────────────────
     addResult('T9: Delete tender with invitees (cascading)', RUNNING);
     try {
-      const tR = await base44.functions.invoke('createTender', {});
+      const tR = await invokeFunction('createTender', {});
       const tObj = tR.data?.tender;
       if (!tObj?.id) throw new Error('Could not create test tender');
       // Add 2 invitations
       await Promise.all([
-        base44.entities.TenderInvitation.create({ token: crypto.randomUUID(), tender_id: tObj.id, invitee_email: 'del-test-1@example.com', invitee_name: 'Del 1', status: 'Pending' }),
-        base44.entities.TenderInvitation.create({ token: crypto.randomUUID(), tender_id: tObj.id, invitee_email: 'del-test-2@example.com', invitee_name: 'Del 2', status: 'Pending' }),
+        TenderInvitation.create({ token: crypto.randomUUID(), tender_id: tObj.id, invitee_email: 'del-test-1@example.com', invitee_name: 'Del 1', status: 'Pending' }),
+        TenderInvitation.create({ token: crypto.randomUUID(), tender_id: tObj.id, invitee_email: 'del-test-2@example.com', invitee_name: 'Del 2', status: 'Pending' }),
       ]);
       // Delete
-      const delR = await base44.functions.invoke('deleteTender', { tenderId: tObj.id });
+      const delR = await invokeFunction('deleteTender', { tenderId: tObj.id });
       if (!delR.data?.success) throw new Error(delR.data?.error || 'deleteTender failed');
       // Verify invitations are gone
-      const remaining = await base44.entities.TenderInvitation.filter({ tender_id: tObj.id });
+      const remaining = await TenderInvitation.filter({ tender_id: tObj.id });
       if (remaining.length > 0) throw new Error(`${remaining.length} orphan TenderInvitation(s) remain`);
       updateLastResult(PASS, `Tender + 2 invitations deleted, 0 orphans`);
     } catch (e) {
@@ -223,7 +225,7 @@ export default function TenderTestSuite() {
     // ── T10: No duplicate tender numbers across all existing tenders ───────
     addResult('T10: No duplicate tender numbers in database', RUNNING);
     try {
-      const all = await base44.entities.Tender.list('-created_date', 200);
+      const all = await Tender.list('-created_at', 200);
       const nums = all.map(t => t.tender_number).filter(Boolean);
       const seen = new Set();
       const dups = nums.filter(n => { if (seen.has(n)) return true; seen.add(n); return false; });
@@ -242,13 +244,13 @@ export default function TenderTestSuite() {
     let cleanedCount = 0;
     for (const tid of cleanupIds) {
       try {
-        await base44.functions.invoke('deleteTender', { tenderId: tid });
+        await invokeFunction('deleteTender', { tenderId: tid });
         cleanedCount++;
       } catch (_) {}
     }
     // Also clean up the db test contact
     if (dbContactId) {
-      try { await base44.entities.TenderContact.delete(dbContactId); } catch (_) {}
+      try { await TenderContact.delete(dbContactId); } catch (_) {}
     }
     updateLastResult(PASS, `Cleaned up ${cleanedCount}/${cleanupIds.length} test tender(s)`);
 
@@ -336,10 +338,10 @@ function IssueTenderDiagnostic() {
       let tender = null;
       const looksLikeId = tenderId.trim().length > 12 && !tenderId.trim().startsWith('TDR-');
       if (looksLikeId) {
-        const list = await base44.entities.Tender.filter({ id: tenderId.trim() });
+        const list = await Tender.filter({ id: tenderId.trim() });
         tender = list[0] || null;
       } else {
-        const list = await base44.entities.Tender.list('-created_date', 200);
+        const list = await Tender.list('-created_at', 200);
         tender = list.find(t => t.tender_number === tenderId.trim() || t.id === tenderId.trim()) || null;
       }
 
@@ -353,15 +355,15 @@ function IssueTenderDiagnostic() {
 
       // ── BEFORE ──────────────────────────────────────────────────────────────
       const [beforeInvitees, beforeInvitations] = await Promise.all([
-        base44.entities.TenderInvitee.filter({ tender_id: tender.id }),
-        base44.entities.TenderInvitation.filter({ tender_id: tender.id }),
+        TenderInvitee.filter({ tender_id: tender.id }),
+        TenderInvitation.filter({ tender_id: tender.id }),
       ]);
       out.before.invitees    = beforeInvitees.map(i => ({ id: i.id, name: i.full_name, email: i.email, status: i.status }));
       out.before.invitations = beforeInvitations.map(i => ({ id: i.id, invitee_id: i.invitee_id, email: i.invitee_email, token: i.token, status: i.status }));
 
       // ── CALL sendTenderInvitations ───────────────────────────────────────────
       // First update status to Issued (mirrors what InviteeManager does)
-      await base44.functions.invoke('updateTender', {
+      await invokeFunction('updateTender', {
         tenderId: tender.id,
         updates: {
           status:     'Issued',
@@ -369,7 +371,7 @@ function IssueTenderDiagnostic() {
         },
       });
 
-      const sendRes = await base44.functions.invoke('sendTenderInvitations', {
+      const sendRes = await invokeFunction('sendTenderInvitations', {
         tenderId:   tender.id,
         tenderInfo: {
           title:                tender.title,
@@ -388,8 +390,8 @@ function IssueTenderDiagnostic() {
 
       // ── AFTER ───────────────────────────────────────────────────────────────
       const [afterInvitees, afterInvitations] = await Promise.all([
-        base44.entities.TenderInvitee.filter({ tender_id: tender.id }),
-        base44.entities.TenderInvitation.filter({ tender_id: tender.id }),
+        TenderInvitee.filter({ tender_id: tender.id }),
+        TenderInvitation.filter({ tender_id: tender.id }),
       ]);
       out.after.invitees    = afterInvitees.map(i => ({ id: i.id, name: i.full_name, email: i.email, status: i.status }));
       out.after.invitations = afterInvitations.map(i => ({ id: i.id, invitee_id: i.invitee_id, email: i.invitee_email, token: i.token, status: i.status }));
@@ -512,7 +514,7 @@ function AddInviteeTrace() {
 
     // Count before
     try {
-      const before = await base44.entities.TenderInvitee.filter({ tender_id: FIXED_TENDER_ID });
+      const before = await TenderInvitee.filter({ tender_id: FIXED_TENDER_ID });
       out.countBefore = before.length;
     } catch (e) {
       out.caughtExceptions.push({ stage: 'countBefore', message: e.message, stack: e.stack });
@@ -521,7 +523,7 @@ function AddInviteeTrace() {
     // Call manageTenderInvitee
     if (out.validationErrors.length === 0) {
       try {
-        const res = await base44.functions.invoke('manageTenderInvitee', payload);
+        const res = await invokeFunction('manageTenderInvitee', payload);
         out.rawResponse = res.data;
         out.dbRecordCreated = !!(res.data?.invitee?.id);
       } catch (e) {
@@ -539,7 +541,7 @@ function AddInviteeTrace() {
 
     // Count after
     try {
-      const after = await base44.entities.TenderInvitee.filter({ tender_id: FIXED_TENDER_ID });
+      const after = await TenderInvitee.filter({ tender_id: FIXED_TENDER_ID });
       out.countAfter = after.length;
     } catch (e) {
       out.caughtExceptions.push({ stage: 'countAfter', message: e.message, stack: e.stack });

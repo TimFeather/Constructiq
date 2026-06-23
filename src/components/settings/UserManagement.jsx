@@ -1,6 +1,7 @@
+import { supabase } from '@/api/supabaseClient';
 import React, { useState } from 'react';
+import { InvitedUser, User } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -25,22 +26,22 @@ export default function UserManagement() {
 
   const { data: users = [] } = useQuery({
     queryKey: ['users'],
-    queryFn: () => base44.entities.User.list(),
+    queryFn: () => User.list(),
     enabled: user?.role === 'admin',
   });
 
   const { data: invitedUsers = [] } = useQuery({
     queryKey: ['invitedUsers'],
-    queryFn: () => base44.entities.InvitedUser.list('-created_date', 100),
+    queryFn: () => InvitedUser.list('-created_at', 100),
     enabled: user?.role === 'admin',
   });
 
   const inviteMutation = useMutation({
     mutationFn: async ({ email, role }) => {
-      await base44.users.inviteUser(email, role === 'admin' ? 'admin' : 'user');
-      await base44.entities.InvitedUser.create({
+      await InvitedUser.create({
         email,
         app_role: role,
+        status: 'Pending',
         invited_by_email: user?.email,
       });
     },
@@ -52,7 +53,7 @@ export default function UserManagement() {
   });
 
   const updateUserMutation = useMutation({
-    mutationFn: ({ userId, role }) => base44.entities.User.update(userId, { role }),
+    mutationFn: ({ userId, role }) => User.update(userId, { role }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
       setEditingUser(null);
@@ -60,7 +61,7 @@ export default function UserManagement() {
   });
 
   const deactivateUserMutation = useMutation({
-    mutationFn: (userId) => base44.entities.User.update(userId, { data: { disabled: true } }),
+    mutationFn: (userId) => User.update(userId, { disabled: true }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
       setDeleteConfirm(null);
@@ -68,7 +69,7 @@ export default function UserManagement() {
   });
 
   const reactivateUserMutation = useMutation({
-    mutationFn: (userId) => base44.entities.User.update(userId, { data: { disabled: false } }),
+    mutationFn: (userId) => User.update(userId, { disabled: false }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['users'] }),
   });
 
@@ -142,7 +143,7 @@ export default function UserManagement() {
         <CardContent>
           <div className="space-y-2">
             {users.map(u => {
-              const isDeactivated = u.data?.disabled === true;
+              const isDeactivated = u.disabled === true;
               return (
               <div key={u.id} className={`flex items-center justify-between p-3 rounded-lg ${isDeactivated ? 'bg-muted/30 opacity-70' : 'bg-muted/50'}`}>
                 <div className="min-w-0 flex-1">

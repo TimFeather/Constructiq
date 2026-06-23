@@ -1,6 +1,7 @@
+import { supabase } from '@/api/supabaseClient';
 import React, { useState, useEffect } from 'react';
+import { EmailBranding, EmailTemplate, User } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -42,14 +43,14 @@ export default function Settings() {
 
   const { data: users = [] } = useQuery({
     queryKey: ['users'],
-    queryFn: () => base44.entities.User.list(),
-    enabled: user?.role === 'admin',
+    queryFn: () => User.list(),
+    enabled: user?.role === 'admin' || user?.role === 'internal',
   });
 
   const { data: emailTemplates = [] } = useQuery({
     queryKey: ['emailTemplates'],
-    queryFn: () => base44.entities.EmailTemplate.list(),
-    enabled: user?.role === 'admin',
+    queryFn: () => EmailTemplate.list(),
+    enabled: user?.role === 'admin' || user?.role === 'internal',
   });
 
   useEffect(() => {
@@ -66,7 +67,10 @@ export default function Settings() {
   }, [user]);
 
   const profileMutation = useMutation({
-    mutationFn: (data) => base44.auth.updateMe(data),
+    mutationFn: async (data) => {
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      return supabase.from('users').update(data).eq('id', authUser.id);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['auth'] });
       toast({ title: 'Profile saved', duration: 4000 });
@@ -83,7 +87,7 @@ export default function Settings() {
 
   const { data: emailBrandingList = [] } = useQuery({
     queryKey: ['emailBranding'],
-    queryFn: () => base44.entities.EmailBranding.list(),
+    queryFn: () => EmailBranding.list(),
     enabled: user?.role === 'admin',
   });
   const emailBranding = emailBrandingList[0] || {};
@@ -92,9 +96,9 @@ export default function Settings() {
     mutationFn: async ({ key, subject, body_html, body_text }) => {
       const existing = emailTemplates.find(t => t.template_key === key);
       if (existing) {
-        return base44.entities.EmailTemplate.update(existing.id, { subject, body_html, body_text });
+        return EmailTemplate.update(existing.id, { subject, body_html, body_text });
       } else {
-        return base44.entities.EmailTemplate.create({
+        return EmailTemplate.create({
           template_key: key,
           name: DEFAULT_TEMPLATES[key]?.name || key,
           subject,
@@ -110,8 +114,8 @@ export default function Settings() {
 
   const deleteAccountMutation = useMutation({
     mutationFn: async () => {
-      await base44.entities.User.delete(user.id);
-      await base44.auth.logout();
+      await User.delete(user.id);
+      await supabase.auth.signOut();
     },
     onSuccess: () => { window.location.href = '/login'; },
     onError: (e) => {
@@ -120,16 +124,15 @@ export default function Settings() {
     }
   });
 
-  const isAdmin = checkAdmin(user);
+  const isAdmin    = checkAdmin(user);
+  const isInternal = user?.role === 'internal';
+  const isPricingUser = user?.role === 'pricing';
 
-  // external users have no settings access
-  if (!canAccess(user, 'settings') || user?.role === 'external') {
-    return (
-      <div className="flex flex-col items-center justify-center py-20 text-center">
-        <h2 className="text-lg font-semibold mb-2">Access Denied</h2>
-        <p className="text-sm text-muted-foreground">Settings are not available for your role.</p>
-      </div>
-    );
+  // external users only get profile + notifications
+  const isExternal = user?.role === 'external';
+
+  if (!user) {
+    return null;
   }
 
   const displayName = [profile.first_name, profile.last_name].filter(Boolean).join(' ') || user?.full_name || '';
@@ -156,37 +159,37 @@ export default function Settings() {
           <TabsTrigger value="notifications">
             <Bell className="w-3.5 h-3.5 mr-1" /> Notifications
           </TabsTrigger>
-          {isAdmin && (
+          {(isAdmin || isInternal) && (
             <TabsTrigger value="people">
               <Users className="w-3.5 h-3.5 mr-1" /> People
             </TabsTrigger>
           )}
-          {isAdmin && (
+          {(isAdmin || isInternal) && (
             <TabsTrigger value="roles">
               <Tag className="w-3.5 h-3.5 mr-1" /> Roles
             </TabsTrigger>
           )}
-          {isAdmin && (
+          {(isAdmin || isInternal) && (
             <TabsTrigger value="appearance">
               <Palette className="w-3.5 h-3.5 mr-1" /> Appearance
             </TabsTrigger>
           )}
-          {isAdmin && (
+          {(isAdmin || isInternal) && (
             <TabsTrigger value="emails">
               <Mail className="w-3.5 h-3.5 mr-1" /> Email Templates
             </TabsTrigger>
           )}
-          {(isAdmin || user?.role === 'pricing') && (
+          {(isAdmin || isInternal || isPricingUser) && (
             <TabsTrigger value="subcontractors">
               Subcontractors
             </TabsTrigger>
           )}
-          {isAdmin && (
+          {(isAdmin || isInternal || isPricingUser) && (
             <TabsTrigger value="documents">
               <FolderOpen className="w-3.5 h-3.5 mr-1" /> Documents
             </TabsTrigger>
           )}
-          {isAdmin && (
+          {(isAdmin || isInternal || isPricingUser) && (
             <TabsTrigger value="tender-defaults">
               <FileSignature className="w-3.5 h-3.5 mr-1" /> Tender Defaults
             </TabsTrigger>
@@ -323,29 +326,29 @@ export default function Settings() {
           </Card>
         </TabsContent>
 
-        {/* People (Admin only) */}
-        {isAdmin && (
+        {/* People (Admin + Internal) */}
+        {(isAdmin || isInternal) && (
           <TabsContent value="people">
             <PeopleSettings />
           </TabsContent>
         )}
 
-        {/* Roles (Admin only) */}
-        {isAdmin && (
+        {/* Roles (Admin + Internal) */}
+        {(isAdmin || isInternal) && (
           <TabsContent value="roles">
             <RoleManager />
           </TabsContent>
         )}
 
-        {/* Appearance (Admin only) */}
-        {isAdmin && (
+        {/* Appearance (Admin + Internal) */}
+        {(isAdmin || isInternal) && (
           <TabsContent value="appearance">
             <AppearanceSettings user={user} />
           </TabsContent>
         )}
 
-        {/* Email Templates (Admin only) */}
-        {isAdmin && (
+        {/* Email Templates (Admin + Internal) */}
+        {(isAdmin || isInternal) && (
           <TabsContent value="emails">
             <div className="space-y-4">
               <EmailBrandingPanel />
@@ -390,17 +393,17 @@ export default function Settings() {
             </div>
           </TabsContent>
         )}
-        {(isAdmin || user?.role === 'pricing') && (
+        {(isAdmin || isInternal || isPricingUser) && (
           <TabsContent value="subcontractors">
             <SubcontractorDirectory />
           </TabsContent>
         )}
-        {isAdmin && (
+        {(isAdmin || isInternal || isPricingUser) && (
           <TabsContent value="documents">
             <DocumentFolderTemplates />
           </TabsContent>
         )}
-        {isAdmin && (
+        {(isAdmin || isInternal || isPricingUser) && (
           <TabsContent value="tender-defaults">
             <TenderSettingsPanel />
           </TabsContent>

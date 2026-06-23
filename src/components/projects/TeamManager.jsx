@@ -1,6 +1,7 @@
+import { invokeFunction } from '@/api/supabaseClient';
 import React, { useState, useCallback } from 'react';
+import { EmailBranding, EmailTemplate, Project, ProjectRole, User } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -73,30 +74,30 @@ export default function TeamManager({ project }) {
 
   const { data: allUsers = [] } = useQuery({
     queryKey: ['users'],
-    queryFn: () => base44.entities.User.list(),
+    queryFn: () => User.list(),
     enabled: isAllowed,
   });
 
   const { data: emailTemplates = [] } = useQuery({
     queryKey: ['emailTemplates'],
-    queryFn: () => base44.entities.EmailTemplate.list(),
+    queryFn: () => EmailTemplate.list(),
   });
 
   const { data: emailBranding = {} } = useQuery({
     queryKey: ['emailBranding'],
-    queryFn: () => base44.entities.EmailBranding.list().then(r => r[0] ?? {}),
+    queryFn: () => EmailBranding.list().then(r => r[0] ?? {}),
   });
 
   const { data: projectRolesRaw = [] } = useQuery({
     queryKey: ['projectRoles'],
-    queryFn: () => base44.entities.ProjectRole.filter({ active: true }, 'sort_order', 100),
+    queryFn: () => ProjectRole.filter({ active: true }, 'sort_order', 100),
     enabled: isAllowed,
   });
 
   const projectRoles = projectRolesRaw.length > 0 ? projectRolesRaw : FALLBACK_ROLES;
 
   const updateMutation = useMutation({
-    mutationFn: (team) => base44.entities.Project.update(project.id, { team }),
+    mutationFn: (team) => Project.update(project.id, { team }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['project', project.id] });
     }
@@ -111,7 +112,7 @@ export default function TeamManager({ project }) {
     }
     setDetectingEmail(true);
     try {
-      const res = await base44.functions.invoke('invitationService', { action: 'detect', email });
+      const res = await invokeFunction('invitationService', { action: 'detect', email });
       setEmailStatus(res.data?.status || null);
       setEmailStatusData(res.data || null);
       // Auto-fill name if existing user
@@ -180,7 +181,7 @@ export default function TeamManager({ project }) {
 
       if (emailStatus === 'existing_user' && emailStatusData?.user) {
         // Route through invitationService for direct add + audit log
-        await base44.functions.invoke('invitationService', {
+        await invokeFunction('invitationService', {
           action: 'addExistingUser',
           targetUserId: emailStatusData.user.id,
           projectId: project.id,
@@ -199,7 +200,7 @@ export default function TeamManager({ project }) {
         });
         try {
           const htmlBody = buildEmailHtml(body, emailBranding);
-          await base44.functions.invoke('sendEmail', { to: member.user_email, toName: member.full_name, subject, htmlBody });
+          await invokeFunction('sendEmail', { to: member.user_email, toName: member.full_name, subject, htmlBody });
         } catch (e) { /* email non-critical */ }
 
         toast({ title: `${member.full_name} added to project` });
@@ -209,7 +210,7 @@ export default function TeamManager({ project }) {
         const team = [...(project.team || []), member];
         await updateMutation.mutateAsync(team);
 
-        const res = await base44.functions.invoke('invitationService', {
+        const res = await invokeFunction('invitationService', {
           action: 'invite',
           email: member.user_email,
           fullName: member.full_name,

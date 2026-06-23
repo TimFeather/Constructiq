@@ -1,10 +1,11 @@
+import { invokeFunction } from '@/api/supabaseClient';
 /**
  * TenderHealthPanel
  * Health checks use TenderInvitee as source of truth.
  */
 import React, { useState } from 'react';
+import { TenderInvitee } from '@/api/entities';
 import { useQuery } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { CheckCircle2, XCircle, AlertTriangle, FileText, FolderOpen, Users, Send, ShieldCheck, Loader2 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
@@ -77,7 +78,7 @@ export default function TenderHealthPanel({ tender, user }) {
 
   const { data: invitees = [] } = useQuery({
     queryKey: ['tenderInvitees', tender.id],
-    queryFn:  () => base44.entities.TenderInvitee.filter({ tender_id: tender.id }),
+    queryFn:  () => TenderInvitee.filter({ tender_id: tender.id }),
     enabled:  !!tender.id,
   });
 
@@ -105,7 +106,7 @@ export default function TenderHealthPanel({ tender, user }) {
       const testToken = crypto.randomUUID();
       let testInviteeId = null;
       try {
-        const testInvitee = await base44.entities.TenderInvitee.create({
+        const testInvitee = await TenderInvitee.create({
           tender_id:  tender.id,
           full_name:  user.full_name || user.email,
           email:      user.email,
@@ -114,7 +115,7 @@ export default function TenderHealthPanel({ tender, user }) {
         testInviteeId = testInvitee.id;
       } catch (_e) { /* non-fatal */ }
 
-      const result = await base44.functions.invoke('sendTenderInvitations', {
+      const result = await invokeFunction('sendTenderInvitations', {
         tenderId: tender.id,
         tenderInfo: {
           title:                tender.title,
@@ -129,7 +130,7 @@ export default function TenderHealthPanel({ tender, user }) {
 
       // Clean up test invitee + invitation
       if (testInviteeId) {
-        await base44.entities.TenderInvitee.delete(testInviteeId).catch(() => {});
+        await TenderInvitee.delete(testInviteeId).catch(() => {});
       }
 
       if (result.data?.sent > 0) {

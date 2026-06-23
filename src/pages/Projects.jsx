@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
+import { Project, Task } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { Link } from 'react-router-dom';
-import { Plus, Search, Calendar, Trash2 } from 'lucide-react';
-import { canEdit, canDelete, isAdmin } from '@/lib/permissions';
+import { Plus, Search, Calendar, Archive } from 'lucide-react';
+import { canEdit, isAdmin } from '@/lib/permissions';
 import { normalizeEmail } from '@/lib/normalizeEmail';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,52 +18,60 @@ import ProjectFormDialog from '@/components/projects/ProjectFormDialog';
 import { format } from 'date-fns';
 import { FolderKanban } from 'lucide-react';
 
+const ACTIVE_STATUSES   = ['Active', 'On Hold', 'Complete'];
+const ARCHIVED_STATUSES = ['Archived'];
+
 export default function Projects() {
   const { user } = useAuth();
   const isAdminUser = isAdmin(user);
   const isAllowed = canEdit(user, 'projects');
-  const canDeleteProject = canDelete(user, 'projects');
-  const [search, setSearch] = useState('');
+  const [search, setSearch]         = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [showForm, setShowForm] = useState(false);
-  const [deleteProjectId, setDeleteProjectId] = useState(null);
+  const [viewMode, setViewMode]     = useState('active');
+  const [showForm, setShowForm]     = useState(false);
+  const [archiveId, setArchiveId]   = useState(null);
   const queryClient = useQueryClient();
 
   const { data: allProjects = [], isLoading } = useQuery({
     queryKey: ['projects'],
-    queryFn: () => base44.entities.Project.list('-created_date', 100),
+    queryFn: () => Project.list('-created_at', 100),
   });
 
   const { data: allTasks = [] } = useQuery({
     queryKey: ['tasks'],
-    queryFn: () => base44.entities.Task.list('-created_date', 1000),
+    queryFn: () => Task.list('-created_at', 1000),
+  });
+
+  const archiveMutation = useMutation({
+    mutationFn: (id) => Project.update(id, { status: 'Archived' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      setArchiveId(null);
+    },
   });
 
   const projects = isAdminUser
     ? allProjects
-    : allProjects.filter(p => {
-        console.log('MEMBERSHIP CHECK', {
-          sessionEmail: normalizeEmail(user?.email),
-          teamEmails: p.team?.map(t => normalizeEmail(t.user_email)),
-        });
-        return p.team?.some(m => normalizeEmail(m.user_email) === normalizeEmail(user?.email));
-      });
+    : allProjects.filter(p =>
+        p.team?.some(m => normalizeEmail(m.user_email) === normalizeEmail(user?.email))
+      );
 
-  const filtered = projects.filter(p => {
+  const viewProjects = projects.filter(p =>
+    viewMode === 'active'
+      ? ACTIVE_STATUSES.includes(p.status)
+      : ARCHIVED_STATUSES.includes(p.status)
+  );
+
+  const filtered = viewProjects.filter(p => {
     const matchSearch = p.name?.toLowerCase().includes(search.toLowerCase());
     const matchStatus = statusFilter === 'all' || p.status === statusFilter;
     return matchSearch && matchStatus;
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: (id) => base44.entities.Project.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
-      setDeleteProjectId(null);
-    },
-  });
+  const projectToArchive = allProjects.find(p => p.id === archiveId);
 
-  const projectToDelete = allProjects.find(p => p.id === deleteProjectId);
+  const activeCount   = projects.filter(p => ACTIVE_STATUSES.includes(p.status)).length;
+  const archivedCount = projects.filter(p => ARCHIVED_STATUSES.includes(p.status)).length;
 
   return (
     <div>
@@ -71,7 +79,7 @@ export default function Projects() {
         title="Projects"
         description="Manage your construction projects"
         actions={
-          isAllowed && (
+          isAllowed && viewMode === 'active' && (
             <Button onClick={() => setShowForm(true)} className="gap-2">
               <Plus className="w-4 h-4" /> New Project
             </Button>
@@ -79,20 +87,41 @@ export default function Projects() {
         }
       />
 
+      {/* Active / Archived toggle */}
+      <div className="flex gap-2 mb-4">
+        <Button
+          variant={viewMode === 'active' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => { setViewMode('active'); setStatusFilter('all'); }}
+        >
+          Active {activeCount > 0 && `(${activeCount})`}
+        </Button>
+        <Button
+          variant={viewMode === 'archived' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => { setViewMode('archived'); setStatusFilter('all'); }}
+        >
+          <Archive className="w-3.5 h-3.5 mr-1.5" />
+          Archived {archivedCount > 0 && `(${archivedCount})`}
+        </Button>
+      </div>
+
       <div className="flex flex-col sm:flex-row gap-3 mb-6">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input placeholder="Search projects..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
         </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-full sm:w-40"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="Active">Active</SelectItem>
-            <SelectItem value="On Hold">On Hold</SelectItem>
-            <SelectItem value="Complete">Complete</SelectItem>
-          </SelectContent>
-        </Select>
+        {viewMode === 'active' && (
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-full sm:w-40"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="Active">Active</SelectItem>
+              <SelectItem value="On Hold">On Hold</SelectItem>
+              <SelectItem value="Complete">Complete</SelectItem>
+            </SelectContent>
+          </Select>
+        )}
       </div>
 
       {isLoading ? (
@@ -110,10 +139,16 @@ export default function Projects() {
       ) : filtered.length === 0 ? (
         <EmptyState
           icon={FolderKanban}
-          title="No projects found"
-          description={search || statusFilter !== 'all' ? 'Try adjusting your filters' : 'Create your first project to get started'}
-          actionLabel={!search && statusFilter === 'all' && isAllowed ? 'New Project' : undefined}
-          onAction={!search && statusFilter === 'all' && isAllowed ? () => setShowForm(true) : undefined}
+          title={viewMode === 'archived' ? 'No archived projects' : 'No projects found'}
+          description={
+            viewMode === 'archived'
+              ? 'Archived projects will appear here'
+              : search || statusFilter !== 'all'
+                ? 'Try adjusting your filters'
+                : 'Create your first project to get started'
+          }
+          actionLabel={!search && statusFilter === 'all' && isAllowed && viewMode === 'active' ? 'New Project' : undefined}
+          onAction={!search && statusFilter === 'all' && isAllowed && viewMode === 'active' ? () => setShowForm(true) : undefined}
         />
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -154,13 +189,13 @@ export default function Projects() {
                   </CardContent>
                 </Card>
               </Link>
-              {canDeleteProject && (
+              {isAllowed && viewMode === 'active' && (
                 <button
-                  className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md bg-card border shadow-sm hover:bg-destructive hover:text-destructive-foreground hover:border-destructive"
-                  onClick={e => { e.preventDefault(); setDeleteProjectId(project.id); }}
-                  title="Delete project"
+                  className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md bg-card border shadow-sm hover:bg-muted"
+                  onClick={e => { e.preventDefault(); setArchiveId(project.id); }}
+                  title="Archive project"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  <Archive className="w-3.5 h-3.5 text-muted-foreground" />
                 </button>
               )}
             </div>
@@ -170,22 +205,21 @@ export default function Projects() {
 
       <ProjectFormDialog open={showForm} onOpenChange={setShowForm} />
 
-      <AlertDialog open={!!deleteProjectId} onOpenChange={open => !open && setDeleteProjectId(null)}>
+      <AlertDialog open={!!archiveId} onOpenChange={open => !open && setArchiveId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete project?</AlertDialogTitle>
+            <AlertDialogTitle>Archive project?</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete "{projectToDelete?.name}"? This cannot be undone.
+              "{projectToArchive?.name}" will be moved to the archive. You can still view it under the Archived tab.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => deleteMutation.mutate(deleteProjectId)}
-              disabled={deleteMutation.isPending}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => archiveMutation.mutate(archiveId)}
+              disabled={archiveMutation.isPending}
             >
-              {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
+              {archiveMutation.isPending ? 'Archiving...' : 'Archive'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

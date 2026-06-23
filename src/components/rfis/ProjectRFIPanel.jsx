@@ -1,6 +1,7 @@
+import { uploadFile, sendEmail } from '@/api/supabaseClient';
 import React, { useState, useRef } from 'react';
+import { Document, EmailTemplate, RFI, User } from '@/api/entities';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -35,7 +36,7 @@ function RFICard({ rfi, project, emailTemplates = [], registeredUsers = [] }) {
 
   const saveAttachmentToDocuments = async (att) => {
     setSavingDoc(att.url);
-    await base44.entities.Document.create({
+    await Document.create({
       name: att.name,
       project_id: project.id,
       file_url: att.url,
@@ -52,12 +53,12 @@ function RFICard({ rfi, project, emailTemplates = [], registeredUsers = [] }) {
   const isAssignee = rfi.assignees?.some(a => a.email === user?.email) || rfi.assigned_to_email === user?.email;
 
   const statusMutation = useMutation({
-    mutationFn: (status) => base44.entities.RFI.update(rfi.id, { status }),
+    mutationFn: (status) => RFI.update(rfi.id, { status }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['rfis', project.id] }),
   });
 
   const deleteMutation = useMutation({
-    mutationFn: () => base44.entities.RFI.delete(rfi.id),
+    mutationFn: () => RFI.delete(rfi.id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['rfis', project.id] }),
   });
 
@@ -75,7 +76,7 @@ function RFICard({ rfi, project, emailTemplates = [], registeredUsers = [] }) {
 
     const uploadedAttachments = await Promise.all(
       attachments.map(async (a) => {
-        const { file_url } = await base44.integrations.Core.UploadFile({ file: a.file });
+        const { file_url } = await uploadFile(a.file );
         return { name: a.name, url: file_url };
       })
     );
@@ -91,7 +92,7 @@ function RFICard({ rfi, project, emailTemplates = [], registeredUsers = [] }) {
     const updatedResponses = [...(rfi.responses || []), newResponse];
     // Auto-mark as Answered when a response is sent
     const newStatus = rfi.status === 'Open' ? 'Answered' : rfi.status;
-    await base44.entities.RFI.update(rfi.id, { responses: updatedResponses, status: newStatus });
+    await RFI.update(rfi.id, { responses: updatedResponses, status: newStatus });
 
     // Notify the RFI owner/creator
     const rfiRef = `RFI-${String(rfi.number).padStart(3, '0')}`;
@@ -113,7 +114,7 @@ function RFICard({ rfi, project, emailTemplates = [], registeredUsers = [] }) {
 
     notifyEmails.forEach(email => {
       if (registeredUsers.some(u => u.email?.toLowerCase() === email?.toLowerCase())) {
-        base44.integrations.Core.SendEmail({ to: email, subject, body }).catch(() => {});
+        sendEmail({ to: email, subject, body }).catch(() => {});
       }
     });
 
@@ -339,12 +340,12 @@ export default function ProjectRFIPanel({ project, rfis = [] }) {
 
   const { data: emailTemplates = [] } = useQuery({
     queryKey: ['emailTemplates'],
-    queryFn: () => base44.entities.EmailTemplate.list(),
+    queryFn: () => EmailTemplate.list(),
   });
 
   const { data: registeredUsers = [] } = useQuery({
     queryKey: ['users'],
-    queryFn: () => base44.entities.User.list(),
+    queryFn: () => User.list(),
   });
 
   const isRegistered = (email) => registeredUsers.some(u => u.email?.toLowerCase() === email?.toLowerCase());
@@ -362,17 +363,17 @@ export default function ProjectRFIPanel({ project, rfis = [] }) {
     if (!form.title) return;
     setUploading(true);
 
-    const projectRFIs = await base44.entities.RFI.filter({ project_id: project.id }, '-number', 1);
+    const projectRFIs = await RFI.filter({ project_id: project.id }, '-number', 1);
     const nextNumber = projectRFIs.length > 0 ? (projectRFIs[0].number || 0) + 1 : 1;
 
     const uploadedAttachments = await Promise.all(
       attachments.map(async (a) => {
-        const { file_url } = await base44.integrations.Core.UploadFile({ file: a.file });
+        const { file_url } = await uploadFile(a.file );
         return { name: a.name, url: file_url };
       })
     );
 
-    const rfi = await base44.entities.RFI.create({
+    const rfi = await RFI.create({
       ...form,
       project_id: project.id,
       number: nextNumber,
@@ -396,7 +397,7 @@ export default function ProjectRFIPanel({ project, rfis = [] }) {
           description: form.description || 'No description',
           url: `${window.location.origin}/rfis/${rfi.id}`,
         });
-        await base44.integrations.Core.SendEmail({ to: form.assigned_to_email, subject, body });
+        await sendEmail({ to: form.assigned_to_email, subject, body });
       } catch (e) { /* non-critical */ }
     }
 

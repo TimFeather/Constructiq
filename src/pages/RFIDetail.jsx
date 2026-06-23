@@ -1,13 +1,15 @@
+import { invokeFunction, uploadFile } from '@/api/supabaseClient';
 import React, { useState } from 'react';
+import { EmailBranding, EmailTemplate, Project, RFI, User } from '@/api/entities';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ArrowLeft, Send, Clock, User, Paperclip, Trash2 } from 'lucide-react';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { ArrowLeft, Send, Clock, UserIcon, Paperclip, Trash2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
@@ -20,38 +22,39 @@ export default function RFIDetail() {
   const { user } = useAuth();
   const [response, setResponse] = useState('');
   const [responseFile, setResponseFile] = useState(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const queryClient = useQueryClient();
 
   const isAdminOrInternal = user?.role === 'admin' || user?.role === 'internal';
 
   const { data: rfi, isLoading } = useQuery({
     queryKey: ['rfi', id],
-    queryFn: () => base44.entities.RFI.filter({ id }, '-created_date', 1).then(results => results[0] ?? null),
+    queryFn: () => RFI.filter({ id }, '-created_at', 1).then(results => results[0] ?? null),
   });
 
   const { data: project } = useQuery({
     queryKey: ['project', rfi?.project_id],
     queryFn: () => rfi?.project_id
-      ? base44.entities.Project.filter({ id: rfi.project_id }, '-created_date', 1).then(r => r[0] ?? null)
+      ? Project.filter({ id: rfi.project_id }, '-created_at', 1).then(r => r[0] ?? null)
       : null,
     enabled: !!rfi?.project_id,
   });
 
   const { data: emailBranding = {} } = useQuery({
     queryKey: ['emailBranding'],
-    queryFn: () => base44.entities.EmailBranding.list().then(r => r[0] ?? {}),
+    queryFn: () => EmailBranding.list().then(r => r[0] ?? {}),
   });
 
   const { data: emailTemplates = [] } = useQuery({
     queryKey: ['emailTemplates'],
-    queryFn: () => base44.entities.EmailTemplate.list(),
+    queryFn: () => EmailTemplate.list(),
   });
 
   const showReplyForm = rfi?.status !== 'Closed';
 
   const { data: registeredUsers = [] } = useQuery({
     queryKey: ['users'],
-    queryFn: () => base44.entities.User.list(),
+    queryFn: () => User.list(),
     enabled: showReplyForm,
   });
 
@@ -59,12 +62,12 @@ export default function RFIDetail() {
   const isAssignee = rfi?.assignees?.some(a => a.email === user?.email) || rfi?.assigned_to_email === user?.email;
 
   const statusMutation = useMutation({
-    mutationFn: (status) => base44.entities.RFI.update(id, { status }),
+    mutationFn: (status) => RFI.update(id, { status }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['rfi', id] }),
   });
 
   const deleteMutation = useMutation({
-    mutationFn: () => base44.entities.RFI.delete(id),
+    mutationFn: () => RFI.delete(id),
     onSuccess: () => navigate('/rfis', { replace: true }),
   });
 
@@ -72,7 +75,7 @@ export default function RFIDetail() {
     mutationFn: async () => {
       let attachments = [];
       if (responseFile) {
-        const { file_url } = await base44.integrations.Core.UploadFile({ file: responseFile });
+        const { file_url } = await uploadFile(responseFile );
         attachments = [{ name: responseFile.name, url: file_url }];
       }
       const newResponse = {
@@ -84,7 +87,7 @@ export default function RFIDetail() {
       };
       const existing = rfi?.responses || [];
       // Mark as Answered when response is sent
-      await base44.entities.RFI.update(id, {
+      await RFI.update(id, {
         responses: [...existing, newResponse],
         status: rfi?.status === 'Open' ? 'Answered' : rfi?.status,
       });
@@ -110,7 +113,7 @@ export default function RFIDetail() {
 
       notifyEmails.forEach(email => {
         if (registeredUsers.some(u => u.email?.toLowerCase() === email?.toLowerCase())) {
-          base44.functions.invoke('sendEmail', { to: email, subject, htmlBody }).catch(() => {});
+          invokeFunction('sendEmail', { to: email, subject, htmlBody }).catch(() => {});
         }
       });
     },
@@ -175,7 +178,7 @@ export default function RFIDetail() {
             )}
             {!statusOptions.length && <StatusBadge status={rfi.status} />}
             {isAdminOrInternal && (
-              <Button variant="destructive" size="icon" onClick={() => deleteMutation.mutate()} disabled={deleteMutation.isPending} title="Delete RFI">
+              <Button variant="destructive" size="icon" onClick={() => setShowDeleteDialog(true)} disabled={deleteMutation.isPending} title="Delete RFI">
                 <Trash2 className="w-4 h-4" />
               </Button>
             )}
@@ -217,14 +220,14 @@ export default function RFIDetail() {
                 <div className="mt-0.5 space-y-0.5">
                   {rfi.assignees.map((a, i) => (
                     <p key={i} className="text-sm font-medium flex items-center gap-1">
-                      <User className="w-3 h-3 flex-shrink-0" /> {a.name}
+                      <UserIcon className="w-3 h-3 flex-shrink-0" /> {a.name}
                       {a.role && <span className="text-xs text-muted-foreground font-normal">· {a.role}</span>}
                     </p>
                   ))}
                 </div>
               ) : (
                 <p className="text-sm font-medium mt-0.5 flex items-center gap-1">
-                  <User className="w-3 h-3" /> {rfi.assigned_to_name || '—'}
+                  <UserIcon className="w-3 h-3" /> {rfi.assigned_to_name || '—'}
                 </p>
               )}
             </div>
@@ -242,7 +245,7 @@ export default function RFIDetail() {
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Created</p>
-              <p className="text-sm font-medium mt-0.5">{format(new Date(rfi.created_date), 'MMM d, yyyy')}</p>
+              <p className="text-sm font-medium mt-0.5">{format(new Date(rfi.created_at), 'MMM d, yyyy')}</p>
             </div>
           </CardContent>
         </Card>
@@ -320,6 +323,26 @@ export default function RFIDetail() {
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete RFI?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete <strong>RFI-{String(rfi.number).padStart(3, '0')}: {rfi.title}</strong>? This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => deleteMutation.mutate()}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

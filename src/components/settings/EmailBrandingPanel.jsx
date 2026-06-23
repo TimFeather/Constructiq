@@ -1,6 +1,7 @@
+import { uploadFile } from '@/api/supabaseClient';
 import React, { useState, useEffect, useRef } from 'react';
+import { EmailBranding } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -31,7 +32,7 @@ export default function EmailBrandingPanel() {
 
   const { data: brandingRecords = [] } = useQuery({
     queryKey: ['emailBranding'],
-    queryFn: () => base44.entities.EmailBranding.list(),
+    queryFn: () => EmailBranding.list(),
   });
 
   const branding = brandingRecords[0] || null;
@@ -54,9 +55,9 @@ export default function EmailBrandingPanel() {
   const saveMutation = useMutation({
     mutationFn: async (data) => {
       if (branding?.id) {
-        return base44.entities.EmailBranding.update(branding.id, data);
+        return EmailBranding.update(branding.id, data);
       } else {
-        return base44.entities.EmailBranding.create(data);
+        return EmailBranding.create(data);
       }
     },
     onSuccess: () => {
@@ -70,7 +71,7 @@ export default function EmailBrandingPanel() {
     if (!file) return;
     setUploading(true);
     try {
-      const { file_url } = await base44.integrations.Core.UploadFile({ file });
+      const { file_url } = await uploadFile(file);
       setForm(f => ({ ...f, logo_url: file_url }));
       toast({ title: 'Logo uploaded', duration: 4000 });
     } catch (err) {

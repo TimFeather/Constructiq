@@ -1,6 +1,7 @@
+import { supabase, invokeFunction } from '@/api/supabaseClient';
 import React, { useState, useEffect } from 'react';
+import { Project } from '@/api/entities';
 import { useQuery } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -34,7 +35,7 @@ export default function SystemHealth() {
 
   const { data: projects = [] } = useQuery({
     queryKey: ['projects-health'],
-    queryFn: () => base44.entities.Project.list(),
+    queryFn: () => Project.list(),
   });
 
   function addLog(msg) {
@@ -66,7 +67,7 @@ export default function SystemHealth() {
   async function handleRefreshSession() {
     setRunningAction('refreshSession');
     try {
-      await base44.auth.me();
+      await supabase.auth.getUser();
       setLastRefresh(new Date().toISOString());
       addLog('User session refreshed');
     } catch (e) {
@@ -85,7 +86,7 @@ export default function SystemHealth() {
   async function handleRunSync() {
     setRunningAction('sync');
     try {
-      const result = await base44.functions.invoke('processPendingAssignments', {});
+      const result = await invokeFunction('processPendingAssignments', {});
       const { activated, skipped } = result?.data || {};
       addLog(`processPendingAssignments: activated=${activated}, skipped=${skipped}`);
       setLastRefresh(new Date().toISOString());

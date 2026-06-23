@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
+import { Document, Project, RFI, Task, Tender } from '@/api/entities';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -13,38 +13,43 @@ import ProjectFormDialog from '@/components/projects/ProjectFormDialog';
 import AwardedContractors from '@/components/projects/AwardedContractors';
 import ProjectRFIPanel from '@/components/rfis/ProjectRFIPanel';
 import ProjectDocsPanel from '@/components/documents/ProjectDocsPanel';
+import ProjectCIPanel from '@/components/projects/ProjectCIPanel';
+import { useAuth } from '@/lib/AuthContext';
+import { canEdit } from '@/lib/permissions';
 import { format } from 'date-fns';
 
 export default function ProjectDetail() {
   const { id } = useParams();
+  const { user } = useAuth();
+  const canManageProject = canEdit(user, 'projects');
   const [showEdit, setShowEdit] = useState(false);
   const [activeTab, setActiveTab] = useState('team');
 
   const { data: project, isLoading } = useQuery({
     queryKey: ['project', id],
-    queryFn: () => base44.entities.Project.filter({ id }, '-created_date', 1).then(results => results[0] ?? null),
+    queryFn: () => Project.filter({ id }, '-created_at', 1).then(results => results[0] ?? null),
   });
 
   const { data: projectDocs = [] } = useQuery({
     queryKey: ['documents', id],
-    queryFn: () => base44.entities.Document.filter({ project_id: id }, '-created_date', 50),
+    queryFn: () => Document.filter({ project_id: id }, '-created_at', 50),
   });
 
   const { data: projectRfis = [] } = useQuery({
     queryKey: ['rfis', id],
-    queryFn: () => base44.entities.RFI.filter({ project_id: id }, '-created_date', 50),
+    queryFn: () => RFI.filter({ project_id: id }, '-created_at', 50),
   });
 
   const { data: projectTasks = [] } = useQuery({
     queryKey: ['tasks', id],
-    queryFn: () => base44.entities.Task.filter({ project_id: id }, 'sort_order', 100),
+    queryFn: () => Task.filter({ project_id: id }, 'sort_order', 100),
     enabled: activeTab === 'programme',
   });
 
   // Find linked tender (if this project was converted from one)
   const { data: linkedTenders = [] } = useQuery({
     queryKey: ['linkedTender', id],
-    queryFn: () => base44.entities.Tender.filter({ converted_project_id: id }),
+    queryFn: () => Tender.filter({ converted_project_id: id }),
     enabled: !!id,
   });
   const linkedTender = linkedTenders[0] ?? null;
@@ -139,6 +144,9 @@ export default function ProjectDetail() {
           <TabsTrigger value="programme" className="gap-1">
             <BarChart2 className="w-3.5 h-3.5" /> Programme
           </TabsTrigger>
+          <TabsTrigger value="cis" className="gap-1">
+            <FileSignature className="w-3.5 h-3.5" /> CIs
+          </TabsTrigger>
           {linkedTender && (
             <TabsTrigger value="contractors" className="gap-1">
               <HardHat className="w-3.5 h-3.5" /> Awarded Contractors
@@ -156,6 +164,10 @@ export default function ProjectDetail() {
 
         <TabsContent value="rfis">
           <ProjectRFIPanel project={project} rfis={projectRfis} />
+        </TabsContent>
+
+        <TabsContent value="cis">
+          <ProjectCIPanel project={project} canManage={canManageProject} />
         </TabsContent>
 
         <TabsContent value="programme">

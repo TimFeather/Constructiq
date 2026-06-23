@@ -1,18 +1,18 @@
 import React from 'react';
+import { TenderInvitation, TenderInvitee } from '@/api/entities';
 import { useQuery } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { Users, Send, Eye, CheckCircle2, Clock } from 'lucide-react';
 
 export default function TenderInvitationStats({ tenderId }) {
   const { data: invitations = [] } = useQuery({
     queryKey: ['tenderInvitations', tenderId],
-    queryFn: () => base44.entities.TenderInvitation.filter({ tender_id: tenderId }),
+    queryFn: () => TenderInvitation.filter({ tender_id: tenderId }),
     enabled: !!tenderId,
   });
 
   const { data: invitees = [] } = useQuery({
     queryKey: ['tenderInvitees', tenderId],
-    queryFn: () => base44.entities.TenderInvitee.filter({ tender_id: tenderId }),
+    queryFn: () => TenderInvitee.filter({ tender_id: tenderId }),
     enabled: !!tenderId,
   });
 

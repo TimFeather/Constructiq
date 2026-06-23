@@ -1,6 +1,6 @@
 import React from 'react';
+import { TenderSubmission } from '@/api/entities';
 import { useQuery } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { Card, CardContent } from '@/components/ui/card';
 import { Building2, Mail, Phone, HardHat } from 'lucide-react';
 
@@ -13,7 +13,7 @@ import { Building2, Mail, Phone, HardHat } from 'lucide-react';
 export default function AwardedContractors({ tenderId }) {
   const { data: submissions = [], isLoading } = useQuery({
     queryKey: ['tenderSubmissions', tenderId],
-    queryFn: () => base44.entities.TenderSubmission.filter({ tender_id: tenderId }),
+    queryFn: () => TenderSubmission.filter({ tender_id: tenderId }),
     enabled: !!tenderId,
   });
 

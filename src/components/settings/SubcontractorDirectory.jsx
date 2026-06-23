@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
+import { TenderContact } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -28,11 +28,11 @@ export default function SubcontractorDirectory() {
 
   const { data: contacts = [], isLoading } = useQuery({
     queryKey: ['tenderContacts'],
-    queryFn: () => base44.entities.TenderContact.list('-created_date', 500),
+    queryFn: () => TenderContact.list('-created_at', 500),
   });
 
   const createMutation = useMutation({
-    mutationFn: (data) => base44.entities.TenderContact.create(data),
+    mutationFn: (data) => TenderContact.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tenderContacts'] });
       setShowAdd(false);
@@ -42,7 +42,7 @@ export default function SubcontractorDirectory() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }) => base44.entities.TenderContact.update(id, data),
+    mutationFn: ({ id, data }) => TenderContact.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tenderContacts'] });
       setEditingId(null);
@@ -51,7 +51,7 @@ export default function SubcontractorDirectory() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id) => base44.entities.TenderContact.delete(id),
+    mutationFn: (id) => TenderContact.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tenderContacts'] });
     },
@@ -71,7 +71,7 @@ export default function SubcontractorDirectory() {
         const row = {};
         header.forEach((h, idx) => { row[h] = cols[idx] || ''; });
         if (row.full_name || row.fullname || row.name) {
-          await base44.entities.TenderContact.create({
+          await TenderContact.create({
             full_name: row.full_name || row.fullname || row.name,
             business_name: row.business_name || row.businessname || row.company || '',
             email: row.email || '',
