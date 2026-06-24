@@ -107,13 +107,26 @@ export default function TenderDetail() {
   const { data: questions = [], refetch: refetchQuestions } = useQuery({
     queryKey: ['tender_rfis', id],
     queryFn: async () => {
-      const { data } = await import('@/api/supabaseClient').then(m => m.supabase
+      const { supabase } = await import('@/api/supabaseClient');
+      const { data: rfis, error } = await supabase
         .from('tender_rfis')
-        .select('*, tender_rfi_responses(*)')
+        .select('*')
         .eq('tender_id', id)
-        .order('created_at', { ascending: false })
-      );
-      return data || [];
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      // Fetch responses for each RFI
+      const rfiWithResponses = await Promise.all((rfis || []).map(async (rfi) => {
+        const { data: responses } = await supabase
+          .from('tender_rfi_responses')
+          .select('*')
+          .eq('rfi_id', rfi.id)
+          .order('created_at', { ascending: true });
+        return { ...rfi, tender_rfi_responses: responses || [] };
+      }));
+
+      return rfiWithResponses || [];
     },
     enabled: activeTab === 'questions',
   });
