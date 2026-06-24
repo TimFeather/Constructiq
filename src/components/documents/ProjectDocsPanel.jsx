@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import StatusBadge from '@/components/shared/StatusBadge';
-import { Upload, ExternalLink, FileText, Folder, FolderOpen, Plus, GripVertical, ChevronDown, ChevronRight, FolderPlus, Trash2, Eye } from 'lucide-react';
+import { Upload, ExternalLink, FileText, Folder, FolderOpen, Plus, GripVertical, ChevronDown, ChevronRight, FolderPlus, Trash2, Eye, Archive } from 'lucide-react';
 import { format } from 'date-fns';
 
 function getFileType(name) {
@@ -57,6 +57,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
   const [versionUploading, setVersionUploading] = useState(false);
   const [expandedHistory, setExpandedHistory] = useState(new Set());
   const [previewDoc, setPreviewDoc] = useState(null);
+  const [showArchived, setShowArchived] = useState(false);
   const dropZoneRef = useRef(null);
   const queryClient = useQueryClient();
 
@@ -202,10 +203,13 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
 
   const toggleFolder = (f) => setCollapsedFolders(prev => ({ ...prev, [f]: !prev[f] }));
 
+  const visibleDocs = showArchived ? docs.filter(d => d.archived) : docs.filter(d => !d.archived);
+  const archivedCount = docs.filter(d => d.archived).length;
+
   const grouped = {};
   folders.forEach(f => { grouped[f] = []; });
   grouped[UNFILED] = [];
-  docs.forEach(d => {
+  visibleDocs.forEach(d => {
     const key = d.folder && allFolders.includes(d.folder) ? d.folder : UNFILED;
     grouped[key].push(d);
   });
@@ -343,14 +347,24 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
 
       {/* Toolbar */}
       <div className="flex items-center justify-between gap-2">
-        <p className="text-sm text-muted-foreground">{docs.length} document{docs.length !== 1 ? 's' : ''}</p>
+        <p className="text-sm text-muted-foreground">
+          {showArchived ? `${archivedCount} archived document${archivedCount !== 1 ? 's' : ''}` : `${visibleDocs.length} document${visibleDocs.length !== 1 ? 's' : ''}`}
+        </p>
         <div className="flex items-center gap-2">
-          {isInternal && (
+          {isInternal && archivedCount > 0 && (
+            <Button size="sm" variant={showArchived ? 'secondary' : 'outline'}
+              className="gap-1.5 h-8 text-xs"
+              onClick={() => setShowArchived(v => !v)}>
+              <Archive className="w-3 h-3" />
+              {showArchived ? 'Hide Archived' : `Archived (${archivedCount})`}
+            </Button>
+          )}
+          {isInternal && !showArchived && (
             <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs" onClick={() => setShowNewFolder(true)}>
               <FolderPlus className="w-3 h-3" /> New Folder
             </Button>
           )}
-          {!isExternal && (
+          {!isExternal && !showArchived && (
             <Button size="sm" className="gap-1.5 h-8 text-xs" onClick={() => {
               setUploadForm({ name: '', file: null, folder: '' });
               setShowUpload(true);

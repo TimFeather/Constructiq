@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Card, CardContent } from '@/components/ui/card';
 import StatusBadge from '@/components/shared/StatusBadge';
-import { Plus, MessageSquare, ChevronDown, ChevronUp, Calendar, Send, Paperclip, ExternalLink, X, Loader2, Trash2, FolderInput } from 'lucide-react';
+import { Plus, MessageSquare, ChevronDown, ChevronUp, Calendar, Send, Paperclip, ExternalLink, X, Loader2, Trash2, FolderInput, Archive } from 'lucide-react';
 import { format } from 'date-fns';
 import { resolveTemplate, applyTemplate } from '@/lib/emailTemplates';
 
@@ -331,6 +331,7 @@ export default function ProjectRFIPanel({ project, rfis = [] }) {
   const { user } = useAuth();
   const isAdminOrInternal = user?.role === 'admin' || user?.role === 'internal';
   const [showCreate, setShowCreate] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
   const [form, setForm] = useState({ title: '', description: '', priority: 'Medium', due_date: '', assigned_to_email: '', assigned_to_name: '' });
   const [attachments, setAttachments] = useState([]);
   const [uploading, setUploading] = useState(false);
@@ -414,24 +415,40 @@ export default function ProjectRFIPanel({ project, rfis = [] }) {
     e.target.value = '';
   };
 
+  const activeRfis   = rfis.filter(r => !r.archived);
+  const archivedRfis = rfis.filter(r => r.archived);
+  const visibleRfis  = showArchived ? archivedRfis : activeRfis;
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">{rfis.length} RFI{rfis.length !== 1 ? 's' : ''}</p>
-        {isAdminOrInternal && (
-          <Button size="sm" className="gap-1.5 h-8 text-xs" onClick={() => setShowCreate(true)}>
-            <Plus className="w-3 h-3" /> New RFI
-          </Button>
-        )}
+        <p className="text-sm text-muted-foreground">
+          {showArchived ? `${archivedRfis.length} archived RFI${archivedRfis.length !== 1 ? 's' : ''}` : `${activeRfis.length} RFI${activeRfis.length !== 1 ? 's' : ''}`}
+        </p>
+        <div className="flex items-center gap-2">
+          {isAdminOrInternal && archivedRfis.length > 0 && (
+            <Button size="sm" variant={showArchived ? 'secondary' : 'outline'}
+              className="gap-1.5 h-8 text-xs"
+              onClick={() => setShowArchived(v => !v)}>
+              <Archive className="w-3 h-3" />
+              {showArchived ? 'Hide Archived' : `Archived (${archivedRfis.length})`}
+            </Button>
+          )}
+          {isAdminOrInternal && !showArchived && (
+            <Button size="sm" className="gap-1.5 h-8 text-xs" onClick={() => setShowCreate(true)}>
+              <Plus className="w-3 h-3" /> New RFI
+            </Button>
+          )}
+        </div>
       </div>
 
-      {rfis.length === 0 && (
+      {visibleRfis.length === 0 && (
         <div className="text-center py-8 text-sm text-muted-foreground border rounded-lg">
-          No RFIs for this project yet.
+          {showArchived ? 'No archived RFIs.' : 'No RFIs for this project yet.'}
         </div>
       )}
 
-      {rfis.map(rfi => (
+      {visibleRfis.map(rfi => (
         <RFICard key={rfi.id} rfi={rfi} project={project} emailTemplates={emailTemplates} registeredUsers={registeredUsers} />
       ))}
 

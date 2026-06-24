@@ -19,7 +19,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Plus, Send, Archive, ChevronDown, ChevronUp, AlertTriangle, CheckCircle2, Upload, X, Pencil } from 'lucide-react';
+import { Plus, Send, Archive, ChevronDown, ChevronUp, AlertTriangle, CheckCircle2, Upload, X, Pencil, Paperclip, Download } from 'lucide-react';
 import { format } from 'date-fns';
 
 const NOTICE_TYPES = [
@@ -41,7 +41,16 @@ export default function TenderNTTPanel({ tender, canManage }) {
 
   const { data: notices = [], isLoading, isError, error } = useQuery({
     queryKey: ['tenderNotices', tender.id],
-    queryFn:  () => TenderNotice.filter({ tender_id: tender.id }, '-created_at'),
+    queryFn: async () => {
+      const { supabase } = await import('@/api/supabaseClient');
+      const { data, error: qErr } = await supabase
+        .from('tender_notices')
+        .select('*, tender_notice_attachments(id, file_url, file_name)')
+        .eq('tender_id', tender.id)
+        .order('created_at', { ascending: false });
+      if (qErr) throw qErr;
+      return (data || []).map(n => ({ ...n, attachments: n.tender_notice_attachments || [] }));
+    },
     enabled:  !!tender.id,
     retry: 1,
   });
@@ -263,7 +272,7 @@ export default function TenderNTTPanel({ tender, canManage }) {
 
               {/* Expanded detail */}
               {expandedId === notice.id && (
-                <div className="px-4 pb-4 pt-0 bg-muted/10 border-t text-sm space-y-2">
+                <div className="px-4 pb-4 pt-3 bg-muted/10 border-t text-sm space-y-3">
                   {notice.description && (
                     <p className="text-muted-foreground whitespace-pre-wrap">{notice.description}</p>
                   )}
@@ -274,6 +283,27 @@ export default function TenderNTTPanel({ tender, canManage }) {
                   )}
                   {notice.issued_by && (
                     <p className="text-xs text-muted-foreground">Issued by: {notice.issued_by}</p>
+                  )}
+                  {notice.attachments?.length > 0 && (
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground flex items-center gap-1 mb-2">
+                        <Paperclip className="w-3 h-3" /> Attachments ({notice.attachments.length})
+                      </p>
+                      <div className="space-y-1">
+                        {notice.attachments.map(att => (
+                          <a
+                            key={att.id}
+                            href={att.file_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2 text-xs text-primary hover:underline bg-white border rounded px-3 py-2"
+                          >
+                            <Download className="w-3 h-3 flex-shrink-0" />
+                            <span className="truncate">{att.file_name}</span>
+                          </a>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </div>
               )}

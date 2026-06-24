@@ -271,6 +271,16 @@ Deno.serve(async (req: Request) => {
         created_at: issuedAt,
       }).then(() => {});
 
+      // Log to tender activity feed
+      await supabaseAdmin.from('tender_activity').insert({
+        tender_id:   notice.tender_id,
+        event_type:  'status_changed',
+        actor_name:  user.email,
+        actor_email: user.email,
+        description: `NTT ${notice.notice_number} issued (${notice.notice_type}) — ${sent} email${sent !== 1 ? 's' : ''} sent`,
+        occurred_at: issuedAt,
+      }).then(() => {});
+
       return Response.json({
         success: true,
         emails_sent:   sent,

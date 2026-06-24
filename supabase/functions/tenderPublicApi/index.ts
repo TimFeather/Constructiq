@@ -59,24 +59,58 @@ Deno.serve(async (req: Request) => {
       const portalUrl = invToken ? `${Deno.env.get('SITE_URL') || Deno.env.get('APP_URL') || 'https://constructiq-beige.vercel.app'}/tender-submit/${invToken}` : '';
 
       try {
+        const bodyContent = `<p>Dear <strong>${invitee_name}</strong>,</p>
+<p>Your question on tender <strong>${tRow?.tender_number || ''}: ${tRow?.title || ''}</strong> has been answered.</p>
+<p><strong>Question:</strong> ${rfiRow?.subject || ''}</p>
+<p><strong>Answer:</strong><br>${content}</p>
+${portalUrl ? `<p style="margin-top:24px;"><a href="${portalUrl}" style="display:inline-block;padding:10px 24px;background:${brandColour};color:#fff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View on Portal</a></p>` : ''}
+<p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br><strong>${userData?.full_name || fromName}</strong></p>`;
+
+        const logoHtml = br.logo_url
+          ? `<div style="text-align:center;margin-bottom:20px;"><img src="${br.logo_url}" alt="${br.company_name || 'Logo'}" width="160" style="max-width:100%;height:auto;display:inline-block;" /></div>`
+          : '';
+        const footerHtml = br.footer_text
+          ? `<div style="margin-top:32px;padding-top:16px;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af;line-height:1.6;">${br.footer_text.replace(/\n/g, '<br>')}</div>`
+          : '';
+
+        const htmlBody = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>Email</title>
+</head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:32px 16px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0"
+               style="max-width:600px;width:100%;background:#ffffff;border-radius:8px;
+                      overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
+          <tr><td style="background:${brandColour};height:4px;"></td></tr>
+          <tr>
+            <td style="padding:32px 40px;">
+              ${logoHtml}
+              <div style="font-size:15px;color:#111827;line-height:1.7;">
+                ${bodyContent}
+              </div>
+              ${footerHtml}
+            </td>
+          </tr>
+          <tr><td style="background:${brandColour};height:2px;"></td></tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
         const resend = new Resend(Deno.env.get('RESEND_API_KEY'));
         await resend.emails.send({
           from:    `${fromName} <${senderEmail}>`,
           to:      invitee_email,
           subject: `Your question on ${tRow?.tender_number || ''} has been answered`,
-          html: `<!DOCTYPE html><html><body style="font-family:-apple-system,sans-serif;background:#f3f4f6;margin:0;padding:32px 16px;">
-<table width="100%" style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1);">
-  <tr><td style="background:${brandColour};height:4px;"></td></tr>
-  <tr><td style="padding:32px 40px;font-size:15px;color:#111827;line-height:1.7;">
-    <p>Dear <strong>${invitee_name}</strong>,</p>
-    <p>Your question on tender <strong>${tRow?.tender_number || ''}: ${tRow?.title || ''}</strong> has been answered.</p>
-    <p><strong>Question:</strong> ${rfiRow?.subject || ''}</p>
-    <p><strong>Answer:</strong><br>${content}</p>
-    ${portalUrl ? `<p style="margin-top:24px;"><a href="${portalUrl}" style="display:inline-block;padding:10px 24px;background:${brandColour};color:#fff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View on Portal</a></p>` : ''}
-    <p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br><strong>${userData?.full_name || fromName}</strong><br>${br.company_name || fromName}</p>
-  </td></tr>
-  <tr><td style="background:${brandColour};height:2px;"></td></tr>
-</table></body></html>`,
+          html: htmlBody,
         });
       } catch (_e) { /* non-blocking */ }
       return Response.json({ success: true }, { headers: corsHeaders });
@@ -459,6 +493,16 @@ Deno.serve(async (req: Request) => {
         } catch (_e) { /* non-blocking */ }
       }
 
+      // Log submission to activity feed (non-blocking)
+      supabaseAdmin.from('tender_activity').insert({
+        tender_id:   tender.id,
+        event_type:  'submission_received',
+        actor_name:  invitation.invitee_name || invitation.invitee_email,
+        actor_email: invitation.invitee_email,
+        description: `Submission received from ${invitation.invitee_name || invitation.invitee_email}${invitation.invitee_company ? ` (${invitation.invitee_company})` : ''}`,
+        occurred_at: new Date().toISOString(),
+      }).then(() => {});
+
       return Response.json({ success: true }, { headers: corsHeaders });
     }
 
@@ -539,24 +583,68 @@ Deno.serve(async (req: Request) => {
         const resend      = new Resend(Deno.env.get('RESEND_API_KEY'));
 
         if (toEmail) {
+          const bodyContent = `<p><strong>${invitation.invitee_name}</strong> (${invitation.invitee_email}) has submitted a question on tender <strong>${tender.tender_number}: ${tender.title}</strong>.</p>
+<p><strong>Subject:</strong> ${subject}</p>
+${qDesc ? `<p><strong>Question:</strong><br>${qDesc}</p>` : ''}
+<p style="margin-top:24px;"><a href="${adminUrl}" style="display:inline-block;padding:10px 24px;background:${brandColour};color:#fff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View &amp; Respond</a></p>`;
+
+          const logoHtml = br.logo_url
+            ? `<div style="text-align:center;margin-bottom:20px;"><img src="${br.logo_url}" alt="${br.company_name || 'Logo'}" width="160" style="max-width:100%;height:auto;display:inline-block;" /></div>`
+            : '';
+          const footerHtml = br.footer_text
+            ? `<div style="margin-top:32px;padding-top:16px;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af;line-height:1.6;">${br.footer_text.replace(/\n/g, '<br>')}</div>`
+            : '';
+
+          const htmlBody = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>Email</title>
+</head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:32px 16px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0"
+               style="max-width:600px;width:100%;background:#ffffff;border-radius:8px;
+                      overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
+          <tr><td style="background:${brandColour};height:4px;"></td></tr>
+          <tr>
+            <td style="padding:32px 40px;">
+              ${logoHtml}
+              <div style="font-size:15px;color:#111827;line-height:1.7;">
+                ${bodyContent}
+              </div>
+              ${footerHtml}
+            </td>
+          </tr>
+          <tr><td style="background:${brandColour};height:2px;"></td></tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
           await resend.emails.send({
             from:    `${fromName} <${senderEmail}>`,
             to:      toEmail,
             subject: `New Tender Question — ${tender.tender_number}: ${tender.title}`,
-            html: `<!DOCTYPE html><html><body style="font-family:-apple-system,sans-serif;background:#f3f4f6;margin:0;padding:32px 16px;">
-<table width="100%" style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1);">
-  <tr><td style="background:${brandColour};height:4px;"></td></tr>
-  <tr><td style="padding:32px 40px;font-size:15px;color:#111827;line-height:1.7;">
-    <p><strong>${invitation.invitee_name}</strong> (${invitation.invitee_email}) has submitted a question on tender <strong>${tender.tender_number}: ${tender.title}</strong>.</p>
-    <p><strong>Subject:</strong> ${subject}</p>
-    ${qDesc ? `<p><strong>Question:</strong><br>${qDesc}</p>` : ''}
-    <p style="margin-top:24px;"><a href="${adminUrl}" style="display:inline-block;padding:10px 24px;background:${brandColour};color:#fff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View &amp; Respond</a></p>
-  </td></tr>
-  <tr><td style="background:${brandColour};height:2px;"></td></tr>
-</table></body></html>`,
+            html: htmlBody,
           });
         }
       } catch (_e) { /* non-blocking */ }
+
+      // Log to activity feed (non-blocking)
+      supabaseAdmin.from('tender_activity').insert({
+        tender_id:   tender.id,
+        event_type:  'note_added',
+        actor_name:  invitation.invitee_name || invitation.invitee_email,
+        actor_email: invitation.invitee_email,
+        description: `Question submitted: "${subject}"`,
+        occurred_at: new Date().toISOString(),
+      }).then(() => {});
 
       return Response.json({ question }, { headers: corsHeaders });
     }

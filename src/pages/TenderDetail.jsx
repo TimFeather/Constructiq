@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ArrowLeft, Save, X, Trash2, AlertCircle, RefreshCw, FolderOpen, Lock, User as UserIcon, MessageSquare, ChevronDown } from 'lucide-react';
+import { ArrowLeft, Save, X, Trash2, AlertCircle, RefreshCw, FolderOpen, Lock, User as UserIcon, MessageSquare, ChevronDown, Pencil } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { useToast } from '@/components/ui/use-toast';
 import TenderDocuments from '@/components/tenders/TenderDocuments';
@@ -132,6 +132,9 @@ export default function TenderDetail() {
   });
   const [replyText, setReplyText] = useState({});
   const [submittingReply, setSubmittingReply] = useState(null);
+  const [deleteQuestionId, setDeleteQuestionId] = useState(null);
+  const [editQuestion, setEditQuestion] = useState(null); // { id, subject, description }
+  const [editQuestionSaving, setEditQuestionSaving] = useState(false);
 
   const handleReply = async (rfiId, inviteeEmail, inviteeName, rfiSubject) => {
     const { supabase } = await import('@/api/supabaseClient');
@@ -160,11 +163,61 @@ export default function TenderDetail() {
       setReplyText(r => ({ ...r, [rfiId]: '' }));
       refetchQuestions();
       toast({ title: 'Reply sent' });
+      logActivity('note_added', `Question answered: "${rfiSubject}" — replied to ${inviteeName || inviteeEmail}`);
     } catch (e) {
       toast({ title: 'Failed to send reply', description: e.message, variant: 'destructive' });
     } finally {
       setSubmittingReply(null);
     }
+  };
+
+  const handleDeleteQuestion = async () => {
+    if (!deleteQuestionId) return;
+    const { supabase } = await import('@/api/supabaseClient');
+    try {
+      await supabase.from('tender_rfis').delete().eq('id', deleteQuestionId);
+      refetchQuestions();
+      toast({ title: 'Question deleted' });
+    } catch (e) {
+      toast({ title: 'Failed to delete', description: e.message, variant: 'destructive' });
+    } finally {
+      setDeleteQuestionId(null);
+    }
+  };
+
+  const handleEditQuestion = async () => {
+    if (!editQuestion) return;
+    setEditQuestionSaving(true);
+    const { supabase } = await import('@/api/supabaseClient');
+    try {
+      await supabase.from('tender_rfis').update({
+        subject:     editQuestion.subject,
+        description: editQuestion.description,
+        edited_at:   new Date().toISOString(),
+        edited_by_email: user.email,
+      }).eq('id', editQuestion.id);
+      refetchQuestions();
+      toast({ title: 'Question updated' });
+      setEditQuestion(null);
+    } catch (e) {
+      toast({ title: 'Failed to update', description: e.message, variant: 'destructive' });
+    } finally {
+      setEditQuestionSaving(false);
+    }
+  };
+
+  const logActivity = async (eventType, description) => {
+    try {
+      const { supabase } = await import('@/api/supabaseClient');
+      await supabase.from('tender_activity').insert({
+        tender_id: id,
+        event_type: eventType,
+        actor_name: user?.full_name || user?.email || 'Unknown',
+        actor_email: user?.email || '',
+        description,
+        occurred_at: new Date().toISOString(),
+      });
+    } catch (_) {}
   };
 
   // Detect unsaved changes
@@ -259,6 +312,11 @@ export default function TenderDetail() {
       });
       setIsDirty(false);
       toast({ title: 'Tender saved' });
+      if (form.status !== tender.status) {
+        logActivity('status_changed', `Status changed from ${tender.status} to ${form.status}`);
+      } else {
+        logActivity('note_added', 'Tender details updated');
+      }
     } catch (err) {
       console.error('[handleSaveDetails] failed:', err?.message, err?.response?.data, err?.stack);
       toast({ title: 'Save failed', description: err?.message || 'Unknown error', variant: 'destructive', duration: 8000 });
@@ -687,15 +745,32 @@ export default function TenderDetail() {
               {questions.map((q) => (
                 <div key={q.id} className="border rounded-lg p-4 space-y-3">
                   <div className="flex items-start justify-between gap-2">
-                    <div>
+                    <div className="flex-1">
                       <p className="font-medium text-sm">{q.subject}</p>
                       <p className="text-xs text-muted-foreground mt-0.5">
                         {q.created_by_name || q.created_by_email} · {new Date(q.created_at).toLocaleDateString('en-NZ')}
+                        {q.edited_at && <span className="italic ml-1">(edited)</span>}
                       </p>
                     </div>
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${q.status === 'Answered' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
-                      {q.status}
-                    </span>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${q.status === 'Answered' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                        {q.status}
+                      </span>
+                      {effectiveCanManage && (
+                        <>
+                          <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:bg-muted"
+                            title="Edit question"
+                            onClick={() => setEditQuestion({ id: q.id, subject: q.subject, description: q.description || '' })}>
+                            <Pencil className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:bg-destructive/10"
+                            title="Delete question"
+                            onClick={() => setDeleteQuestionId(q.id)}>
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </>
+                      )}
+                    </div>
                   </div>
                   {q.description && (
                     <p className="text-sm text-muted-foreground bg-muted/30 rounded p-3">{q.description}</p>
@@ -759,6 +834,58 @@ export default function TenderDetail() {
       </Tabs>
 
       <ConvertToProjectModal tender={tender} open={showConvert} onOpenChange={setShowConvert} />
+
+      {/* Delete question confirm */}
+      <AlertDialog open={!!deleteQuestionId} onOpenChange={(o) => !o && setDeleteQuestionId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this question?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove the question and all its responses. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive hover:bg-destructive/90" onClick={handleDeleteQuestion}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Edit question dialog */}
+      {editQuestion && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-background rounded-lg shadow-xl w-full max-w-md p-6 space-y-4">
+            <h2 className="text-base font-semibold">Edit Question</h2>
+            <div className="space-y-3">
+              <div>
+                <Label className="text-xs font-medium">Subject</Label>
+                <Input
+                  value={editQuestion.subject}
+                  onChange={e => setEditQuestion(q => ({ ...q, subject: e.target.value }))}
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <Label className="text-xs font-medium">Description</Label>
+                <Textarea
+                  value={editQuestion.description}
+                  onChange={e => setEditQuestion(q => ({ ...q, description: e.target.value }))}
+                  rows={4}
+                  className="mt-1"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setEditQuestion(null)} disabled={editQuestionSaving}>Cancel</Button>
+              <Button onClick={handleEditQuestion} disabled={editQuestionSaving || !editQuestion.subject.trim()}>
+                {editQuestionSaving ? 'Saving...' : 'Save Changes'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <AlertDialog open={showUnsavedDialog} onOpenChange={setShowUnsavedDialog}>
         <AlertDialogContent>
