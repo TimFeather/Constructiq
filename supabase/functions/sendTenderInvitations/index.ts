@@ -192,13 +192,8 @@ Deno.serve(async (req: Request) => {
       const bodyContent = isHtml ? replace(rawBody) : replace(rawBody).replace(/\n/g, '<br>');
       const bodyText = replace(rawBody);
 
-      const bodyWithCTA = `${!tpl ? `<p>Dear <strong>${inv.full_name}</strong>,</p>` : ''}${bodyContent}
-<p style="margin-top:24px;">
-  <a href="${submissionLink}" style="display:inline-block;padding:10px 24px;background:${brandColour};color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View Tender &amp; Submit Pricing</a>
-</p>`;
-
-    const logoHtml = branding.logo_url
-      ? `<div style="text-align:left;margin-bottom:20px;"><img src="${branding.logo_url}" alt="${branding.company_name || 'Logo'}" width="160" style="max-width:100%;height:auto;display:inline-block;" /></div>`
+      const logoHtml = branding.logo_url
+      ? `<div style="text-align:center;margin-bottom:20px;"><img src="${branding.logo_url}" alt="${branding.company_name || 'Logo'}" width="160" style="max-width:100%;height:auto;display:inline-block;" /></div>`
       : '';
 
     const footerHtml = branding.footer_text
@@ -224,7 +219,7 @@ Deno.serve(async (req: Request) => {
             <td style="padding:32px 40px;">
               ${logoHtml}
               <div style="font-size:15px;color:#111827;line-height:1.7;">
-                ${bodyWithCTA}
+                ${bodyContent}
               </div>
               ${footerHtml}
             </td>
