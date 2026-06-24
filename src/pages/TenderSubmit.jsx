@@ -11,7 +11,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import {
   HardHat, Calendar, MapPin, Download, CheckCircle2,
-  AlertCircle, Mail, Phone, Building2, FileText, Bell,
+  AlertCircle, Mail, Phone, Building2, FileText, Bell, MessageSquare, X,
 } from 'lucide-react';
 import { format, parseISO, isPast } from 'date-fns';
 
@@ -66,13 +66,23 @@ export default function TenderSubmit() {
   const [error, setError]               = useState(null);
   const [tender, setTender]             = useState(null);
   const [invitee, setInvitee]           = useState(null);
+  const [issuer, setIssuer]             = useState(null);
+  const [branding, setBranding]         = useState(null);
   const [submitted, setSubmitted]       = useState(false);
   const [submitting, setSubmitting]     = useState(false);
   const [submitError, setSubmitError]   = useState('');
   const [uploading, setUploading]       = useState(false);
+  const [pricingFiles, setPricingFiles] = useState([]); // [{file_url, file_name}]
   const [editingSubmission, setEditingSubmission] = useState(false);
   const [activeTab, setActiveTab]       = useState('overview');
   const [intentLoading, setIntentLoading] = useState(false);
+
+  // Questions state
+  const [questions, setQuestions]       = useState([]);
+  const [questionsLoaded, setQuestionsLoaded] = useState(false);
+  const [showAskModal, setShowAskModal] = useState(false);
+  const [askForm, setAskForm]           = useState({ subject: '', description: '' });
+  const [askSubmitting, setAskSubmitting] = useState(false);
 
   const [form, setForm] = useState({
     lump_sum_price: '',
@@ -87,6 +97,8 @@ export default function TenderSubmit() {
       .then(res => {
         setTender(res.data.tender);
         setInvitee(res.data.invitee);
+        setIssuer(res.data.issuer || null);
+        setBranding(res.data.branding || null);
         if (res.data.invitee?.submission?.submitted_at) {
           setSubmitted(true);
           const s = res.data.invitee.submission;
@@ -96,6 +108,7 @@ export default function TenderSubmit() {
             uploaded_file_url:  s.uploaded_file_url  || '',
             uploaded_file_name: s.uploaded_file_name || '',
           });
+          setPricingFiles(s.pricing_files || (s.uploaded_file_url ? [{ file_url: s.uploaded_file_url, file_name: s.uploaded_file_name }] : []));
         }
       })
       .catch(e => setError(e?.response?.data?.error || 'Invalid or expired link'))
@@ -114,34 +127,68 @@ export default function TenderSubmit() {
     }
   };
 
+  const loadQuestions = async () => {
+    try {
+      const res = await invokeFunction('tenderPublicApi', { action: 'listQuestions', token });
+      setQuestions(res.data.questions || []);
+      setQuestionsLoaded(true);
+    } catch (_e) { /* fail silently */ }
+  };
+
+  const handleAskQuestion = async () => {
+    if (!askForm.subject.trim()) return;
+    setAskSubmitting(true);
+    try {
+      await invokeFunction('tenderPublicApi', {
+        action: 'createQuestion', token,
+        subject: askForm.subject,
+        description: askForm.description,
+      });
+      setAskForm({ subject: '', description: '' });
+      setShowAskModal(false);
+      await loadQuestions();
+    } catch (e) {
+      alert('Failed to submit question: ' + (e?.message || 'Please try again'));
+    } finally {
+      setAskSubmitting(false);
+    }
+  };
+
   const isOverdue = tender?.closing_date &&
     isPast(parseISO(`${tender.closing_date.split('T')[0]}T23:59:59+12:00`));
 
   const handleFileUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.size > 500 * 1024 * 1024) {
-      setSubmitError('File must be under 500 MB. Please compress or split the file.');
-      e.target.value = '';
-      return;
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    for (const file of files) {
+      if (file.size > 500 * 1024 * 1024) {
+        setSubmitError(`${file.name} must be under 500 MB.`);
+        e.target.value = '';
+        return;
+      }
     }
     setUploading(true);
     try {
-      const base64 = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result.split(',')[1]);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-      const res = await invokeFunction('tenderPublicApi', {
-        action: 'upload', token,
-        fileName: file.name, fileData: base64, fileType: file.type,
-      });
-      setForm(f => ({ ...f, uploaded_file_url: res.data.file_url, uploaded_file_name: file.name }));
+      const uploaded = [];
+      for (const file of files) {
+        const base64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result.split(',')[1]);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        const res = await invokeFunction('tenderPublicApi', {
+          action: 'upload', token,
+          fileName: file.name, fileData: base64, fileType: file.type,
+        });
+        uploaded.push({ file_url: res.data.file_url, file_name: file.name });
+      }
+      setPricingFiles(prev => [...prev, ...uploaded]);
     } catch (err) {
       setSubmitError(`File upload failed: ${err?.message || 'Please try again'}`);
     } finally {
       setUploading(false);
+      e.target.value = '';
     }
   };
 
@@ -155,8 +202,10 @@ export default function TenderSubmit() {
         submission: {
           lump_sum_price:     Number(form.lump_sum_price),
           notes:              form.notes,
-          uploaded_file_url:  form.uploaded_file_url,
-          uploaded_file_name: form.uploaded_file_name,
+          pricing_files:      pricingFiles,
+          // backwards compat: first file as legacy fields
+          uploaded_file_url:  pricingFiles[0]?.file_url  || '',
+          uploaded_file_name: pricingFiles[0]?.file_name || '',
         },
       });
       setInvitee(prev => prev ? {
@@ -209,7 +258,7 @@ export default function TenderSubmit() {
   if (submitted && !editingSubmission) {
     return (
       <div className="min-h-screen bg-background">
-        <PortalHeader tender={tender} invitee={invitee} isOverdue={isOverdue}
+        <PortalHeader tender={tender} invitee={invitee} isOverdue={isOverdue} branding={branding}
           onSubmitClick={() => { setEditingSubmission(true); setActiveTab('submit'); }} showSubmitBtn={!isOverdue} />
         <div className="max-w-3xl mx-auto px-4 py-12 flex items-center justify-center">
           <div className="text-center space-y-4 max-w-sm">
@@ -247,7 +296,7 @@ export default function TenderSubmit() {
   // ── Main portal ──────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-background">
-      <PortalHeader tender={tender} invitee={invitee} isOverdue={isOverdue}
+      <PortalHeader tender={tender} invitee={invitee} isOverdue={isOverdue} branding={branding}
         onSubmitClick={() => setActiveTab('submit')} showSubmitBtn={!isOverdue && !submitted} />
 
       <div className="max-w-5xl mx-auto px-4 py-6">
@@ -267,6 +316,9 @@ export default function TenderSubmit() {
             </TabsTrigger>
             <TabsTrigger value="correspondence">
               Correspondence {notices.length > 0 && `(${notices.length})`}
+            </TabsTrigger>
+            <TabsTrigger value="questions" onClick={() => { if (!questionsLoaded) loadQuestions(); }}>
+              Questions {questions.length > 0 && `(${questions.length})`}
             </TabsTrigger>
             {!isOverdue && <TabsTrigger value="submit">
               {submitted ? 'Update Submission' : 'Submit'}
@@ -345,6 +397,9 @@ export default function TenderSubmit() {
               {/* Contact info */}
               <div className="border rounded-lg p-5 bg-card space-y-4">
                 <h3 className="font-semibold text-base">Contact Information</h3>
+                {issuer?.name && (
+                  <ContactCard name={issuer.name} email={issuer.email} phone={issuer.phone} label="Issued By" />
+                )}
                 {tender.client_name && (
                   <ContactCard
                     name={tender.client_name}
@@ -447,6 +502,92 @@ export default function TenderSubmit() {
             )}
           </TabsContent>
 
+          {/* ── QUESTIONS TAB ── */}
+          <TabsContent value="questions" className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold">Questions &amp; Answers</h3>
+              {!isOverdue && (
+                <Button size="sm" onClick={() => setShowAskModal(true)} className="gap-1.5">
+                  <MessageSquare className="w-3.5 h-3.5" /> Ask a Question
+                </Button>
+              )}
+            </div>
+            {questions.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                <p className="text-sm">No questions yet.{!isOverdue && ' Use the button above to ask one.'}</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {questions.map((q) => (
+                  <div key={q.id} className="border rounded-lg p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="font-medium text-sm">{q.subject}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {new Date(q.created_at).toLocaleDateString('en-NZ')}
+                        </p>
+                      </div>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${q.status === 'Answered' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                        {q.status}
+                      </span>
+                    </div>
+                    {q.description && (
+                      <p className="text-sm text-muted-foreground bg-muted/30 rounded p-3">{q.description}</p>
+                    )}
+                    {(q.tender_rfi_responses || []).length > 0 && (
+                      <div className="space-y-2 pl-4 border-l-2 border-primary/20">
+                        {(q.tender_rfi_responses || []).map((r) => (
+                          <div key={r.id} className="bg-blue-50 rounded p-3">
+                            <p className="text-xs font-medium text-blue-700">{r.author_name || 'Issued By'}</p>
+                            <p className="text-sm mt-1">{r.content}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+
+          {/* Ask Question Modal */}
+          {showAskModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+              <div className="bg-background rounded-lg shadow-xl w-full max-w-md p-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold">Ask a Question</h3>
+                  <button onClick={() => setShowAskModal(false)}><X className="w-4 h-4" /></button>
+                </div>
+                <div>
+                  <Label className="text-xs">Subject *</Label>
+                  <Input
+                    value={askForm.subject}
+                    onChange={e => setAskForm(f => ({ ...f, subject: e.target.value }))}
+                    placeholder="Brief summary of your question"
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Details (optional)</Label>
+                  <Textarea
+                    value={askForm.description}
+                    onChange={e => setAskForm(f => ({ ...f, description: e.target.value }))}
+                    placeholder="Provide any additional context..."
+                    rows={4}
+                    className="mt-1"
+                  />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => setShowAskModal(false)}>Cancel</Button>
+                  <Button onClick={handleAskQuestion} disabled={!askForm.subject.trim() || askSubmitting}>
+                    {askSubmitting ? 'Submitting...' : 'Submit Question'}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ── SUBMIT TAB ── */}
           {!isOverdue && (
             <TabsContent value="submit">
@@ -470,12 +611,25 @@ export default function TenderSubmit() {
                     </div>
                   </div>
                   <div>
-                    <Label>Attach Pricing Document (optional)</Label>
+                    <Label>Pricing Documents (optional)</Label>
                     <Input type="file" accept=".pdf,.xlsx,.xls,.doc,.docx" onChange={handleFileUpload}
-                      disabled={uploading} className="mt-1.5" />
+                      multiple disabled={uploading} className="mt-1.5" />
                     {uploading && <p className="text-xs text-muted-foreground mt-1">Uploading...</p>}
-                    {form.uploaded_file_name && (
-                      <p className="text-xs text-green-600 mt-1">✓ {form.uploaded_file_name}</p>
+                    {pricingFiles.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        {pricingFiles.map((f, i) => (
+                          <div key={i} className="flex items-center gap-2 text-xs text-green-700 bg-green-50 rounded px-2 py-1">
+                            <FileText className="w-3 h-3 flex-shrink-0" />
+                            <span className="flex-1 truncate">{f.file_name}</span>
+                            <button
+                              className="text-muted-foreground hover:text-destructive"
+                              onClick={() => setPricingFiles(prev => prev.filter((_, j) => j !== i))}
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
                     )}
                   </div>
                   <div>
@@ -512,15 +666,19 @@ export default function TenderSubmit() {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function PortalHeader({ tender, invitee, isOverdue, onSubmitClick, showSubmitBtn }) {
+function PortalHeader({ tender, invitee, isOverdue, branding, onSubmitClick, showSubmitBtn }) {
   return (
     <div className="bg-card border-b shadow-sm">
       <div className="max-w-5xl mx-auto px-4 py-4">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
-              <HardHat className="w-5 h-5 text-primary-foreground" />
-            </div>
+            {branding?.logo_url ? (
+              <img src={branding.logo_url} alt={branding.company_name || 'Logo'} className="h-10 w-auto object-contain flex-shrink-0" />
+            ) : (
+              <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
+                <HardHat className="w-5 h-5 text-primary-foreground" />
+              </div>
+            )}
             <div className="min-w-0">
               <h1 className="font-bold text-lg leading-tight truncate">{tender?.title}</h1>
               <div className="flex items-center gap-3 mt-0.5 text-sm text-muted-foreground flex-wrap">
@@ -564,7 +722,7 @@ function InfoField({ label, value, highlight }) {
   );
 }
 
-function ContactCard({ name, email, label }) {
+function ContactCard({ name, email, phone, label }) {
   return (
     <div className="flex items-start gap-2.5">
       <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
@@ -576,6 +734,11 @@ function ContactCard({ name, email, label }) {
         {email && (
           <a href={`mailto:${email}`} className="flex items-center gap-1 text-primary hover:underline text-xs mt-0.5">
             <Mail className="w-3 h-3" /> {email}
+          </a>
+        )}
+        {phone && (
+          <a href={`tel:${phone}`} className="flex items-center gap-1 text-muted-foreground hover:text-foreground text-xs mt-0.5">
+            <Phone className="w-3 h-3" /> {phone}
           </a>
         )}
       </div>

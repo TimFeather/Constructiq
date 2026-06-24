@@ -97,3 +97,6 @@ export const TenderNoticeAttachment    = entity('tender_notice_attachments');
 export const ContractInstruction       = entity('contract_instructions');
 export const EmailTemplate             = entity('email_templates');
 export const DocumentFolderTemplate    = entity('document_folder_templates');
+export const TradeTemplate             = entity('trade_templates');
+export const TenderRFI                 = entity('tender_rfis');
+export const TenderRFIResponse         = entity('tender_rfi_responses');

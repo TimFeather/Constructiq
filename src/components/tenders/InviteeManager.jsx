@@ -9,7 +9,7 @@ import { invokeFunction, supabase } from '@/api/supabaseClient';
  * v2: Actions column (Resend, Delete/Archive), Resend All Outstanding button.
  */
 import React, { useState, useRef } from 'react';
-import { TenderContact, TenderInvitee, TenderSubmission } from '@/api/entities';
+import { TenderContact, TenderInvitee, TenderSubmission, TradeTemplate } from '@/api/entities';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,7 +19,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Users, Plus, Trash2, Send, UserCheck, Search, RefreshCw, Archive, Link } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 
-const TRADES = [
+const DEFAULT_TRADES = [
   'Electrical', 'Plumbing', 'HVAC', 'Carpentry', 'Masonry',
   'Painting', 'Roofing', 'Flooring', 'Landscaping', 'Demolition',
   'Concrete', 'Steel Erection', 'Glazing', 'Fire Protection'
@@ -41,6 +41,13 @@ const RESENDABLE_STATUSES = ['Draft', 'Invited', 'Viewed'];
 export default function InviteeManager({ tender, onUpdate, canManage }) {
   const { toast }   = useToast();
   const queryClient = useQueryClient();
+
+  const { data: tradeTemplates = [] } = useQuery({
+    queryKey: ['trade_templates'],
+    queryFn: () => TradeTemplate.list('sort_order'),
+    staleTime: 5 * 60_000,
+  });
+  const TRADES = tradeTemplates.length > 0 ? tradeTemplates.map(t => t.name) : DEFAULT_TRADES;
 
   const [form, setForm]             = useState(emptyForm);
   const [nameSearch, setNameSearch] = useState('');

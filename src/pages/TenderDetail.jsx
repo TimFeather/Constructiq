@@ -1,6 +1,6 @@
 import { invokeFunction } from '@/api/supabaseClient';
 import React, { useState, useEffect } from 'react';
-import { Tender, User } from '@/api/entities';
+import { Tender, User, TradeTemplate, TenderRFI, TenderRFIResponse } from '@/api/entities';
 import { useParams, useNavigate, Link, Navigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ArrowLeft, Save, X, Trash2, AlertCircle, RefreshCw, FolderOpen, Lock, User as UserIcon } from 'lucide-react';
+import { ArrowLeft, Save, X, Trash2, AlertCircle, RefreshCw, FolderOpen, Lock, User as UserIcon, MessageSquare, ChevronDown } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { useToast } from '@/components/ui/use-toast';
 import TenderDocuments from '@/components/tenders/TenderDocuments';
@@ -24,7 +24,7 @@ import TenderInvitationStats from '@/components/tenders/TenderInvitationStats';
 import TenderActivityFeed from '@/components/tenders/TenderActivityFeed';
 import TenderNTTPanel from '@/components/tenders/TenderNTTPanel';
 
-const TRADES = [
+const DEFAULT_TRADES = [
   'Electrical', 'Plumbing', 'HVAC', 'Carpentry', 'Masonry',
   'Painting', 'Roofing', 'Flooring', 'Landscaping', 'Demolition',
   'Concrete', 'Steel Erection', 'Glazing', 'Fire Protection'
@@ -94,6 +94,65 @@ export default function TenderDetail() {
     enabled: !!canManage,
   });
   const eligibleLeads = allUsers.filter(u => u.role === 'admin' || u.role === 'pricing');
+
+  // Dynamic trade list from DB (falls back to defaults if table empty or not found)
+  const { data: tradeTemplates = [] } = useQuery({
+    queryKey: ['trade_templates'],
+    queryFn: () => TradeTemplate.list('sort_order'),
+    staleTime: 5 * 60_000,
+  });
+  const TRADES = tradeTemplates.length > 0 ? tradeTemplates.map(t => t.name) : DEFAULT_TRADES;
+
+  // Questions tab
+  const { data: questions = [], refetch: refetchQuestions } = useQuery({
+    queryKey: ['tender_rfis', id],
+    queryFn: async () => {
+      const { data } = await import('@/api/supabaseClient').then(m => m.supabase
+        .from('tender_rfis')
+        .select('*, tender_rfi_responses(*)')
+        .eq('tender_id', id)
+        .order('created_at', { ascending: false })
+      );
+      return data || [];
+    },
+    enabled: activeTab === 'questions',
+  });
+  const [replyText, setReplyText] = useState({});
+  const [submittingReply, setSubmittingReply] = useState(null);
+
+  const handleReply = async (rfiId, inviteeEmail, inviteeName, rfiSubject) => {
+    const { supabase } = await import('@/api/supabaseClient');
+    const content = replyText[rfiId]?.trim();
+    if (!content) return;
+    setSubmittingReply(rfiId);
+    try {
+      await supabase.from('tender_rfi_responses').insert({
+        rfi_id: rfiId,
+        author_email: user.email,
+        author_name: user.full_name || user.email,
+        content,
+      });
+      await supabase.from('tender_rfis').update({ status: 'Answered', updated_at: new Date().toISOString() }).eq('id', rfiId);
+      // Send notification email via edge function
+      await invokeFunction('tenderPublicApi', {
+        action: 'respondQuestion',
+        token: '__admin_reply__',
+        rfi_id: rfiId,
+        content,
+        invitee_email: inviteeEmail,
+        invitee_name: inviteeName,
+        rfi_subject: rfiSubject,
+        tender_id: id,
+      }).catch(() => { /* non-blocking — email is best-effort */ });
+      setReplyText(r => ({ ...r, [rfiId]: '' }));
+      refetchQuestions();
+      toast({ title: 'Reply sent' });
+    } catch (e) {
+      toast({ title: 'Failed to send reply', description: e.message, variant: 'destructive' });
+    } finally {
+      setSubmittingReply(null);
+    }
+  };
 
   // Detect unsaved changes
   useEffect(() => {
@@ -296,6 +355,7 @@ export default function TenderDetail() {
           <TabsTrigger value="documents">Documents {tender.documents?.length > 0 && <span className="ml-1 text-xs opacity-60">{tender.documents.length}</span>}</TabsTrigger>
           <TabsTrigger value="invitees">Invitees</TabsTrigger>
           <TabsTrigger value="ntts">NTTs</TabsTrigger>
+          <TabsTrigger value="questions">Questions</TabsTrigger>
           <TabsTrigger value="submissions">Submissions</TabsTrigger>
           <TabsTrigger value="outcome">Outcome</TabsTrigger>
           <TabsTrigger value="activity">Activity</TabsTrigger>
@@ -596,7 +656,74 @@ export default function TenderDetail() {
           <TenderNTTPanel tender={tender} canManage={effectiveCanManage} />
         </TabsContent>
 
-        {/* Tab 5 — Submissions */}
+        {/* Tab 5 — Questions */}
+        <TabsContent value="questions" className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold">Tender Questions</h3>
+            <Button variant="outline" size="sm" onClick={() => refetchQuestions()} className="gap-1.5 text-xs">
+              <RefreshCw className="w-3 h-3" /> Refresh
+            </Button>
+          </div>
+          {questions.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-30" />
+              <p className="text-sm">No questions submitted yet.</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {questions.map((q) => (
+                <div key={q.id} className="border rounded-lg p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="font-medium text-sm">{q.subject}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {q.created_by_name || q.created_by_email} · {new Date(q.created_at).toLocaleDateString('en-NZ')}
+                      </p>
+                    </div>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${q.status === 'Answered' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                      {q.status}
+                    </span>
+                  </div>
+                  {q.description && (
+                    <p className="text-sm text-muted-foreground bg-muted/30 rounded p-3">{q.description}</p>
+                  )}
+                  {(q.tender_rfi_responses || []).length > 0 && (
+                    <div className="space-y-2 pl-4 border-l-2 border-primary/20">
+                      {(q.tender_rfi_responses || []).map((r) => (
+                        <div key={r.id} className="bg-blue-50 rounded p-3">
+                          <p className="text-xs font-medium text-blue-700">{r.author_name || r.author_email}</p>
+                          <p className="text-sm mt-1">{r.content}</p>
+                          <p className="text-xs text-muted-foreground mt-1">{new Date(r.created_at).toLocaleDateString('en-NZ')}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {effectiveCanManage && (
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        className="flex-1 border rounded px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-primary"
+                        placeholder="Type a reply..."
+                        value={replyText[q.id] || ''}
+                        onChange={e => setReplyText(r => ({ ...r, [q.id]: e.target.value }))}
+                        onKeyDown={e => e.key === 'Enter' && handleReply(q.id, q.created_by_email, q.created_by_name, q.subject)}
+                      />
+                      <Button
+                        size="sm"
+                        disabled={!replyText[q.id]?.trim() || submittingReply === q.id}
+                        onClick={() => handleReply(q.id, q.created_by_email, q.created_by_name, q.subject)}
+                      >
+                        {submittingReply === q.id ? 'Sending...' : 'Reply'}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* Tab 6 — Submissions */}
         <TabsContent value="submissions">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold">Submissions Received</h3>

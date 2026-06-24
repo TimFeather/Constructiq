@@ -65,13 +65,17 @@ function ScoringPanel({ submission, criteria, onSaveScores, saving }) {
             {submission.submitted_at ? format(new Date(submission.submitted_at), 'dd MMM yyyy HH:mm') : '—'}
           </p>
         </div>
-        {submission.uploaded_file_url && (
+        {((submission.pricing_files?.length > 0) || submission.uploaded_file_url) && (
           <div>
-            <p className="text-xs text-muted-foreground">Submission File</p>
-            <a href={submission.uploaded_file_url} target="_blank" rel="noopener noreferrer"
-               className="flex items-center gap-1 text-primary text-sm hover:underline">
-              <Download className="w-3 h-3" /> {submission.uploaded_file_name || 'Download'}
-            </a>
+            <p className="text-xs text-muted-foreground">Pricing Files</p>
+            <div className="space-y-1">
+              {(submission.pricing_files?.length > 0 ? submission.pricing_files : [{ file_url: submission.uploaded_file_url, file_name: submission.uploaded_file_name }]).map((f, i) => (
+                <a key={i} href={f.file_url} target="_blank" rel="noopener noreferrer"
+                   className="flex items-center gap-1 text-primary text-sm hover:underline">
+                  <Download className="w-3 h-3" /> {f.file_name || `File ${i + 1}`}
+                </a>
+              ))}
+            </div>
           </div>
         )}
       </div>

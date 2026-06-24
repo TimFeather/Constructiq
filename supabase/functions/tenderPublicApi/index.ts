@@ -33,6 +33,55 @@ Deno.serve(async (req: Request) => {
 
     console.log(`[tenderPublicApi] action=${action} token=${token?.slice(0, 8)}...`);
 
+    // ── RESPOND TO QUESTION (admin shortcut — no invitation token needed) ─────
+    // Called directly from TenderDetail.jsx admin view
+    if (action === 'respondQuestion' && (!token || token === '__admin_reply__')) {
+      const authHeader = req.headers.get('authorization');
+      if (!authHeader) return Response.json({ error: 'Unauthorized' }, { status: 401, headers: corsHeaders });
+      const jwtToken = authHeader.replace('Bearer ', '');
+      const { data: { user: authUser }, error: authErr } = await supabaseAdmin.auth.getUser(jwtToken);
+      if (authErr || !authUser) return Response.json({ error: 'Invalid token' }, { status: 401, headers: corsHeaders });
+      const { data: userData } = await supabaseAdmin.from('users').select('role, full_name, email').eq('id', authUser.id).single();
+      if (!['admin', 'pricing', 'internal'].includes(userData?.role || '')) return Response.json({ error: 'Forbidden' }, { status: 403, headers: corsHeaders });
+
+      const { rfi_id, content, invitee_email, invitee_name, tender_id: payloadTenderId } = payload;
+      // Load tender + branding for email
+      const { data: tRow } = await supabaseAdmin.from('tenders').select('id, tender_number, title').eq('id', payloadTenderId).single();
+      const { data: bd } = await supabaseAdmin.from('email_branding').select('*').limit(1).single();
+      const br: any = bd || {};
+      const senderEmail = br.sender_email || Deno.env.get('SENDER_EMAIL') || 'noreply@totalhomesolutions.co.nz';
+      const fromName    = br.sender_name || br.company_name || 'ConstructIQ';
+      const brandColour = br.brand_colour || '#1a56db';
+      const { data: rfiRow } = await supabaseAdmin.from('tender_rfis').select('subject').eq('id', rfi_id).single();
+      // Find the invitation token for the invitee to link back to portal
+      const { data: invRows } = await supabaseAdmin.from('tender_invitations').select('token').eq('tender_id', payloadTenderId).eq('invitee_email', invitee_email).limit(1);
+      const invToken = (invRows ?? [])[0]?.token;
+      const portalUrl = invToken ? `${Deno.env.get('SITE_URL') || Deno.env.get('APP_URL') || 'https://constructiq-beige.vercel.app'}/tender-submit/${invToken}` : '';
+
+      try {
+        const resend = new Resend(Deno.env.get('RESEND_API_KEY'));
+        await resend.emails.send({
+          from:    `${fromName} <${senderEmail}>`,
+          to:      invitee_email,
+          subject: `Your question on ${tRow?.tender_number || ''} has been answered`,
+          html: `<!DOCTYPE html><html><body style="font-family:-apple-system,sans-serif;background:#f3f4f6;margin:0;padding:32px 16px;">
+<table width="100%" style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1);">
+  <tr><td style="background:${brandColour};height:4px;"></td></tr>
+  <tr><td style="padding:32px 40px;font-size:15px;color:#111827;line-height:1.7;">
+    <p>Dear <strong>${invitee_name}</strong>,</p>
+    <p>Your question on tender <strong>${tRow?.tender_number || ''}: ${tRow?.title || ''}</strong> has been answered.</p>
+    <p><strong>Question:</strong> ${rfiRow?.subject || ''}</p>
+    <p><strong>Answer:</strong><br>${content}</p>
+    ${portalUrl ? `<p style="margin-top:24px;"><a href="${portalUrl}" style="display:inline-block;padding:10px 24px;background:${brandColour};color:#fff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View on Portal</a></p>` : ''}
+    <p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br><strong>${userData?.full_name || fromName}</strong><br>${br.company_name || fromName}</p>
+  </td></tr>
+  <tr><td style="background:${brandColour};height:2px;"></td></tr>
+</table></body></html>`,
+        });
+      } catch (_e) { /* non-blocking */ }
+      return Response.json({ success: true }, { headers: corsHeaders });
+    }
+
     if (!token) {
       return Response.json({ error: 'Token required' }, { status: 400, headers: corsHeaders });
     }
@@ -172,6 +221,13 @@ Deno.serve(async (req: Request) => {
         }));
       } catch (_e) { /* table may not exist yet — fail silently */ }
 
+      // Load branding for portal header
+      let portalBranding: any = {};
+      try {
+        const { data: bd } = await supabaseAdmin.from('email_branding').select('*').limit(1).single();
+        if (bd) portalBranding = bd;
+      } catch (_e) { /* fail silently */ }
+
       return Response.json({
         tender: {
           id:              tender.id,
@@ -193,9 +249,19 @@ Deno.serve(async (req: Request) => {
         invitee: {
           full_name:     invitation.invitee_name  || '',
           email:         invitation.invitee_email || '',
-          business_name: '',
+          business_name: invitation.invitee_company || '',
           status:        invitation.status,
           submission:    existingSubmission,
+        },
+        issuer: {
+          name:  tender.tender_lead_name  || tender.created_by_name  || '',
+          email: tender.tender_lead_email || tender.created_by_email || '',
+          phone: tender.tender_lead_phone || '',
+        },
+        branding: {
+          company_name:  portalBranding.company_name  || '',
+          logo_url:      portalBranding.logo_url      || null,
+          brand_colour:  portalBranding.brand_colour  || '#1a56db',
         },
       }, { headers: corsHeaders });
     }
@@ -259,14 +325,22 @@ Deno.serve(async (req: Request) => {
           .eq('invitation_id', invitation.id);
         const existing: any[] = existingData ?? [];
 
+        // Build pricing_files array — merge new uploads with any passed in
+        const pricingFiles: any[] = submission.pricing_files || [];
+        // Backwards compat: if single file provided, wrap as first entry
+        if (!pricingFiles.length && submission.uploaded_file_url) {
+          pricingFiles.push({ file_url: submission.uploaded_file_url, file_name: submission.uploaded_file_name || 'pricing.pdf', uploaded_at: submittedAt });
+        }
+
         if (existing.length > 0) {
           const { data: updated } = await supabaseAdmin
             .from('tender_submissions')
             .update({
               lump_sum_price:     submission.lump_sum_price,
               notes:              submission.notes              || '',
-              uploaded_file_url:  submission.uploaded_file_url  || '',
-              uploaded_file_name: submission.uploaded_file_name || '',
+              uploaded_file_url:  pricingFiles[0]?.file_url  || submission.uploaded_file_url  || '',
+              uploaded_file_name: pricingFiles[0]?.file_name || submission.uploaded_file_name || '',
+              pricing_files:      pricingFiles,
               submitted_at:       submittedAt,
               // re-snapshot in case invitee details were corrected before resubmission
               ...inviteeSnapshot,
@@ -287,8 +361,9 @@ Deno.serve(async (req: Request) => {
               invitee_email:      invitation.invitee_email || '',
               lump_sum_price:     submission.lump_sum_price,
               notes:              submission.notes              || '',
-              uploaded_file_url:  submission.uploaded_file_url  || '',
-              uploaded_file_name: submission.uploaded_file_name || '',
+              uploaded_file_url:  pricingFiles[0]?.file_url  || submission.uploaded_file_url  || '',
+              uploaded_file_name: pricingFiles[0]?.file_name || submission.uploaded_file_name || '',
+              pricing_files:      pricingFiles,
               submitted_at:       submittedAt,
               // snapshot invitee details for historical integrity
               ...inviteeSnapshot,
@@ -413,6 +488,156 @@ Deno.serve(async (req: Request) => {
       }
 
       return Response.json({ success: true, status: newStatus }, { headers: corsHeaders });
+    }
+
+    // ── LIST QUESTIONS ────────────────────────────────────────────────────────
+    if (action === 'listQuestions') {
+      const { data: questions } = await supabaseAdmin
+        .from('tender_rfis')
+        .select('*, tender_rfi_responses(*)')
+        .eq('tender_id', tender.id)
+        .order('created_at', { ascending: false });
+
+      return Response.json({ questions: questions ?? [] }, { headers: corsHeaders });
+    }
+
+    // ── CREATE QUESTION ───────────────────────────────────────────────────────
+    if (action === 'createQuestion') {
+      const { subject, description: qDesc } = payload;
+      if (!subject?.trim()) {
+        return Response.json({ error: 'Subject is required' }, { status: 400, headers: corsHeaders });
+      }
+
+      const { data: question, error: qErr } = await supabaseAdmin
+        .from('tender_rfis')
+        .insert({
+          tender_id:        tender.id,
+          invitation_id:    invitation.id,
+          created_by_email: invitation.invitee_email,
+          created_by_name:  invitation.invitee_name,
+          subject:          subject.trim(),
+          description:      qDesc?.trim() || null,
+          status:           'Open',
+        })
+        .select()
+        .single();
+
+      if (qErr) {
+        console.error('[tenderPublicApi] createQuestion failed:', qErr.message);
+        return Response.json({ error: qErr.message }, { status: 500, headers: corsHeaders });
+      }
+
+      // Notify tender lead / creator
+      try {
+        const { data: bd } = await supabaseAdmin.from('email_branding').select('*').limit(1).single();
+        const br: any = bd || {};
+        const senderEmail = br.sender_email || Deno.env.get('SENDER_EMAIL') || 'noreply@totalhomesolutions.co.nz';
+        const fromName    = br.sender_name || br.company_name || 'ConstructIQ';
+        const brandColour = br.brand_colour || '#1a56db';
+        const toEmail     = tender.tender_lead_email || tender.created_by_email;
+        const adminUrl    = `${Deno.env.get('SITE_URL') || Deno.env.get('APP_URL') || 'https://constructiq-beige.vercel.app'}/tenders/${tender.id}?tab=questions`;
+        const resend      = new Resend(Deno.env.get('RESEND_API_KEY'));
+
+        if (toEmail) {
+          await resend.emails.send({
+            from:    `${fromName} <${senderEmail}>`,
+            to:      toEmail,
+            subject: `New Tender Question — ${tender.tender_number}: ${tender.title}`,
+            html: `<!DOCTYPE html><html><body style="font-family:-apple-system,sans-serif;background:#f3f4f6;margin:0;padding:32px 16px;">
+<table width="100%" style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1);">
+  <tr><td style="background:${brandColour};height:4px;"></td></tr>
+  <tr><td style="padding:32px 40px;font-size:15px;color:#111827;line-height:1.7;">
+    <p><strong>${invitation.invitee_name}</strong> (${invitation.invitee_email}) has submitted a question on tender <strong>${tender.tender_number}: ${tender.title}</strong>.</p>
+    <p><strong>Subject:</strong> ${subject}</p>
+    ${qDesc ? `<p><strong>Question:</strong><br>${qDesc}</p>` : ''}
+    <p style="margin-top:24px;"><a href="${adminUrl}" style="display:inline-block;padding:10px 24px;background:${brandColour};color:#fff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View &amp; Respond</a></p>
+  </td></tr>
+  <tr><td style="background:${brandColour};height:2px;"></td></tr>
+</table></body></html>`,
+          });
+        }
+      } catch (_e) { /* non-blocking */ }
+
+      return Response.json({ question }, { headers: corsHeaders });
+    }
+
+    // ── RESPOND TO QUESTION ───────────────────────────────────────────────────
+    // This action requires a valid user JWT (admin/pricing)
+    if (action === 'respondQuestion') {
+      const authHeader = req.headers.get('authorization');
+      if (!authHeader) {
+        return Response.json({ error: 'Unauthorized' }, { status: 401, headers: corsHeaders });
+      }
+      const jwtToken = authHeader.replace('Bearer ', '');
+      const { data: { user: authUser }, error: authErr } = await supabaseAdmin.auth.getUser(jwtToken);
+      if (authErr || !authUser) {
+        return Response.json({ error: 'Invalid token' }, { status: 401, headers: corsHeaders });
+      }
+      const { data: userData } = await supabaseAdmin.from('users').select('role, full_name, email').eq('id', authUser.id).single();
+      if (!['admin', 'pricing', 'internal'].includes(userData?.role || '')) {
+        return Response.json({ error: 'Forbidden' }, { status: 403, headers: corsHeaders });
+      }
+
+      const { rfi_id, content } = payload;
+      if (!rfi_id || !content?.trim()) {
+        return Response.json({ error: 'rfi_id and content required' }, { status: 400, headers: corsHeaders });
+      }
+
+      // Verify RFI belongs to this tender
+      const { data: rfiRow } = await supabaseAdmin.from('tender_rfis').select('*').eq('id', rfi_id).eq('tender_id', tender.id).single();
+      if (!rfiRow) {
+        return Response.json({ error: 'Question not found' }, { status: 404, headers: corsHeaders });
+      }
+
+      const { data: response, error: rErr } = await supabaseAdmin
+        .from('tender_rfi_responses')
+        .insert({
+          rfi_id,
+          author_email: userData?.email || authUser.email,
+          author_name:  userData?.full_name || '',
+          content:      content.trim(),
+        })
+        .select()
+        .single();
+
+      if (rErr) {
+        return Response.json({ error: rErr.message }, { status: 500, headers: corsHeaders });
+      }
+
+      // Mark RFI as Answered
+      await supabaseAdmin.from('tender_rfis').update({ status: 'Answered', updated_at: new Date().toISOString() }).eq('id', rfi_id);
+
+      // Email invitee
+      try {
+        const { data: bd } = await supabaseAdmin.from('email_branding').select('*').limit(1).single();
+        const br: any = bd || {};
+        const senderEmail = br.sender_email || Deno.env.get('SENDER_EMAIL') || 'noreply@totalhomesolutions.co.nz';
+        const fromName    = br.sender_name || br.company_name || 'ConstructIQ';
+        const brandColour = br.brand_colour || '#1a56db';
+        const portalUrl   = `${Deno.env.get('SITE_URL') || Deno.env.get('APP_URL') || 'https://constructiq-beige.vercel.app'}/tender-submit/${token}`;
+        const resend      = new Resend(Deno.env.get('RESEND_API_KEY'));
+
+        await resend.emails.send({
+          from:    `${fromName} <${senderEmail}>`,
+          to:      invitation.invitee_email,
+          subject: `Your question on ${tender.tender_number} has been answered`,
+          html: `<!DOCTYPE html><html><body style="font-family:-apple-system,sans-serif;background:#f3f4f6;margin:0;padding:32px 16px;">
+<table width="100%" style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1);">
+  <tr><td style="background:${brandColour};height:4px;"></td></tr>
+  <tr><td style="padding:32px 40px;font-size:15px;color:#111827;line-height:1.7;">
+    <p>Dear <strong>${invitation.invitee_name}</strong>,</p>
+    <p>Your question on tender <strong>${tender.tender_number}: ${tender.title}</strong> has been answered.</p>
+    <p><strong>Question:</strong> ${rfiRow.subject}</p>
+    <p><strong>Answer:</strong><br>${content}</p>
+    <p style="margin-top:24px;"><a href="${portalUrl}" style="display:inline-block;padding:10px 24px;background:${brandColour};color:#fff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View on Portal</a></p>
+    <p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br><strong>${userData?.full_name || fromName}</strong><br>${br.company_name || fromName}</p>
+  </td></tr>
+  <tr><td style="background:${brandColour};height:2px;"></td></tr>
+</table></body></html>`,
+        });
+      } catch (_e) { /* non-blocking */ }
+
+      return Response.json({ response }, { headers: corsHeaders });
     }
 
     return Response.json({ error: 'Invalid action' }, { status: 400, headers: corsHeaders });

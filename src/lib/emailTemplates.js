@@ -71,7 +71,37 @@ export const DEFAULT_TEMPLATES = {
 <p style="margin-top:24px;">
   <a href="{submission_link}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View Tender &amp; Submit Pricing</a>
 </p>
-<p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br>{sender_name}<br>{company_name}</p>`,
+<p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br><strong>{sender_name}</strong><br>{sender_email}<br>{company_name}</p>`,
+  },
+  tender_question_posted: {
+    name: 'Tender Question — Admin Notification',
+    subject: 'New Tender Question — {tender_number}: {title}',
+    body_html: `
+<p>Hi,</p>
+<p><strong>{invitee_name}</strong> ({invitee_email}) has submitted a question on tender <strong>{tender_number}: {title}</strong>.</p>
+<table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;">
+  <tr><td style="padding:6px 0;color:#6b7280;width:120px;">Subject</td><td style="padding:6px 0;font-weight:500;">{question_subject}</td></tr>
+  <tr><td style="padding:6px 0;color:#6b7280;">From</td><td style="padding:6px 0;">{invitee_name} — {invitee_company}</td></tr>
+</table>
+<p style="color:#374151;"><strong>Question:</strong><br>{question_description}</p>
+<p style="margin-top:24px;">
+  <a href="{admin_url}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View &amp; Respond</a>
+</p>`,
+  },
+  tender_question_answered: {
+    name: 'Tender Question — Answer Notification',
+    subject: 'Your question on {tender_number} has been answered',
+    body_html: `
+<p>Dear <strong>{invitee_name}</strong>,</p>
+<p>Your question on tender <strong>{tender_number}: {title}</strong> has been answered.</p>
+<table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;">
+  <tr><td style="padding:6px 0;color:#6b7280;width:120px;">Question</td><td style="padding:6px 0;font-weight:500;">{question_subject}</td></tr>
+</table>
+<p style="color:#374151;"><strong>Answer:</strong><br>{answer_text}</p>
+<p style="margin-top:24px;">
+  <a href="{submission_link}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View on Tender Portal</a>
+</p>
+<p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br><strong>{sender_name}</strong><br>{sender_email}<br>{company_name}</p>`,
   },
   tender_outcome_unsuccessful: {
     name: 'Tender Outcome — Unsuccessful (We Lost)',
@@ -182,7 +212,29 @@ export const TEMPLATE_VARIABLES = {
     { key: 'architect_name', desc: 'Architect name' },
     { key: 'project_manager_name', desc: 'Project manager name' },
     { key: 'submission_link', desc: 'Unique link for subcontractor to submit pricing' },
-    { key: 'sender_name', desc: 'Your name' },
+    { key: 'sender_name', desc: 'Name of the THS employee issuing the invitation' },
+    { key: 'sender_email', desc: 'Email of the THS employee issuing the invitation' },
+  ],
+  tender_question_posted: [
+    { key: 'invitee_name', desc: 'Subcontractor name' },
+    { key: 'invitee_email', desc: 'Subcontractor email' },
+    { key: 'invitee_company', desc: 'Subcontractor company' },
+    { key: 'tender_number', desc: 'Tender reference' },
+    { key: 'title', desc: 'Tender title' },
+    { key: 'question_subject', desc: 'Subject of the question' },
+    { key: 'question_description', desc: 'Body of the question' },
+    { key: 'admin_url', desc: 'Link to Questions tab in TenderDetail' },
+  ],
+  tender_question_answered: [
+    { key: 'invitee_name', desc: 'Subcontractor name' },
+    { key: 'tender_number', desc: 'Tender reference' },
+    { key: 'title', desc: 'Tender title' },
+    { key: 'question_subject', desc: 'Subject of the question' },
+    { key: 'answer_text', desc: 'The answer text' },
+    { key: 'submission_link', desc: 'Link to portal Questions tab' },
+    { key: 'sender_name', desc: 'Name of THS employee who answered' },
+    { key: 'sender_email', desc: 'Email of THS employee who answered' },
+    { key: 'company_name', desc: 'Company name' },
   ],
   tender_outcome_unsuccessful: [
     { key: 'invitee_name', desc: 'Subcontractor name' },

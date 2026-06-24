@@ -1,6 +1,6 @@
 import { supabase } from '@/api/supabaseClient';
 import React, { useState, useEffect } from 'react';
-import { EmailBranding, EmailTemplate, User } from '@/api/entities';
+import { EmailBranding, EmailTemplate, User, TradeTemplate } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -148,6 +148,8 @@ export default function Settings() {
     { key: 'tender_sub_unsuccessful', label: 'Sub Not Selected' },
     { key: 'user_invite', label: 'User Invite' },
     { key: 'contract_instruction', label: 'Contract Instruction Issued' },
+    { key: 'tender_question_posted', label: 'Tender Question — Admin Notification' },
+    { key: 'tender_question_answered', label: 'Tender Question — Answer Notification' },
   ];
 
   return (
@@ -405,8 +407,9 @@ export default function Settings() {
           </TabsContent>
         )}
         {(isAdmin || isInternal || isPricingUser) && (
-          <TabsContent value="tender-defaults">
+          <TabsContent value="tender-defaults" className="space-y-8">
             <TenderSettingsPanel />
+            {isAdmin && <TradeTemplatesPanel />}
           </TabsContent>
         )}
         {isAdmin && (
@@ -429,5 +432,73 @@ export default function Settings() {
         )}
       </Tabs>
     </div>
+  );
+}
+
+function TradeTemplatesPanel() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [newName, setNewName] = useState('');
+  const [newCategory, setNewCategory] = useState('');
+
+  const { data: trades = [], isLoading } = useQuery({
+    queryKey: ['trade_templates'],
+    queryFn: () => TradeTemplate.list('sort_order'),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id) => TradeTemplate.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['trade_templates'] });
+      toast({ title: 'Trade removed' });
+    },
+  });
+
+  const addMutation = useMutation({
+    mutationFn: () => TradeTemplate.create({ name: newName.trim(), category: newCategory.trim() || null, sort_order: trades.length + 1 }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['trade_templates'] });
+      setNewName('');
+      setNewCategory('');
+      toast({ title: 'Trade added' });
+    },
+    onError: (e) => toast({ title: 'Failed to add trade', description: e.message, variant: 'destructive' }),
+  });
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">Trade Templates</CardTitle>
+        <CardDescription className="text-xs">
+          Manage the list of trades available when creating tenders and inviting subcontractors.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex gap-2">
+          <Input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Trade name" className="flex-1" onKeyDown={e => e.key === 'Enter' && newName.trim() && addMutation.mutate()} />
+          <Input value={newCategory} onChange={e => setNewCategory(e.target.value)} placeholder="Category (optional)" className="w-40" />
+          <Button onClick={() => addMutation.mutate()} disabled={!newName.trim() || addMutation.isPending} size="sm">Add</Button>
+        </div>
+        {isLoading ? (
+          <p className="text-xs text-muted-foreground">Loading...</p>
+        ) : (
+          <div className="border rounded-lg divide-y">
+            {trades.length === 0 && (
+              <p className="text-xs text-muted-foreground p-3">No trades configured — defaults will be used.</p>
+            )}
+            {trades.map(t => (
+              <div key={t.id} className="flex items-center gap-3 px-3 py-2">
+                <span className="flex-1 text-sm font-medium">{t.name}</span>
+                {t.category && <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">{t.category}</span>}
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
+                  onClick={() => deleteMutation.mutate(t.id)} disabled={deleteMutation.isPending}>
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
