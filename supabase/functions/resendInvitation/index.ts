@@ -173,39 +173,50 @@ Deno.serve(async (req: Request) => {
     const bodyContent = isHtml ? replace(rawBody) : replace(rawBody).replace(/\n/g, '<br>');
     const bodyText = replace(rawBody);
 
+    const bodyWithCTA = `${!tpl ? `<p>Dear <strong>${invitee.full_name}</strong>,</p>` : ''}${bodyContent}
+<p style="margin-top:24px;">
+  <a href="${submissionLink}" style="display:inline-block;padding:10px 24px;background:${brandColour};color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View Tender &amp; Submit Pricing</a>
+</p>`;
+
+    const logoHtml = branding.logo_url
+      ? `<div style="text-align:left;margin-bottom:20px;"><img src="${branding.logo_url}" alt="${branding.company_name || 'Logo'}" width="160" style="max-width:100%;height:auto;display:inline-block;" /></div>`
+      : '';
+
+    const footerHtml = branding.footer_text
+      ? `<div style="margin-top:32px;padding-top:16px;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af;line-height:1.6;">${branding.footer_text.replace(/\n/g, '<br>')}</div>`
+      : '';
+
     const htmlBody = `<!DOCTYPE html>
-<html><head><meta charset="UTF-8"></head>
-<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,sans-serif;">
-<table width="100%" cellpadding="0" cellspacing="0" style="padding:32px 16px;background:#f3f4f6;">
-  <tr><td align="center">
-    <table width="600" cellpadding="0" cellspacing="0"
-           style="max-width:600px;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1);">
-      <tr><td style="background:${brandColour};padding:24px 40px;">
-        ${branding.logo_url
-          ? `<img src="${branding.logo_url}" alt="${branding.company_name || ''}" style="height:40px;display:block;">`
-          : `<span style="color:#fff;font-size:20px;font-weight:700;">${branding.company_name || 'ConstructIQ'}</span>`}
-      </td></tr>
-      <tr><td style="padding:32px 40px;font-size:15px;color:#111827;line-height:1.7;">
-        <p>Dear <strong>${invitee.full_name}</strong>,</p>
-        ${bodyContent}
-        <div style="margin:28px 0;">
-          <a href="${submissionLink}"
-             style="display:inline-block;padding:14px 32px;background:${brandColour};color:#fff;border-radius:6px;text-decoration:none;font-weight:600;font-size:15px;">
-            View Tender &amp; Submit Pricing →
-          </a>
-        </div>
-        <p style="font-size:13px;color:#6b7280;">
-          Or copy this link: <a href="${submissionLink}" style="color:${brandColour};">${submissionLink}</a>
-        </p>
-      </td></tr>
-      ${branding.footer_text
-        ? `<tr><td style="padding:16px 40px;background:#f9fafb;font-size:12px;color:#6b7280;border-top:1px solid #e5e7eb;">${branding.footer_text}</td></tr>`
-        : ''}
-      <tr><td style="background:${brandColour};height:3px;"></td></tr>
-    </table>
-  </td></tr>
-</table>
-</body></html>`;
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>Email</title>
+</head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:32px 16px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0"
+               style="max-width:600px;width:100%;background:#ffffff;border-radius:8px;
+                      overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
+          <tr><td style="background:${brandColour};height:4px;"></td></tr>
+          <tr>
+            <td style="padding:32px 40px;">
+              ${logoHtml}
+              <div style="font-size:15px;color:#111827;line-height:1.7;">
+                ${bodyWithCTA}
+              </div>
+              ${footerHtml}
+            </td>
+          </tr>
+          <tr><td style="background:${brandColour};height:2px;"></td></tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
 
     await resend.emails.send({ from: fromEmail, to: invitee.email, subject, html: htmlBody, text: bodyText });
     console.log(`[resendInvitation] SENT to=${invitee.email} inviteeId=${inviteeId}`);
