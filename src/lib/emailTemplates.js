@@ -120,6 +120,58 @@ export const DEFAULT_TEMPLATES = {
 </p>
 <p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br>{company_name}</p>`,
   },
+  tender_reminder_external: {
+    name: 'Tender Closing Reminder — Subcontractor',
+    subject: 'Reminder: {tender_number} — {title} closes in {days_remaining} day(s)',
+    body_html: `
+<p>Dear <strong>{invitee_name}</strong>,</p>
+<p>This is a reminder that the tender for <strong>{title}</strong> is closing soon.</p>
+<table style="width:100%;border-collapse:collapse;margin:16px 0;background:#f9fafb;border-radius:6px;font-size:14px;">
+  <tr><td style="padding:10px 14px;color:#6b7280;border-bottom:1px solid #e5e7eb;width:160px;">Tender Number</td><td style="padding:10px 14px;font-weight:600;">{tender_number}</td></tr>
+  <tr><td style="padding:10px 14px;color:#6b7280;border-bottom:1px solid #e5e7eb;">Project</td><td style="padding:10px 14px;font-weight:500;">{title}</td></tr>
+  <tr><td style="padding:10px 14px;color:#6b7280;border-bottom:1px solid #e5e7eb;">Location</td><td style="padding:10px 14px;">{location}</td></tr>
+  <tr><td style="padding:10px 14px;color:#6b7280;">Closing Date</td><td style="padding:10px 14px;font-weight:600;color:#dc2626;">{closing_date}</td></tr>
+</table>
+<p style="color:#374151;">Please ensure your pricing submission is completed before the closing date.</p>
+<p style="margin-top:24px;">
+  <a href="{submission_link}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">Submit Pricing Now</a>
+</p>
+<p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br>{sender_name}<br>{company_name}</p>`,
+  },
+  tender_reminder_internal: {
+    name: 'Tender Closing Reminder — Internal',
+    subject: 'Reminder: {tender_number} — {title} closes in {days_remaining} day(s)',
+    body_html: `
+<p>Hi,</p>
+<p>This is an internal reminder that tender <strong>{tender_number}: {title}</strong> is closing soon.</p>
+<table style="width:100%;border-collapse:collapse;margin:16px 0;background:#f9fafb;border-radius:6px;font-size:14px;">
+  <tr><td style="padding:10px 14px;color:#6b7280;border-bottom:1px solid #e5e7eb;width:160px;">Tender Number</td><td style="padding:10px 14px;font-weight:600;">{tender_number}</td></tr>
+  <tr><td style="padding:10px 14px;color:#6b7280;border-bottom:1px solid #e5e7eb;">Project</td><td style="padding:10px 14px;font-weight:500;">{title}</td></tr>
+  <tr><td style="padding:10px 14px;color:#6b7280;border-bottom:1px solid #e5e7eb;">Closing Date</td><td style="padding:10px 14px;font-weight:600;color:#dc2626;">{closing_date}</td></tr>
+  <tr><td style="padding:10px 14px;color:#6b7280;">Submissions So Far</td><td style="padding:10px 14px;">{submission_count}</td></tr>
+  <tr><td style="padding:10px 14px;color:#6b7280;">Invitees</td><td style="padding:10px 14px;">{invitee_count}</td></tr>
+</table>
+<p style="margin-top:24px;">
+  <a href="{admin_url}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View Tender</a>
+</p>`,
+  },
+  rfi_reminder: {
+    name: 'RFI Questions Deadline Reminder',
+    subject: 'Reminder: Questions close in {days_remaining} day(s) — {tender_number}: {title}',
+    body_html: `
+<p>Dear <strong>{invitee_name}</strong>,</p>
+<p>This is a reminder that the deadline to submit questions for tender <strong>{tender_number}: {title}</strong> is approaching.</p>
+<table style="width:100%;border-collapse:collapse;margin:16px 0;background:#f9fafb;border-radius:6px;font-size:14px;">
+  <tr><td style="padding:10px 14px;color:#6b7280;border-bottom:1px solid #e5e7eb;width:160px;">Tender Number</td><td style="padding:10px 14px;font-weight:600;">{tender_number}</td></tr>
+  <tr><td style="padding:10px 14px;color:#6b7280;border-bottom:1px solid #e5e7eb;">Project</td><td style="padding:10px 14px;font-weight:500;">{title}</td></tr>
+  <tr><td style="padding:10px 14px;color:#6b7280;">Questions Deadline</td><td style="padding:10px 14px;font-weight:600;color:#dc2626;">{questions_date}</td></tr>
+</table>
+<p style="color:#374151;">Please submit any questions before the deadline to allow sufficient time for responses.</p>
+<p style="margin-top:24px;">
+  <a href="{submission_link}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">Submit a Question</a>
+</p>
+<p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br>{sender_name}<br>{company_name}</p>`,
+  },
   tender_outcome_unsuccessful: {
     name: 'Tender Outcome — Unsuccessful (We Lost)',
     subject: 'Tender Update — {tender_number}: {title}',
@@ -261,6 +313,36 @@ export const TEMPLATE_VARIABLES = {
     { key: 'issue_date', desc: 'Date notice was issued' },
     { key: 'submission_link', desc: 'Link to tender portal' },
     { key: 'company_name', desc: 'Company name' },
+  ],
+  tender_reminder_external: [
+    { key: 'invitee_name', desc: 'Subcontractor name' },
+    { key: 'tender_number', desc: 'Tender reference' },
+    { key: 'title', desc: 'Tender title' },
+    { key: 'location', desc: 'Project location' },
+    { key: 'closing_date', desc: 'Tender closing date' },
+    { key: 'days_remaining', desc: 'Days until closing' },
+    { key: 'submission_link', desc: 'Link to submit pricing' },
+    { key: 'sender_name', desc: 'Your name' },
+    { key: 'company_name', desc: 'Your company name' },
+  ],
+  tender_reminder_internal: [
+    { key: 'tender_number', desc: 'Tender reference' },
+    { key: 'title', desc: 'Tender title' },
+    { key: 'closing_date', desc: 'Tender closing date' },
+    { key: 'days_remaining', desc: 'Days until closing' },
+    { key: 'submission_count', desc: 'Number of submissions received so far' },
+    { key: 'invitee_count', desc: 'Total number of invitees' },
+    { key: 'admin_url', desc: 'Link to tender in admin panel' },
+  ],
+  rfi_reminder: [
+    { key: 'invitee_name', desc: 'Subcontractor name' },
+    { key: 'tender_number', desc: 'Tender reference' },
+    { key: 'title', desc: 'Tender title' },
+    { key: 'questions_date', desc: 'Questions deadline date' },
+    { key: 'days_remaining', desc: 'Days until questions deadline' },
+    { key: 'submission_link', desc: 'Link to tender portal' },
+    { key: 'sender_name', desc: 'Your name' },
+    { key: 'company_name', desc: 'Your company name' },
   ],
   tender_outcome_unsuccessful: [
     { key: 'invitee_name', desc: 'Subcontractor name' },

@@ -150,6 +150,10 @@ export default function Settings() {
     { key: 'contract_instruction', label: 'Contract Instruction Issued' },
     { key: 'tender_question_posted', label: 'Tender Question — Admin Notification' },
     { key: 'tender_question_answered', label: 'Tender Question — Answer Notification' },
+    { key: 'tender_notice_issued', label: 'Notice to Tenderers (NTT)' },
+    { key: 'tender_reminder_external', label: 'Tender Closing Reminder — Subcontractor' },
+    { key: 'tender_reminder_internal', label: 'Tender Closing Reminder — Internal' },
+    { key: 'rfi_reminder', label: 'RFI Questions Deadline Reminder' },
   ];
 
   return (
@@ -410,6 +414,7 @@ export default function Settings() {
           <TabsContent value="tender-defaults" className="space-y-8">
             <TenderSettingsPanel />
             {isAdmin && <TradeTemplatesPanel />}
+            {isAdmin && <ReminderSettingsPanel />}
           </TabsContent>
         )}
         {isAdmin && (
@@ -498,6 +503,80 @@ function TradeTemplatesPanel() {
             ))}
           </div>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+const REMINDER_LABELS = {
+  tender_external: { label: 'Tender Closing Reminder — Subcontractors', desc: 'Sent to invited subcontractors before the tender closes.' },
+  tender_internal: { label: 'Tender Closing Reminder — Internal', desc: 'Sent to admins and tender lead before the tender closes.' },
+  rfi_reminder:    { label: 'RFI Questions Deadline Reminder', desc: 'Sent to invitees before the questions deadline.' },
+};
+
+function ReminderSettingsPanel() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const { data: settings = [], isLoading } = useQuery({
+    queryKey: ['reminder_settings'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('reminder_settings').select('*').order('reminder_type');
+      if (error) throw error;
+      return data || [];
+    },
+    staleTime: 5 * 60_000,
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, changes }) => {
+      const { error } = await supabase.from('reminder_settings').update({ ...changes, updated_at: new Date().toISOString() }).eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['reminder_settings'] });
+      toast({ title: 'Reminder settings saved' });
+    },
+    onError: (e) => toast({ title: 'Failed to save', description: e.message, variant: 'destructive' }),
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Reminder Settings</CardTitle>
+        <CardDescription className="text-xs">Configure automated reminder emails. Reminders run daily and will not send duplicates.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isLoading ? (
+          <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-16 bg-muted rounded animate-pulse" />)}</div>
+        ) : settings.map(s => (
+          <div key={s.id} className="flex items-start gap-4 p-4 border rounded-lg bg-muted/30">
+            <Switch
+              checked={s.enabled}
+              onCheckedChange={v => updateMutation.mutate({ id: s.id, changes: { enabled: v } })}
+            />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium">{REMINDER_LABELS[s.reminder_type]?.label || s.reminder_type}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{REMINDER_LABELS[s.reminder_type]?.desc}</p>
+              <div className="flex items-center gap-2 mt-3">
+                <Label className="text-xs text-muted-foreground whitespace-nowrap">Send</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={30}
+                  value={s.days_before}
+                  onChange={e => updateMutation.mutate({ id: s.id, changes: { days_before: parseInt(e.target.value) || 1 } })}
+                  className="h-7 w-16 text-xs"
+                  disabled={!s.enabled}
+                />
+                <Label className="text-xs text-muted-foreground whitespace-nowrap">day(s) before deadline</Label>
+              </div>
+            </div>
+            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${s.enabled ? 'bg-green-100 text-green-700' : 'bg-muted text-muted-foreground'}`}>
+              {s.enabled ? 'Active' : 'Disabled'}
+            </span>
+          </div>
+        ))}
       </CardContent>
     </Card>
   );

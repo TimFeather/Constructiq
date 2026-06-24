@@ -710,6 +710,43 @@ insert into public.tender_settings (
   send_daily_summary
 ) values (true, false, true, true, false);
 
+-- ── Reminder Settings ────────────────────────────────────
+create table if not exists public.reminder_settings (
+  id            uuid primary key default gen_random_uuid(),
+  reminder_type text not null unique check (reminder_type in ('tender_external','tender_internal','rfi_reminder')),
+  enabled       boolean default true,
+  days_before   int default 2,
+  send_time     text default '08:00',
+  created_at    timestamptz default now(),
+  updated_at    timestamptz default now()
+);
+alter table public.reminder_settings enable row level security;
+create policy "reminder_settings_read" on public.reminder_settings for select using (auth.uid() is not null);
+create policy "reminder_settings_write" on public.reminder_settings for all using (get_my_role() = 'admin');
+
+grant select, insert, update, delete on public.reminder_settings to authenticated;
+
+-- Seed defaults
+insert into public.reminder_settings (reminder_type, enabled, days_before) values
+  ('tender_external', true, 2),
+  ('tender_internal', true, 1),
+  ('rfi_reminder',    true, 1)
+on conflict (reminder_type) do nothing;
+
+-- ── Reminder Log (dedup — prevents double-sending) ────────
+create table if not exists public.reminder_log (
+  id              uuid primary key default gen_random_uuid(),
+  reminder_type   text not null,
+  entity_id       uuid not null,
+  recipient_email text not null,
+  sent_at         timestamptz default now(),
+  unique (reminder_type, entity_id, recipient_email)
+);
+alter table public.reminder_log enable row level security;
+create policy "reminder_log_admin" on public.reminder_log for all using (get_my_role() = 'admin');
+
+grant select, insert on public.reminder_log to authenticated;
+
 -- ── Archive flag for child records on project archive ──
 alter table public.documents add column if not exists archived boolean default false;
 alter table public.rfis add column if not exists archived boolean default false;
