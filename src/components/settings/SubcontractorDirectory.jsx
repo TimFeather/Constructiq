@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { TenderContact } from '@/api/entities';
+import { TenderContact, TradeTemplate } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Plus, Search, Pencil, Trash2, Upload } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 
-const TRADES = [
+const DEFAULT_TRADES = [
   'Electrical', 'Plumbing', 'HVAC', 'Carpentry', 'Masonry',
   'Painting', 'Roofing', 'Flooring', 'Landscaping', 'Demolition',
   'Concrete', 'Steel Erection', 'Glazing', 'Fire Protection'
@@ -25,6 +25,13 @@ export default function SubcontractorDirectory() {
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(emptyContact);
+
+  const { data: tradeTemplates = [] } = useQuery({
+    queryKey: ['trade_templates'],
+    queryFn: () => TradeTemplate.list('sort_order'),
+    staleTime: 5 * 60_000,
+  });
+  const TRADES = tradeTemplates.length > 0 ? tradeTemplates.map(t => t.name) : DEFAULT_TRADES;
 
   const { data: contacts = [], isLoading } = useQuery({
     queryKey: ['tenderContacts'],
