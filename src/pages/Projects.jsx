@@ -3,7 +3,7 @@ import { Project, Task } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
 import { Link } from 'react-router-dom';
-import { Plus, Search, Calendar, Archive } from 'lucide-react';
+import { Plus, Search, Calendar, Archive, Trash2 } from 'lucide-react';
 import { canEdit, isAdmin } from '@/lib/permissions';
 import { normalizeEmail } from '@/lib/normalizeEmail';
 import { Button } from '@/components/ui/button';
@@ -30,6 +30,7 @@ export default function Projects() {
   const [viewMode, setViewMode]     = useState('active');
   const [showForm, setShowForm]     = useState(false);
   const [archiveId, setArchiveId]   = useState(null);
+  const [deleteId, setDeleteId]     = useState(null);
   const queryClient = useQueryClient();
 
   const { data: allProjects = [], isLoading } = useQuery({
@@ -50,6 +51,14 @@ export default function Projects() {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: (id) => Project.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      setDeleteId(null);
+    },
+  });
+
   // All authenticated users can see all projects (external = read-only)
   const projects = allProjects;
 
@@ -66,6 +75,7 @@ export default function Projects() {
   });
 
   const projectToArchive = allProjects.find(p => p.id === archiveId);
+  const projectToDelete  = allProjects.find(p => p.id === deleteId);
 
   const activeCount   = projects.filter(p => ACTIVE_STATUSES.includes(p.status)).length;
   const archivedCount = projects.filter(p => ARCHIVED_STATUSES.includes(p.status)).length;
@@ -195,6 +205,15 @@ export default function Projects() {
                   <Archive className="w-3.5 h-3.5 text-muted-foreground" />
                 </button>
               )}
+              {isAdminUser && viewMode === 'archived' && (
+                <button
+                  className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md bg-card border shadow-sm hover:bg-destructive/10"
+                  onClick={e => { e.preventDefault(); setDeleteId(project.id); }}
+                  title="Permanently delete project"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-destructive" />
+                </button>
+              )}
             </div>
           ))}
         </div>
@@ -217,6 +236,26 @@ export default function Projects() {
               disabled={archiveMutation.isPending}
             >
               {archiveMutation.isPending ? 'Archiving...' : 'Archive'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={!!deleteId} onOpenChange={open => !open && setDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Permanently delete project?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <strong>"{projectToDelete?.name}"</strong> and all its documents, RFIs, tasks, and contract instructions will be permanently deleted. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive hover:bg-destructive/90"
+              onClick={() => deleteMutation.mutate(deleteId)}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? 'Deleting...' : 'Delete Permanently'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
