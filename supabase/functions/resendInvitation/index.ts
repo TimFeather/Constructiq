@@ -163,6 +163,7 @@ Deno.serve(async (req: Request) => {
       description:     tender.description || '',
       submission_link: submissionLink,
       sender_name:     branding.sender_name || branding.company_name || 'ConstructIQ',
+      sender_email:    senderEmail,
     };
 
     const replace = (str: string) => str.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? '');
