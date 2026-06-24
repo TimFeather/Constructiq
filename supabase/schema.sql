@@ -165,6 +165,10 @@ create policy "rfis_select" on public.rfis for select using (
   or created_by_id = auth.uid()
   or assigned_to_email = (select email from public.users where id = auth.uid())
   or assignees @> jsonb_build_array(jsonb_build_object('email', (select email from public.users where id = auth.uid())))
+  or (is_public and exists (
+    select 1 from projects where id = rfis.project_id
+    and team @> jsonb_build_array(jsonb_build_object('user_email', (select email from public.users where id = auth.uid())))
+  ))
 );
 create policy "rfis_insert" on public.rfis for insert with check (
   get_my_role() in ('admin','internal','pricing')
@@ -201,6 +205,11 @@ create policy "documents_select" on public.documents for select using (
   get_my_role() in ('admin','internal','pricing')
   or created_by_id = auth.uid()
   or uploaded_by_email = (select email from public.users where id = auth.uid())
+  or (visibility = 'public' and exists (
+    select 1 from projects where id = documents.project_id
+    and team @> jsonb_build_array(jsonb_build_object('user_email', (select email from public.users where id = auth.uid())))
+  ))
+  or (visibility = 'assigned' and assigned_to_email = (select email from public.users where id = auth.uid()))
 );
 create policy "documents_insert" on public.documents for insert with check (
   get_my_role() in ('admin','internal')
@@ -699,3 +708,37 @@ insert into public.tender_settings (
   send_immediate_notifications,
   send_daily_summary
 ) values (true, false, true, true, false);
+
+-- ── Archive flag for child records on project archive ──
+alter table public.documents add column if not exists archived boolean default false;
+alter table public.rfis add column if not exists archived boolean default false;
+
+-- ── Visibility & permission controls ──
+-- RFIs: is_public = share with all project team members
+alter table public.rfis add column if not exists is_public boolean default false;
+
+-- Documents: visibility model (private/public/assigned)
+alter table public.documents add column if not exists visibility text default 'private' check (visibility in ('private','public','assigned'));
+alter table public.documents add column if not exists assigned_to_email text;
+alter table public.tasks add column if not exists archived boolean default false;
+alter table public.contract_instructions add column if not exists archived boolean default false;
+
+-- Trigger: when project archived, mark all children as archived
+create or replace function public.archive_project_children()
+returns trigger as $$
+begin
+  if new.status = 'Archived' and old.status != 'Archived' then
+    update documents set archived = true where project_id = new.id;
+    update rfis set archived = true where project_id = new.id;
+    update tasks set archived = true where project_id = new.id;
+    update contract_instructions set archived = true where project_id = new.id;
+  end if;
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists archive_project_children_trigger on projects;
+create trigger archive_project_children_trigger
+  after update of status on projects
+  for each row
+  execute function archive_project_children();

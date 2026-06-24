@@ -103,6 +103,23 @@ export const DEFAULT_TEMPLATES = {
 </p>
 <p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br><strong>{sender_name}</strong><br>{sender_email}<br>{company_name}</p>`,
   },
+  tender_notice_issued: {
+    name: 'Notice to Tenderers Issued',
+    subject: '{title} — {notice_number} Issued',
+    body_html: `
+<p>Dear <strong>{invitee_name}</strong>,</p>
+<p>A new Notice to Tenderers has been issued for <strong>{title}</strong>.</p>
+<table style="width:100%;border-collapse:collapse;margin:16px 0;background:#f9fafb;border-radius:6px;font-size:14px;">
+  <tr><td style="padding:10px 14px;color:#6b7280;border-bottom:1px solid #e5e7eb;width:120px;">Notice</td><td style="padding:10px 14px;font-weight:600;">{notice_number}</td></tr>
+  <tr><td style="padding:10px 14px;color:#6b7280;border-bottom:1px solid #e5e7eb;">Type</td><td style="padding:10px 14px;">{notice_type}</td></tr>
+  <tr><td style="padding:10px 14px;color:#6b7280;">Issued</td><td style="padding:10px 14px;">{issue_date}</td></tr>
+</table>
+<p style="color:#374151;">Please review the tender portal for full details and any attached documents.</p>
+<p style="margin-top:24px;">
+  <a href="{submission_link}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View Tender Portal</a>
+</p>
+<p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br>{company_name}</p>`,
+  },
   tender_outcome_unsuccessful: {
     name: 'Tender Outcome — Unsuccessful (We Lost)',
     subject: 'Tender Update — {tender_number}: {title}',
@@ -234,6 +251,15 @@ export const TEMPLATE_VARIABLES = {
     { key: 'submission_link', desc: 'Link to portal Questions tab' },
     { key: 'sender_name', desc: 'Name of THS employee who answered' },
     { key: 'sender_email', desc: 'Email of THS employee who answered' },
+    { key: 'company_name', desc: 'Company name' },
+  ],
+  tender_notice_issued: [
+    { key: 'invitee_name', desc: 'Subcontractor/invitee name' },
+    { key: 'title', desc: 'Tender/project title' },
+    { key: 'notice_number', desc: 'Notice reference e.g. NTT-001' },
+    { key: 'notice_type', desc: 'Type of notice' },
+    { key: 'issue_date', desc: 'Date notice was issued' },
+    { key: 'submission_link', desc: 'Link to tender portal' },
     { key: 'company_name', desc: 'Company name' },
   ],
   tender_outcome_unsuccessful: [

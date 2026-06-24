@@ -163,38 +163,91 @@ Deno.serve(async (req: Request) => {
       let sent = 0, failed = 0;
       const failedRecipients: string[] = [];
 
+      // Load templates for NTT emails
+      const { data: templatesData } = await supabaseAdmin.from('email_templates').select('*');
+      const templates: any[] = templatesData ?? [];
+      const tpl = templates.find((t: any) => t.template_key === 'tender_notice_issued');
+
       for (const inv of inviteeList) {
         if (!inv.invitee_email) continue;
         const portalUrl = `${SITE_URL}/tender-submit/${inv.token}`;
+        const issueDate = notice.created_at ? new Date(notice.created_at).toLocaleDateString('en-NZ') : new Date().toLocaleDateString('en-NZ');
+
+        const vars: Record<string, string> = {
+          invitee_name:     inv.invitee_name || 'Tenderer',
+          title:            tender.title || '',
+          notice_number:    notice.notice_number || '',
+          notice_type:      notice.notice_type || '',
+          issue_date:       issueDate,
+          submission_link:  portalUrl,
+          company_name:     branding.company_name || 'ConstructIQ',
+        };
+
+        const replace = (str: string) => str.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? '');
+        const rawBody = tpl?.body_html || `
+<p>Dear <strong>{invitee_name}</strong>,</p>
+<p>A new Notice to Tenderers has been issued for <strong>{title}</strong>.</p>
+<table style="width:100%;border-collapse:collapse;margin:16px 0;background:#f9fafb;border-radius:6px;">
+  <tr><td style="padding:10px 14px;font-size:13px;color:#6b7280;border-bottom:1px solid #e5e7eb;">Notice</td>
+      <td style="padding:10px 14px;font-weight:600;">{notice_number}</td></tr>
+  <tr><td style="padding:10px 14px;font-size:13px;color:#6b7280;border-bottom:1px solid #e5e7eb;">Type</td>
+      <td style="padding:10px 14px;">{notice_type}</td></tr>
+  <tr><td style="padding:10px 14px;font-size:13px;color:#6b7280;">Issued</td>
+      <td style="padding:10px 14px;">{issue_date}</td></tr>
+</table>
+<p style="color:#374151;">Please review the tender portal for full details and any attached documents.</p>
+<p style="margin-top:24px;">
+  <a href="{submission_link}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View Tender Portal</a>
+</p>
+<p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br>{company_name}</p>`;
+        const bodyContent = replace(rawBody);
+        const subject = tpl?.subject ? replace(tpl.subject) : `${tender.title} — ${notice.notice_number} Issued`;
+
+        const logoHtml = branding.logo_url
+          ? `<div style="text-align:center;margin-bottom:20px;"><img src="${branding.logo_url}" alt="${branding.company_name || 'Logo'}" width="160" style="max-width:100%;height:auto;display:inline-block;" /></div>`
+          : '';
+        const footerHtml = branding.footer_text
+          ? `<div style="margin-top:32px;padding-top:16px;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af;line-height:1.6;">${branding.footer_text.replace(/\n/g, '<br>')}</div>`
+          : '';
+
+        const htmlBody = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>Email</title>
+</head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:32px 16px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0"
+               style="max-width:600px;width:100%;background:#ffffff;border-radius:8px;
+                      overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
+          <tr><td style="background:${brandColour};height:4px;"></td></tr>
+          <tr>
+            <td style="padding:32px 40px;">
+              ${logoHtml}
+              <div style="font-size:15px;color:#111827;line-height:1.7;">
+                ${bodyContent}
+              </div>
+              ${footerHtml}
+            </td>
+          </tr>
+          <tr><td style="background:${brandColour};height:2px;"></td></tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
         try {
           await resend.emails.send({
             from:    fromEmail,
             to:      inv.invitee_email,
-            subject: `${tender.title} — ${notice.notice_number} Issued`,
-            html: `<!DOCTYPE html><html><body style="font-family:-apple-system,sans-serif;background:#f3f4f6;margin:0;padding:32px 16px;">
-<table width="100%" style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1);">
-  <tr><td style="background:${brandColour};height:4px;"></td></tr>
-  <tr><td style="padding:32px 40px;font-size:15px;color:#111827;line-height:1.7;">
-    <p>Dear <strong>${inv.invitee_name || 'Tenderer'}</strong>,</p>
-    <p>A new Notice to Tenderers has been issued for <strong>${tender.title}</strong>.</p>
-    <table style="width:100%;border-collapse:collapse;margin:16px 0;background:#f9fafb;border-radius:6px;">
-      <tr><td style="padding:10px 14px;font-size:13px;color:#6b7280;border-bottom:1px solid #e5e7eb;">Notice</td>
-          <td style="padding:10px 14px;font-weight:600;">${notice.notice_number}</td></tr>
-      <tr><td style="padding:10px 14px;font-size:13px;color:#6b7280;border-bottom:1px solid #e5e7eb;">Type</td>
-          <td style="padding:10px 14px;">${notice.notice_type}</td></tr>
-      <tr><td style="padding:10px 14px;font-size:13px;color:#6b7280;">Title</td>
-          <td style="padding:10px 14px;">${notice.title}</td></tr>
-    </table>
-    <p style="font-size:14px;color:#374151;">Please review the tender portal for full details and any attached documents.</p>
-    <p style="margin-top:24px;">
-      <a href="${portalUrl}" style="background:${brandColour};color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;display:inline-block;">
-        View Tender Portal
-      </a>
-    </p>
-    <p style="color:#6b7280;font-size:13px;margin-top:24px;">Regards,<br>${branding.company_name || 'ConstructIQ'}</p>
-  </td></tr>
-  <tr><td style="background:${brandColour};height:2px;"></td></tr>
-</table></body></html>`,
+            subject,
+            html:    htmlBody,
           });
           sent++;
         } catch (_e) {

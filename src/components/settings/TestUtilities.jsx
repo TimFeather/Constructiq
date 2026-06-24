@@ -37,6 +37,18 @@ const ACTIONS = [
     description: 'Permanently deletes all projects with status=Archived and all related records (documents, RFIs, tasks, contract instructions).',
     danger: true,
   },
+  {
+    action: 'delete_archived_documents',
+    label: 'Delete Archived Documents',
+    description: 'Permanently deletes all documents marked as archived.',
+    danger: true,
+  },
+  {
+    action: 'delete_archived_rfis',
+    label: 'Delete Archived RFIs',
+    description: 'Permanently deletes all RFIs marked as archived.',
+    danger: true,
+  },
 ];
 
 function SummaryPanel() {

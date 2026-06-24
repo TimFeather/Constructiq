@@ -236,6 +236,28 @@ Deno.serve(async (req: Request) => {
       return Response.json({ message: `Permanently deleted ${projectIds.length} archived project(s) and all related records` }, { headers: corsHeaders });
     }
 
+    if (action === 'delete_archived_documents') {
+      const { error: deleteError } = await supabaseAdmin
+        .from('documents')
+        .delete()
+        .eq('archived', true);
+
+      if (deleteError) throw deleteError;
+
+      return Response.json({ message: 'Permanently deleted all archived documents' }, { headers: corsHeaders });
+    }
+
+    if (action === 'delete_archived_rfis') {
+      const { error: deleteError } = await supabaseAdmin
+        .from('rfis')
+        .delete()
+        .eq('archived', true);
+
+      if (deleteError) throw deleteError;
+
+      return Response.json({ message: 'Permanently deleted all archived RFIs' }, { headers: corsHeaders });
+    }
+
     return Response.json({ error: 'Unknown action' }, { status: 400, headers: corsHeaders });
   } catch (e: any) {
     console.error('[testReset] error:', e);
