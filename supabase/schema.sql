@@ -738,6 +738,74 @@ begin
 end;
 $$ language plpgsql;
 
+-- ── Tender Portal Questions (RFIs) ──────────────────────────
+create table if not exists public.tender_rfis (
+  id uuid primary key default gen_random_uuid(),
+  tender_id uuid not null references public.tenders(id) on delete cascade,
+  invitation_id uuid not null references public.tender_invitations(id) on delete cascade,
+  created_by_email text not null,
+  created_by_name text,
+  subject text not null,
+  description text,
+  status text not null default 'Open' check (status in ('Open','Answered','Closed')),
+  edited_by_email text,
+  edited_at timestamptz,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+alter table public.tender_rfis enable row level security;
+
+create policy "tender_rfis_admin" on public.tender_rfis for all
+  using (get_my_role() in ('admin','pricing','internal'));
+
+create policy "tender_rfis_portal_insert" on public.tender_rfis for insert
+  with check (true);
+
+create policy "tender_rfis_invitee_select" on public.tender_rfis for select
+  using (
+    created_by_email = (select email from public.users where id = auth.uid())
+    or exists (
+      select 1 from public.tender_invitations ti
+      where ti.id = invitation_id and ti.invitee_email = (select email from public.users where id = auth.uid())
+    )
+  );
+
+-- Tender Portal Question Responses ──────────────────────
+create table if not exists public.tender_rfi_responses (
+  id uuid primary key default gen_random_uuid(),
+  rfi_id uuid not null references public.tender_rfis(id) on delete cascade,
+  author_email text not null,
+  author_name text,
+  content text not null,
+  edited_by_email text,
+  edited_at timestamptz,
+  created_at timestamptz default now()
+);
+
+alter table public.tender_rfi_responses enable row level security;
+
+create policy "tender_rfi_responses_admin" on public.tender_rfi_responses for all
+  using (get_my_role() in ('admin','pricing','internal'));
+
+create policy "tender_rfi_responses_portal_insert" on public.tender_rfi_responses for insert
+  with check (true);
+
+create policy "tender_rfi_responses_select" on public.tender_rfi_responses for select
+  using (
+    exists (
+      select 1 from public.tender_rfis tr
+      where tr.id = rfi_id
+      and (
+        tr.created_by_email = (select email from public.users where id = auth.uid())
+        or exists (
+          select 1 from public.tender_invitations ti
+          where ti.id = tr.invitation_id and ti.invitee_email = (select email from public.users where id = auth.uid())
+        )
+      )
+    )
+  );
+
 drop trigger if exists archive_project_children_trigger on projects;
 create trigger archive_project_children_trigger
   after update of status on projects
