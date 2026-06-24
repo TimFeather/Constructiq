@@ -680,6 +680,7 @@ create policy "ci_all" on public.contract_instructions
 create policy "ci_external_read" on public.contract_instructions
   for select using (
     get_my_role() = 'external'
+    and archived = false
     and exists (
       select 1 from public.projects p
       where p.id = project_id
@@ -742,3 +743,16 @@ create trigger archive_project_children_trigger
   after update of status on projects
   for each row
   execute function archive_project_children();
+
+-- ── Edit tracking for author-only edits ──
+-- RFI responses: allow author to edit
+alter table public.tender_rfi_responses add column if not exists edited_by_email text;
+alter table public.tender_rfi_responses add column if not exists edited_at timestamptz;
+
+-- RFIs: allow creator to edit (track edits)
+alter table public.rfis add column if not exists edited_by_id uuid;
+alter table public.rfis add column if not exists edited_at timestamptz;
+
+-- Tender RFIs (questions on portal): allow creator to edit
+alter table public.tender_rfis add column if not exists edited_by_email text;
+alter table public.tender_rfis add column if not exists edited_at timestamptz;
