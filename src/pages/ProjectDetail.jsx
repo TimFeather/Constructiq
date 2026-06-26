@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Document, Project, RFI, Task, Tender } from '@/api/entities';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -23,7 +23,9 @@ export default function ProjectDetail() {
   const { user } = useAuth();
   const canManageProject = canEdit(user, 'projects');
   const [showEdit, setShowEdit] = useState(false);
-  const [activeTab, setActiveTab] = useState('team');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get('tab') || 'team';
+  const setActiveTab = (tab) => setSearchParams(prev => { const p = new URLSearchParams(prev); p.set('tab', tab); return p; }, { replace: true });
 
   const { data: project, isLoading } = useQuery({
     queryKey: ['project', id],
@@ -134,7 +136,7 @@ export default function ProjectDetail() {
         </Card>
       </div>
 
-      <Tabs defaultValue="team" className="space-y-4" onValueChange={setActiveTab}>
+      <Tabs value={activeTab} className="space-y-4" onValueChange={setActiveTab}>
         <div className="overflow-x-auto -mx-1 px-1 pb-1"><TabsList className="inline-flex w-max">
           <TabsTrigger value="team">Team</TabsTrigger>
           <TabsTrigger value="documents" className="gap-1">

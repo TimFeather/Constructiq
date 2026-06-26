@@ -1,7 +1,7 @@
 import { invokeFunction } from '@/api/supabaseClient';
 import React, { useState, useEffect } from 'react';
 import { Tender, User, TradeTemplate, TenderRFI, TenderRFIResponse } from '@/api/entities';
-import { useParams, useNavigate, Link, Navigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, Link, Navigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
 import { canAccess, canManage as canManagePerm } from '@/lib/permissions';
@@ -58,7 +58,9 @@ export default function TenderDetail() {
   const [customTrade, setCustomTrade] = useState('');
   const [form, setForm] = useState(null);
   const [isDirty, setIsDirty] = useState(false);
-  const [activeTab, setActiveTab] = useState('details');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get('tab') || 'details';
+  const setActiveTab = (tab) => setSearchParams(prev => { const p = new URLSearchParams(prev); p.set('tab', tab); return p; }, { replace: true });
   const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
   const [pendingTab, setPendingTab] = useState(null);
 

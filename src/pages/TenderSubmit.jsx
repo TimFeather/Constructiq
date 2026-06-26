@@ -2,7 +2,7 @@ import { invokeFunction } from '@/api/supabaseClient';
 import React, { useState, useEffect } from 'react';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -77,7 +77,9 @@ export default function TenderSubmit() {
   const [editingSubmission, setEditingSubmission] = useState(false);
   // priceLines: [{id, description, amount}]
   const [priceLines, setPriceLines] = useState([{ id: 1, description: 'Lump sum price', amount: '' }]);
-  const [activeTab, setActiveTab]       = useState('overview');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get('tab') || 'overview';
+  const setActiveTab = (tab) => setSearchParams(prev => { const p = new URLSearchParams(prev); p.set('tab', tab); return p; }, { replace: true });
   const [intentLoading, setIntentLoading] = useState(false);
 
   // Questions state
