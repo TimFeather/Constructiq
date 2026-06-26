@@ -12,6 +12,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import {
   HardHat, Calendar, MapPin, Download, CheckCircle2,
   AlertCircle, Mail, Phone, Building2, FileText, Bell, MessageSquare, X,
+  Plus, Trash2, Loader2, RefreshCw,
 } from 'lucide-react';
 import { format, parseISO, isPast } from 'date-fns';
 
@@ -71,9 +72,11 @@ export default function TenderSubmit() {
   const [submitted, setSubmitted]       = useState(false);
   const [submitting, setSubmitting]     = useState(false);
   const [submitError, setSubmitError]   = useState('');
-  const [uploading, setUploading]       = useState(false);
-  const [pricingFiles, setPricingFiles] = useState([]); // [{file_url, file_name}]
+  // pricingFiles: [{id, file_name, file_url, status: 'uploading'|'done'|'error', error, file}]
+  const [pricingFiles, setPricingFiles] = useState([]);
   const [editingSubmission, setEditingSubmission] = useState(false);
+  // priceLines: [{id, description, amount}]
+  const [priceLines, setPriceLines] = useState([{ id: 1, description: 'Lump sum price', amount: '' }]);
   const [activeTab, setActiveTab]       = useState('overview');
   const [intentLoading, setIntentLoading] = useState(false);
 
@@ -108,7 +111,17 @@ export default function TenderSubmit() {
             uploaded_file_url:  s.uploaded_file_url  || '',
             uploaded_file_name: s.uploaded_file_name || '',
           });
-          setPricingFiles(s.pricing_files || (s.uploaded_file_url ? [{ file_url: s.uploaded_file_url, file_name: s.uploaded_file_name }] : []));
+          // Restore price lines — fall back to single lump sum line
+          if (s.price_lines?.length) {
+            setPriceLines(s.price_lines.map((l, i) => ({ id: i + 1, description: l.description, amount: String(l.amount) })));
+          } else if (s.lump_sum_price) {
+            setPriceLines([{ id: 1, description: 'Lump sum price', amount: String(s.lump_sum_price) }]);
+          }
+          // Restore uploaded files as done entries
+          const savedFiles = s.pricing_files?.length
+            ? s.pricing_files
+            : s.uploaded_file_url ? [{ file_url: s.uploaded_file_url, file_name: s.uploaded_file_name }] : [];
+          setPricingFiles(savedFiles.map((f, i) => ({ id: i + 1, file_name: f.file_name, file_url: f.file_url, status: 'done' })));
         }
       })
       .catch(e => setError(e?.response?.data?.error || 'Invalid or expired link'))
@@ -157,55 +170,65 @@ export default function TenderSubmit() {
   const isOverdue = tender?.closing_date &&
     isPast(parseISO(`${tender.closing_date.split('T')[0]}T23:59:59+12:00`));
 
-  const handleFileUpload = async (e) => {
+  const uploadSingleFile = async (fileEntry) => {
+    const { id, file } = fileEntry;
+    setPricingFiles(prev => prev.map(f => f.id === id ? { ...f, status: 'uploading', error: null } : f));
+    try {
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const res = await invokeFunction('tenderPublicApi', {
+        action: 'upload', token,
+        fileName: file.name, fileData: base64, fileType: file.type,
+      });
+      setPricingFiles(prev => prev.map(f => f.id === id ? { ...f, status: 'done', file_url: res.data.file_url } : f));
+    } catch (err) {
+      setPricingFiles(prev => prev.map(f => f.id === id ? { ...f, status: 'error', error: err?.message || 'Upload failed' } : f));
+    }
+  };
+
+  const handleFileSelect = async (e) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
-    for (const file of files) {
-      if (file.size > 500 * 1024 * 1024) {
-        setSubmitError(`${file.name} must be under 500 MB.`);
-        e.target.value = '';
-        return;
-      }
-    }
-    setUploading(true);
-    try {
-      const uploaded = [];
-      for (const file of files) {
-        const base64 = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result.split(',')[1]);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-        const res = await invokeFunction('tenderPublicApi', {
-          action: 'upload', token,
-          fileName: file.name, fileData: base64, fileType: file.type,
-        });
-        uploaded.push({ file_url: res.data.file_url, file_name: file.name });
-      }
-      setPricingFiles(prev => [...prev, ...uploaded]);
-    } catch (err) {
-      setSubmitError(`File upload failed: ${err?.message || 'Please try again'}`);
-    } finally {
-      setUploading(false);
-      e.target.value = '';
+    const oversized = files.find(f => f.size > 500 * 1024 * 1024);
+    if (oversized) { setSubmitError(`${oversized.name} must be under 500 MB.`); e.target.value = ''; return; }
+    const newEntries = files.map((file, i) => ({
+      id: Date.now() + i,
+      file_name: file.name,
+      file_url: '',
+      status: 'uploading',
+      error: null,
+      file,
+    }));
+    setPricingFiles(prev => [...prev, ...newEntries]);
+    e.target.value = '';
+    for (const entry of newEntries) {
+      await uploadSingleFile(entry);
     }
   };
 
   const handleSubmit = async () => {
-    if (!form.lump_sum_price) { setSubmitError('Please enter your lump sum price.'); return; }
+    const validLines = priceLines.filter(l => l.amount && Number(l.amount) > 0);
+    const totalPrice = validLines.reduce((sum, l) => sum + Number(l.amount), 0);
+    if (!totalPrice) { setSubmitError('Please enter at least one price.'); return; }
+    if (pricingFiles.some(f => f.status === 'uploading')) { setSubmitError('Please wait for files to finish uploading.'); return; }
+    if (pricingFiles.some(f => f.status === 'error')) { setSubmitError('Some files failed to upload. Retry or remove them before submitting.'); return; }
     setSubmitting(true);
     setSubmitError('');
+    const doneFiles = pricingFiles.filter(f => f.status === 'done');
     try {
       await invokeFunction('tenderPublicApi', {
         action: 'submit', token,
         submission: {
-          lump_sum_price:     Number(form.lump_sum_price),
+          lump_sum_price:     totalPrice,
+          price_lines:        validLines.map(l => ({ description: l.description || 'Item', amount: Number(l.amount) })),
           notes:              form.notes,
-          pricing_files:      pricingFiles,
-          // backwards compat: first file as legacy fields
-          uploaded_file_url:  pricingFiles[0]?.file_url  || '',
-          uploaded_file_name: pricingFiles[0]?.file_name || '',
+          pricing_files:      doneFiles.map(f => ({ file_url: f.file_url, file_name: f.file_name })),
+          uploaded_file_url:  doneFiles[0]?.file_url  || '',
+          uploaded_file_name: doneFiles[0]?.file_name || '',
         },
       });
       setInvitee(prev => prev ? {
@@ -601,32 +624,101 @@ export default function TenderSubmit() {
 
                 <div className="border rounded-lg p-5 bg-card space-y-4">
                   <h3 className="font-semibold">Your Submission</h3>
-                  <div>
-                    <Label>Lump Sum Price (NZD) *</Label>
-                    <div className="relative mt-1.5">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-                      <Input type="number" min="0" step="0.01" value={form.lump_sum_price}
-                        onChange={e => setForm(f => ({ ...f, lump_sum_price: e.target.value }))}
-                        className="pl-7" placeholder="0.00" />
+                  {/* ── Pricing ─────────────────────────────────────── */}
+                  <div className="space-y-2">
+                    <Label>Pricing</Label>
+                    <p className="text-xs text-muted-foreground">Enter a lump sum or break your price down by line item. Total is auto-calculated.</p>
+
+                    {/* Column headers */}
+                    <div className="grid grid-cols-[1fr_140px_28px] gap-2 px-1">
+                      <span className="text-xs text-muted-foreground">Description</span>
+                      <span className="text-xs text-muted-foreground">Amount (NZD)</span>
+                      <span />
                     </div>
-                  </div>
-                  <div>
-                    <Label>Pricing Documents (optional)</Label>
-                    <Input type="file" accept=".pdf,.xlsx,.xls,.doc,.docx" onChange={handleFileUpload}
-                      multiple disabled={uploading} className="mt-1.5" />
-                    {uploading && <p className="text-xs text-muted-foreground mt-1">Uploading...</p>}
-                    {pricingFiles.length > 0 && (
-                      <div className="mt-2 space-y-1">
-                        {pricingFiles.map((f, i) => (
-                          <div key={i} className="flex items-center gap-2 text-xs text-green-700 bg-green-50 rounded px-2 py-1">
-                            <FileText className="w-3 h-3 flex-shrink-0" />
-                            <span className="flex-1 truncate">{f.file_name}</span>
+
+                    {/* Lines */}
+                    <div className="space-y-2">
+                      {priceLines.map((line, idx) => (
+                        <div key={line.id} className="grid grid-cols-[1fr_140px_28px] gap-2 items-center">
+                          <input
+                            className="h-8 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                            value={line.description}
+                            placeholder="Description"
+                            onChange={e => setPriceLines(prev => prev.map(l => l.id === line.id ? { ...l, description: e.target.value } : l))}
+                          />
+                          <div className="relative">
+                            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
+                            <input
+                              type="number" min="0" step="0.01"
+                              className="h-8 w-full rounded-md border border-input bg-background pl-6 pr-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                              value={line.amount}
+                              placeholder="0.00"
+                              onChange={e => setPriceLines(prev => prev.map(l => l.id === line.id ? { ...l, amount: e.target.value } : l))}
+                            />
+                          </div>
+                          {priceLines.length > 1 ? (
                             <button
-                              className="text-muted-foreground hover:text-destructive"
-                              onClick={() => setPricingFiles(prev => prev.filter((_, j) => j !== i))}
+                              className="w-7 h-7 flex items-center justify-center rounded-md border border-input hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+                              onClick={() => setPriceLines(prev => prev.filter(l => l.id !== line.id))}
+                              title="Remove line"
                             >
-                              <X className="w-3 h-3" />
+                              <X className="w-3.5 h-3.5" />
                             </button>
+                          ) : <span />}
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Add line */}
+                    <button
+                      className="flex items-center gap-1.5 text-xs text-primary border border-dashed border-primary/40 bg-primary/5 rounded-md px-3 py-1.5 hover:bg-primary/10"
+                      onClick={() => setPriceLines(prev => [...prev, { id: Date.now(), description: '', amount: '' }])}
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Add price line
+                    </button>
+
+                    {/* Total */}
+                    {priceLines.length > 1 && (
+                      <div className="flex justify-between items-center border-t pt-2 mt-1">
+                        <span className="text-sm font-medium text-muted-foreground">Total</span>
+                        <span className="text-base font-semibold">
+                          ${priceLines.reduce((s, l) => s + (Number(l.amount) || 0), 0).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ── Pricing Documents ────────────────────────── */}
+                  <div className="space-y-2">
+                    <Label>Pricing Documents (optional)</Label>
+                    <label className="flex items-center gap-2 cursor-pointer w-fit">
+                      <span className="inline-flex items-center gap-1.5 text-xs border border-input rounded-md px-3 py-1.5 hover:bg-muted">
+                        <FileText className="w-3.5 h-3.5" /> Choose files
+                      </span>
+                      <input type="file" accept=".pdf,.xlsx,.xls,.doc,.docx" multiple className="sr-only" onChange={handleFileSelect} />
+                    </label>
+                    {pricingFiles.length > 0 && (
+                      <div className="space-y-1.5">
+                        {pricingFiles.map(f => (
+                          <div key={f.id} className={`flex items-center gap-2 text-xs rounded-md px-2.5 py-1.5 ${
+                            f.status === 'done'     ? 'bg-green-50 text-green-800 border border-green-200' :
+                            f.status === 'error'    ? 'bg-red-50 text-red-800 border border-red-200' :
+                                                      'bg-muted text-muted-foreground border border-input'
+                          }`}>
+                            {f.status === 'uploading' && <Loader2 className="w-3 h-3 animate-spin flex-shrink-0" />}
+                            {f.status === 'done'      && <CheckCircle2 className="w-3 h-3 flex-shrink-0 text-green-600" />}
+                            {f.status === 'error'     && <AlertCircle className="w-3 h-3 flex-shrink-0 text-red-500" />}
+                            <span className="flex-1 truncate">{f.file_name}</span>
+                            {f.status === 'error' && (
+                              <button className="flex items-center gap-0.5 text-red-700 hover:underline" onClick={() => uploadSingleFile(f)}>
+                                <RefreshCw className="w-3 h-3" /> Retry
+                              </button>
+                            )}
+                            {f.status !== 'uploading' && (
+                              <button onClick={() => setPricingFiles(prev => prev.filter(p => p.id !== f.id))} className="hover:text-destructive ml-1">
+                                <X className="w-3 h-3" />
+                              </button>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -646,7 +738,8 @@ export default function TenderSubmit() {
                     </div>
                   )}
 
-                  <Button onClick={handleSubmit} disabled={submitting || uploading || !form.lump_sum_price}
+                  <Button onClick={handleSubmit}
+                    disabled={submitting || pricingFiles.some(f => f.status === 'uploading') || !priceLines.some(l => Number(l.amount) > 0)}
                     className="w-full" size="lg">
                     {submitting ? 'Submitting...' : submitted ? 'Update My Submission' : 'Submit My Pricing'}
                   </Button>

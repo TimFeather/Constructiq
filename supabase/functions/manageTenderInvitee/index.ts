@@ -216,8 +216,28 @@ Deno.serve(async (req: Request) => {
       const { inviteeId } = body;
       if (!inviteeId) return fail('inviteeId is required', 400);
       trace(`DELETE TenderInvitee id=${inviteeId}`);
-      await supabaseAdmin.from('tender_invitees').delete().eq('id', inviteeId);
-      trace(`Deleted id=${inviteeId}`);
+
+      // Must delete invitations first (FK: tender_invitations.invitee_id → tender_invitees.id)
+      const { error: invErr } = await supabaseAdmin
+        .from('tender_invitations')
+        .delete()
+        .eq('invitee_id', inviteeId);
+      if (invErr) trace(`Warning: invitation delete error: ${invErr.message}`);
+
+      // Also remove any submissions linked to this invitee
+      const { error: subErr } = await supabaseAdmin
+        .from('tender_submissions')
+        .delete()
+        .eq('invitee_id', inviteeId);
+      if (subErr) trace(`Warning: submission delete error: ${subErr.message}`);
+
+      const { error: delErr } = await supabaseAdmin
+        .from('tender_invitees')
+        .delete()
+        .eq('id', inviteeId);
+      if (delErr) return fail(`Delete failed: ${delErr.message}`, 500);
+
+      trace(`Deleted invitee id=${inviteeId}`);
       return Response.json({ success: true, trace: log }, { headers: corsHeaders });
     }
 

@@ -53,7 +53,11 @@ export default function ProjectFormDialog({ open, onOpenChange, project }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    mutation.mutate(form);
+    mutation.mutate({
+      ...form,
+      start_date: form.start_date || null,
+      end_date:   form.end_date   || null,
+    });
   };
 
   React.useEffect(() => {

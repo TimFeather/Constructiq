@@ -5,14 +5,16 @@
  * Scores are saved back to TenderSubmission records.
  * Scoring criteria are still stored on the Tender record.
  */
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
 import { TenderSubmission } from '@/api/entities';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ChevronDown, ChevronUp, Download, Plus, Trash2, AlertTriangle } from 'lucide-react';
+import { ChevronDown, ChevronUp, Download, Plus, Trash2, AlertTriangle, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 
 function calcWeightedScore(submission, criteria) {
@@ -25,6 +27,62 @@ function calcWeightedScore(submission, criteria) {
     }
   }
   return Math.round(total * 10) / 10;
+}
+
+function PricingFilesBlock({ submission }) {
+  const files = submission.pricing_files?.length > 0
+    ? submission.pricing_files
+    : submission.uploaded_file_url
+      ? [{ file_url: submission.uploaded_file_url, file_name: submission.uploaded_file_name }]
+      : [];
+  const [zipping, setZipping] = useState(false);
+
+  const downloadZip = async () => {
+    setZipping(true);
+    try {
+      const zip = new JSZip();
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i];
+        const res = await fetch(f.file_url);
+        if (!res.ok) throw new Error(`Failed to fetch ${f.file_name}`);
+        const blob = await res.blob();
+        zip.file(f.file_name || `file-${i + 1}`, blob);
+      }
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const name = `${(submission.business_name || submission.invitee_name || 'submission').replace(/[^a-z0-9]/gi, '-').toLowerCase()}_pricing_files.zip`;
+      saveAs(zipBlob, name);
+    } catch (e) {
+      console.error('Zip failed:', e);
+    } finally {
+      setZipping(false);
+    }
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <p className="text-xs text-muted-foreground">Pricing Files</p>
+        {files.length >= 2 && (
+          <button
+            onClick={downloadZip}
+            disabled={zipping}
+            className="flex items-center gap-1 text-xs text-primary hover:underline disabled:opacity-50"
+          >
+            {zipping ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+            {zipping ? 'Zipping...' : 'Download all'}
+          </button>
+        )}
+      </div>
+      <div className="space-y-1">
+        {files.map((f, i) => (
+          <a key={i} href={f.file_url} target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-1 text-primary text-sm hover:underline">
+            <Download className="w-3 h-3" /> {f.file_name || `File ${i + 1}`}
+          </a>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function ScoringPanel({ submission, criteria, onSaveScores, saving }) {
@@ -66,17 +124,7 @@ function ScoringPanel({ submission, criteria, onSaveScores, saving }) {
           </p>
         </div>
         {((submission.pricing_files?.length > 0) || submission.uploaded_file_url) && (
-          <div>
-            <p className="text-xs text-muted-foreground">Pricing Files</p>
-            <div className="space-y-1">
-              {(submission.pricing_files?.length > 0 ? submission.pricing_files : [{ file_url: submission.uploaded_file_url, file_name: submission.uploaded_file_name }]).map((f, i) => (
-                <a key={i} href={f.file_url} target="_blank" rel="noopener noreferrer"
-                   className="flex items-center gap-1 text-primary text-sm hover:underline">
-                  <Download className="w-3 h-3" /> {f.file_name || `File ${i + 1}`}
-                </a>
-              ))}
-            </div>
-          </div>
+          <PricingFilesBlock submission={submission} />
         )}
       </div>
       {submission.notes && (
@@ -85,14 +133,14 @@ function ScoringPanel({ submission, criteria, onSaveScores, saving }) {
           <p className="text-sm bg-card p-3 rounded border">{submission.notes}</p>
         </div>
       )}
-      {submission.price_breakdown?.length > 0 && (
+      {submission.price_lines?.length > 1 && (
         <div>
           <p className="text-xs font-medium mb-2">Price Breakdown</p>
-          <div className="space-y-1">
-            {submission.price_breakdown.map((b, i) => (
-              <div key={i} className="flex justify-between text-xs py-1 border-b last:border-0">
-                <span>{b.trade_package}</span>
-                <span className="font-mono">{b.amount ? `NZD ${Number(b.amount).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}` : '—'}</span>
+          <div className="space-y-0">
+            {submission.price_lines.map((l, i) => (
+              <div key={i} className="flex justify-between text-xs py-1.5 border-b last:border-0">
+                <span>{l.description || `Item ${i + 1}`}</span>
+                <span className="font-mono">{l.amount != null ? `NZD ${Number(l.amount).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}` : '—'}</span>
               </div>
             ))}
           </div>

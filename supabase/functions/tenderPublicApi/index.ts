@@ -320,9 +320,9 @@ ${portalUrl ? `<p style="margin-top:24px;"><a href="${portalUrl}" style="display
         }
       }
 
-      if (!submission?.lump_sum_price) {
+      if (!submission?.lump_sum_price || Number(submission.lump_sum_price) <= 0) {
         return Response.json(
-          { error: 'Lump sum price is required.' },
+          { error: 'A valid price is required.' },
           { status: 400, headers: corsHeaders }
         );
       }
@@ -365,12 +365,14 @@ ${portalUrl ? `<p style="margin-top:24px;"><a href="${portalUrl}" style="display
         if (!pricingFiles.length && submission.uploaded_file_url) {
           pricingFiles.push({ file_url: submission.uploaded_file_url, file_name: submission.uploaded_file_name || 'pricing.pdf', uploaded_at: submittedAt });
         }
+        const priceLines: any[] = submission.price_lines || [];
 
         if (existing.length > 0) {
           const { data: updated } = await supabaseAdmin
             .from('tender_submissions')
             .update({
               lump_sum_price:     submission.lump_sum_price,
+              price_lines:        priceLines,
               notes:              submission.notes              || '',
               uploaded_file_url:  pricingFiles[0]?.file_url  || submission.uploaded_file_url  || '',
               uploaded_file_name: pricingFiles[0]?.file_name || submission.uploaded_file_name || '',
@@ -394,6 +396,7 @@ ${portalUrl ? `<p style="margin-top:24px;"><a href="${portalUrl}" style="display
               invitee_name:       invitation.invitee_name  || '',
               invitee_email:      invitation.invitee_email || '',
               lump_sum_price:     submission.lump_sum_price,
+              price_lines:        priceLines,
               notes:              submission.notes              || '',
               uploaded_file_url:  pricingFiles[0]?.file_url  || submission.uploaded_file_url  || '',
               uploaded_file_name: pricingFiles[0]?.file_name || submission.uploaded_file_name || '',

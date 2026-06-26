@@ -12,6 +12,9 @@ export const AuthProvider = ({ children }) => {
   const [authChecked, setAuthChecked] = useState(false);
   const [isSettingUpWorkspace, setIsSettingUpWorkspace] = useState(false);
   const workspaceSetupDoneRef = React.useRef(false);
+  // Refs so subscription callbacks always see the latest values (avoids stale closure)
+  const isAuthenticatedRef = React.useRef(false);
+  const authCheckedRef     = React.useRef(false);
 
   useEffect(() => {
     // Check current session on mount
@@ -21,13 +24,14 @@ export const AuthProvider = ({ children }) => {
       } else {
         setIsLoadingAuth(false);
         setAuthChecked(true);
+        authCheckedRef.current = true;
       }
     });
 
     // Listen for auth state changes (login, logout, token refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      // Skip silent token refreshes if already authenticated
-      if (event === 'TOKEN_REFRESHED' && isAuthenticated) {
+      // Skip silent token refreshes if already authenticated (use ref — state is stale in closure)
+      if ((event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') && isAuthenticatedRef.current) {
         return;
       }
       if (session) {
@@ -35,8 +39,10 @@ export const AuthProvider = ({ children }) => {
       } else {
         setUser(null);
         setIsAuthenticated(false);
+        isAuthenticatedRef.current = false;
         setIsLoadingAuth(false);
         setAuthChecked(true);
+        authCheckedRef.current = false;
         workspaceSetupDoneRef.current = false;
       }
     });
@@ -46,8 +52,8 @@ export const AuthProvider = ({ children }) => {
 
   const loadUserProfile = async (authUser, runWorkspaceSetup = false) => {
     try {
-      // Only show loading state if this is first auth check or workspace setup
-      if (runWorkspaceSetup || !authChecked) setIsLoadingAuth(true);
+      // Only show loading state on first load or explicit workspace setup (use ref — state is stale in closure)
+      if (runWorkspaceSetup || !authCheckedRef.current) setIsLoadingAuth(true);
 
       // Load the user's profile row from public.users
       const { data: profile, error } = await supabase
@@ -76,13 +82,16 @@ export const AuthProvider = ({ children }) => {
       if (profile?.disabled === true) {
         setAuthError({ type: 'account_deactivated', message: 'Account deactivated' });
         setIsAuthenticated(false);
-        if (runWorkspaceSetup || !authChecked) setIsLoadingAuth(false);
+        isAuthenticatedRef.current = false;
+        if (runWorkspaceSetup || !authCheckedRef.current) setIsLoadingAuth(false);
         setAuthChecked(true);
+        authCheckedRef.current = true;
         return;
       }
 
       setUser(fullUser);
       setIsAuthenticated(true);
+      isAuthenticatedRef.current = true;
       setAuthError(null);
 
       // Only run workspace setup on actual sign-in, not token refreshes or tab focus
@@ -121,9 +130,11 @@ export const AuthProvider = ({ children }) => {
       console.error('[AuthContext] loadUserProfile error:', error);
       setAuthError({ type: 'unknown', message: error.message });
       setIsAuthenticated(false);
+      isAuthenticatedRef.current = false;
     } finally {
-      if (runWorkspaceSetup || !authChecked) setIsLoadingAuth(false);
+      if (runWorkspaceSetup || !authCheckedRef.current) setIsLoadingAuth(false);
       setAuthChecked(true);
+      authCheckedRef.current = true;
     }
   };
 
