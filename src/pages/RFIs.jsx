@@ -69,7 +69,16 @@ export default function RFIs() {
     queryFn: () => Project.list('-created_at', 100),
   });
 
-  const projects = allProjects;
+  const projects = ['admin', 'internal', 'pricing'].includes(user?.role)
+    ? allProjects
+    : allProjects.filter(p => p.team?.some(m => normalizeEmail(m.user_email) === normalizeEmail(user?.email)));
+
+  const ACTIVE_STATUSES = ['Active', 'On Hold', 'Complete'];
+  const viewProjects = projects.filter(p =>
+    viewMode === 'archived'
+      ? p.status === 'Archived'
+      : ACTIVE_STATUSES.includes(p.status)
+  );
 
   const projectIds = new Set(projects.map(p => p.id));
   const allVisibleRfis = allRfis.filter(r => projectIds.has(r.project_id));
@@ -228,7 +237,7 @@ export default function RFIs() {
             {[1,2,3].map(i => <div key={i} className="h-24 bg-muted rounded-lg animate-pulse" />)}
           </div>
         ) : (() => {
-          const matchingProjects = projects.filter(p => rfis.some(r => r.project_id === p.id));
+          const matchingProjects = viewProjects.filter(p => rfis.some(r => r.project_id === p.id));
           if (matchingProjects.length === 0) {
             return viewMode === 'archived'
               ? <EmptyState icon={Archive} title="No archived RFIs" description="Archived RFIs will appear here when a project is archived" />
@@ -237,7 +246,7 @@ export default function RFIs() {
           return null;
         })() || (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {projects.filter(p => rfis.some(r => r.project_id === p.id)).map(project => {
+            {viewProjects.filter(p => rfis.some(r => r.project_id === p.id)).map(project => {
               const count = rfis.filter(r => r.project_id === project.id).length;
               const openCount = rfis.filter(r => r.project_id === project.id && r.status === 'Open').length;
               return (

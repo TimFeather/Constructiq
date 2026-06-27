@@ -166,37 +166,37 @@ export default function Settings() {
           <TabsTrigger value="notifications">
             <Bell className="w-3.5 h-3.5 mr-1" /> Notifications
           </TabsTrigger>
-          {(isAdmin || isInternal) && (
+          {isAdmin && (
             <TabsTrigger value="people">
               <Users className="w-3.5 h-3.5 mr-1" /> People
             </TabsTrigger>
           )}
-          {(isAdmin || isInternal) && (
+          {isAdmin && (
             <TabsTrigger value="roles">
               <Tag className="w-3.5 h-3.5 mr-1" /> Roles
             </TabsTrigger>
           )}
-          {(isAdmin || isInternal) && (
+          {isAdmin && (
             <TabsTrigger value="appearance">
               <Palette className="w-3.5 h-3.5 mr-1" /> Appearance
             </TabsTrigger>
           )}
-          {(isAdmin || isInternal) && (
+          {isAdmin && (
             <TabsTrigger value="emails">
               <Mail className="w-3.5 h-3.5 mr-1" /> Email Templates
             </TabsTrigger>
           )}
-          {(isAdmin || isInternal || isPricingUser) && (
+          {isAdmin && (
             <TabsTrigger value="subcontractors">
               Subcontractors
             </TabsTrigger>
           )}
-          {(isAdmin || isInternal || isPricingUser) && (
+          {isAdmin && (
             <TabsTrigger value="documents">
               <FolderOpen className="w-3.5 h-3.5 mr-1" /> Documents
             </TabsTrigger>
           )}
-          {(isAdmin || isInternal || isPricingUser) && (
+          {isAdmin && (
             <TabsTrigger value="tender-defaults">
               <FileSignature className="w-3.5 h-3.5 mr-1" /> Tender Defaults
             </TabsTrigger>
@@ -333,29 +333,29 @@ export default function Settings() {
           </Card>
         </TabsContent>
 
-        {/* People (Admin + Internal) */}
-        {(isAdmin || isInternal) && (
+        {/* People (Admin only) */}
+        {isAdmin && (
           <TabsContent value="people">
             <PeopleSettings />
           </TabsContent>
         )}
 
-        {/* Roles (Admin + Internal) */}
-        {(isAdmin || isInternal) && (
+        {/* Roles (Admin only) */}
+        {isAdmin && (
           <TabsContent value="roles">
             <RoleManager />
           </TabsContent>
         )}
 
-        {/* Appearance (Admin + Internal) */}
-        {(isAdmin || isInternal) && (
+        {/* Appearance (Admin only) */}
+        {isAdmin && (
           <TabsContent value="appearance">
             <AppearanceSettings user={user} />
           </TabsContent>
         )}
 
-        {/* Email Templates (Admin + Internal) */}
-        {(isAdmin || isInternal) && (
+        {/* Email Templates (Admin only) */}
+        {isAdmin && (
           <TabsContent value="emails">
             <div className="space-y-4">
               <EmailBrandingPanel />
@@ -400,17 +400,17 @@ export default function Settings() {
             </div>
           </TabsContent>
         )}
-        {(isAdmin || isInternal || isPricingUser) && (
+        {isAdmin && (
           <TabsContent value="subcontractors">
             <SubcontractorDirectory />
           </TabsContent>
         )}
-        {(isAdmin || isInternal || isPricingUser) && (
+        {isAdmin && (
           <TabsContent value="documents">
             <DocumentFolderTemplates />
           </TabsContent>
         )}
-        {(isAdmin || isInternal || isPricingUser) && (
+        {isAdmin && (
           <TabsContent value="tender-defaults" className="space-y-8">
             <TenderSettingsPanel />
             {isAdmin && <TradeTemplatesPanel />}

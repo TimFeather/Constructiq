@@ -15,6 +15,7 @@ import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
 import { format } from 'date-fns';
 import { resolveTemplate, applyTemplate, buildEmailHtml } from '@/lib/emailTemplates';
+import { canEdit } from '@/lib/permissions';
 
 export default function RFIDetail() {
   const { id } = useParams();
@@ -25,7 +26,7 @@ export default function RFIDetail() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const queryClient = useQueryClient();
 
-  const isAdminOrInternal = user?.role === 'admin' || user?.role === 'internal';
+  const isAdminOrInternal = canEdit(user, 'rfis');
 
   const { data: rfi, isLoading } = useQuery({
     queryKey: ['rfi', id],

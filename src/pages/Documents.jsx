@@ -17,6 +17,7 @@ import EmptyState from '@/components/shared/EmptyState';
 import ProjectDocsPanel from '@/components/documents/ProjectDocsPanel';
 import { format } from 'date-fns';
 import { normalizeEmail } from '@/lib/normalizeEmail';
+import { canEdit } from '@/lib/permissions';
 
 function getFileType(name) {
   if (!name) return 'Other';
@@ -41,7 +42,7 @@ export default function Documents() {
   const [viewMode, setViewMode] = useState('active');
   const queryClient = useQueryClient();
 
-  const isAdmin = ['admin', 'internal', 'pricing'].includes(user?.role);
+  const isAdmin = canEdit(user, 'documents');
 
   const { data: allDocuments = [], isLoading } = useQuery({
     queryKey: ['documents'],
@@ -64,6 +65,13 @@ export default function Documents() {
     : allVisibleDocs.filter(d => !d.archived);
   const activeDocCount = allVisibleDocs.filter(d => !d.archived).length;
   const archivedDocCount = allVisibleDocs.filter(d => d.archived).length;
+
+  const ACTIVE_STATUSES = ['Active', 'On Hold', 'Complete'];
+  const viewProjects = projects.filter(p =>
+    viewMode === 'archived'
+      ? p.status === 'Archived'
+      : ACTIVE_STATUSES.includes(p.status)
+  );
 
   const statusMutation = useMutation({
     mutationFn: ({ id, status }) => Document.update(id, { status }),
@@ -196,7 +204,7 @@ export default function Documents() {
               ))}
             </div>
           ) : (() => {
-            const matchingProjects = projects.filter(p =>
+            const matchingProjects = viewProjects.filter(p =>
               p.name?.toLowerCase().includes(search.toLowerCase()) &&
               documents.some(d => d.project_id === p.id)
             );
@@ -208,7 +216,7 @@ export default function Documents() {
             return null;
           })() || (
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {projects.filter(p => p.name?.toLowerCase().includes(search.toLowerCase()) && documents.some(d => d.project_id === p.id)).map(project => {
+              {viewProjects.filter(p => p.name?.toLowerCase().includes(search.toLowerCase()) && documents.some(d => d.project_id === p.id)).map(project => {
                 const docCount = documents.filter(d => d.project_id === project.id).length;
                 return (
                   <Card
