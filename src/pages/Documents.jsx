@@ -96,6 +96,7 @@ export default function Documents() {
         file_url,
         file_type: getFileType(uploadForm.file.name),
         status: 'Draft',
+        visibility: 'public',
         uploaded_by_name: user?.full_name || 'Unknown',
         uploaded_by_email: user?.email || '',
       });

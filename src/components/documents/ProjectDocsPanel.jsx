@@ -138,6 +138,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
       file_url,
       file_type: getFileType(f.name),
       status: 'Draft',
+      visibility: 'public',
       uploaded_by_name: user?.full_name || 'Unknown',
       uploaded_by_email: user?.email || '',
     });
