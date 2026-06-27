@@ -173,7 +173,7 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
             </div>
           </div>
           <div>
-            <Label>Due Date</Label>
+            <Label>Due Date <span className="text-muted-foreground font-normal">(optional)</span></Label>
             <Input type="date" value={form.due_date} onChange={e => setForm({...form, due_date: e.target.value})} />
           </div>
 
