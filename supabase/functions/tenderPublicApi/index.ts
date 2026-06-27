@@ -11,6 +11,7 @@
  */
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { Resend } from 'npm:resend@4.0.0';
+import { escapeHtml } from '../_shared/escapeHtml.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz',
@@ -59,12 +60,12 @@ Deno.serve(async (req: Request) => {
       const portalUrl = invToken ? `${Deno.env.get('SITE_URL') || Deno.env.get('APP_URL') || 'https://constructiq-beige.vercel.app'}/tender-submit/${invToken}` : '';
 
       try {
-        const bodyContent = `<p>Dear <strong>${invitee_name}</strong>,</p>
-<p>Your question on tender <strong>${tRow?.tender_number || ''}: ${tRow?.title || ''}</strong> has been answered.</p>
-<p><strong>Question:</strong> ${rfiRow?.subject || ''}</p>
-<p><strong>Answer:</strong><br>${content}</p>
+        const bodyContent = `<p>Dear <strong>${escapeHtml(invitee_name)}</strong>,</p>
+<p>Your question on tender <strong>${escapeHtml(tRow?.tender_number || '')}: ${escapeHtml(tRow?.title || '')}</strong> has been answered.</p>
+<p><strong>Question:</strong> ${escapeHtml(rfiRow?.subject || '')}</p>
+<p><strong>Answer:</strong><br>${escapeHtml(content)}</p>
 ${portalUrl ? `<p style="margin-top:24px;"><a href="${portalUrl}" style="display:inline-block;padding:10px 24px;background:${brandColour};color:#fff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View on Portal</a></p>` : ''}
-<p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br><strong>${userData?.full_name || fromName}</strong></p>`;
+<p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br><strong>${escapeHtml(userData?.full_name || fromName)}</strong></p>`;
 
         const logoHtml = br.logo_url
           ? `<div style="text-align:center;margin-bottom:20px;"><img src="${br.logo_url}" alt="${br.company_name || 'Logo'}" width="160" style="max-width:100%;height:auto;display:inline-block;" /></div>`
@@ -150,6 +151,14 @@ ${portalUrl ? `<p style="margin-top:24px;"><a href="${portalUrl}" style="display
     }
 
     console.log(`[tenderPublicApi] invitation id=${invitation.id} tender id=${tender.id} status=${tender.status}`);
+
+    // Block mutations on closed/cancelled tenders
+    if (['Closed', 'Cancelled'].includes(tender.status) && ['submit', 'createQuestion', 'upload'].includes(action)) {
+      return Response.json(
+        { error: 'This tender is no longer accepting submissions or questions.' },
+        { status: 400, headers: corsHeaders }
+      );
+    }
 
     // ── UPLOAD ────────────────────────────────────────────────────────────────
     if (action === 'upload') {
@@ -456,8 +465,8 @@ ${portalUrl ? `<p style="margin-top:24px;"><a href="${portalUrl}" style="display
 <table width="100%" style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1);">
   <tr><td style="background:${brandColour};height:4px;"></td></tr>
   <tr><td style="padding:32px 40px;font-size:15px;color:#111827;line-height:1.7;">
-    <p>Dear <strong>${invitation.invitee_name}</strong>,</p>
-    <p>Thank you for submitting your pricing for <strong>${tender.title}</strong>.</p>
+    <p>Dear <strong>${escapeHtml(invitation.invitee_name)}</strong>,</p>
+    <p>Thank you for submitting your pricing for <strong>${escapeHtml(tender.title)}</strong>.</p>
     <p>Your submission has been received. We will be in touch following the closing date${tender.closing_date ? ' of <strong>' + tender.closing_date + '</strong>' : ''}.</p>
     <p style="color:#6b7280;font-size:13px;">Regards,<br>${branding.company_name || 'ConstructIQ'}</p>
   </td></tr>
@@ -482,7 +491,7 @@ ${portalUrl ? `<p style="margin-top:24px;"><a href="${portalUrl}" style="display
     <p>A new submission has been received for <strong>${tender.title}</strong>.</p>
     <table style="width:100%;border-collapse:collapse;margin:16px 0;">
       <tr><td style="padding:8px 0;border-bottom:1px solid #e5e7eb;font-size:13px;color:#6b7280;">Subcontractor</td>
-          <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;font-weight:600;">${invitation.invitee_name}</td></tr>
+          <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;font-weight:600;">${escapeHtml(invitation.invitee_name)}</td></tr>
       <tr><td style="padding:8px 0;border-bottom:1px solid #e5e7eb;font-size:13px;color:#6b7280;">Submitted</td>
           <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;">${new Date().toLocaleDateString('en-NZ')}</td></tr>
       <tr><td style="padding:8px 0;font-size:13px;color:#6b7280;">Price</td>
@@ -586,9 +595,9 @@ ${portalUrl ? `<p style="margin-top:24px;"><a href="${portalUrl}" style="display
         const resend      = new Resend(Deno.env.get('RESEND_API_KEY'));
 
         if (toEmail) {
-          const bodyContent = `<p><strong>${invitation.invitee_name}</strong> (${invitation.invitee_email}) has submitted a question on tender <strong>${tender.tender_number}: ${tender.title}</strong>.</p>
-<p><strong>Subject:</strong> ${subject}</p>
-${qDesc ? `<p><strong>Question:</strong><br>${qDesc}</p>` : ''}
+          const bodyContent = `<p><strong>${escapeHtml(invitation.invitee_name)}</strong> (${escapeHtml(invitation.invitee_email)}) has submitted a question on tender <strong>${escapeHtml(tender.tender_number)}: ${escapeHtml(tender.title)}</strong>.</p>
+<p><strong>Subject:</strong> ${escapeHtml(subject)}</p>
+${qDesc ? `<p><strong>Question:</strong><br>${escapeHtml(qDesc)}</p>` : ''}
 <p style="margin-top:24px;"><a href="${adminUrl}" style="display:inline-block;padding:10px 24px;background:${brandColour};color:#fff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View &amp; Respond</a></p>`;
 
           const logoHtml = br.logo_url

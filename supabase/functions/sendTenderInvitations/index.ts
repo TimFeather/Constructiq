@@ -16,6 +16,7 @@
  */
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { Resend } from 'npm:resend@4.0.0';
+import { escapeHtml } from '../_shared/escapeHtml.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz',
@@ -172,17 +173,17 @@ Deno.serve(async (req: Request) => {
       const submissionLink = `${appUrl}/tender-submit/${invitationRecord.token}`;
 
       const vars: Record<string, string> = {
-        tender_number:   tenderInfo.tender_number || '',
-        title:           tenderInfo.title || '',
-        invitee_name:    inv.full_name || '',
-        company_name:    branding.company_name || 'ConstructIQ',
-        location:        tenderInfo.location || '',
-        closing_date:    tenderInfo.closing_date || '',
-        trade_packages:  (tenderInfo.trade_packages || []).join(', '),
-        description:     tenderInfo.description || '',
+        tender_number:   escapeHtml(tenderInfo.tender_number || ''),
+        title:           escapeHtml(tenderInfo.title || ''),
+        invitee_name:    escapeHtml(inv.full_name || ''),
+        company_name:    escapeHtml(branding.company_name || 'ConstructIQ'),
+        location:        escapeHtml(tenderInfo.location || ''),
+        closing_date:    escapeHtml(tenderInfo.closing_date || ''),
+        trade_packages:  escapeHtml((tenderInfo.trade_packages || []).join(', ')),
+        description:     escapeHtml(tenderInfo.description || ''),
         submission_link: submissionLink,
-        sender_name:     branding.sender_name || branding.company_name || 'ConstructIQ',
-        sender_email:    senderEmail,
+        sender_name:     escapeHtml(branding.sender_name || branding.company_name || 'ConstructIQ'),
+        sender_email:    escapeHtml(senderEmail),
       };
 
       const replace = (str: string) => str.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? '');

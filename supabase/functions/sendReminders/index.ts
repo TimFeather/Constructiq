@@ -11,6 +11,7 @@
  */
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { Resend } from 'npm:resend@4.0.0';
+import { escapeHtml } from '../_shared/escapeHtml.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz',
@@ -110,11 +111,16 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    // Allow both scheduled (no auth) and manual trigger (admin auth)
-    const authHeader = req.headers.get('authorization');
-    if (authHeader) {
-      const jwt = authHeader.replace('Bearer ', '');
-      const { data: { user }, error } = await supabaseAdmin.auth.getUser(jwt);
+    // Auth: require SERVICE_ROLE_KEY (pg_cron) or admin/pricing JWT (manual trigger)
+    const authHeader = req.headers.get('authorization') || '';
+    const token = authHeader.replace('Bearer ', '');
+    const isServiceRole = token === SERVICE_ROLE_KEY;
+
+    if (!isServiceRole) {
+      if (!authHeader) {
+        return Response.json({ error: 'Unauthorized' }, { status: 401, headers: corsHeaders });
+      }
+      const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
       if (error || !user) {
         return Response.json({ error: 'Unauthorized' }, { status: 401, headers: corsHeaders });
       }
@@ -184,15 +190,15 @@ Deno.serve(async (req: Request) => {
 
           const portalUrl = `${APP_URL}/tender-submit/${inv.token}`;
           const vars: Record<string, string> = {
-            invitee_name:    inv.invitee_name || 'Tenderer',
-            tender_number:   tender.tender_number || '',
-            title:           tender.title || '',
-            location:        tender.location || '',
+            invitee_name:    escapeHtml(inv.invitee_name || 'Tenderer'),
+            tender_number:   escapeHtml(tender.tender_number || ''),
+            title:           escapeHtml(tender.title || ''),
+            location:        escapeHtml(tender.location || ''),
             closing_date:    formatDate(tender.closing_date),
             days_remaining:  String(days),
             submission_link: portalUrl,
-            sender_name:     fromName,
-            company_name:    branding.company_name || 'ConstructIQ',
+            sender_name:     escapeHtml(fromName),
+            company_name:    escapeHtml(branding.company_name || 'ConstructIQ'),
           };
 
           const rawBody = tpl?.body_html || `<p>Dear <strong>{invitee_name}</strong>,</p><p>This is a reminder that tender <strong>{tender_number}: {title}</strong> closes in <strong>{days_remaining} day(s)</strong> on {closing_date}.</p><p style="margin-top:24px;"><a href="{submission_link}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#fff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">Submit Pricing Now</a></p><p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br>{sender_name}<br>{company_name}</p>`;
@@ -248,8 +254,8 @@ Deno.serve(async (req: Request) => {
           if (await alreadySent(logKey, tender.id, email)) { totalSkipped++; continue; }
 
           const vars: Record<string, string> = {
-            tender_number:    tender.tender_number || '',
-            title:            tender.title || '',
+            tender_number:    escapeHtml(tender.tender_number || ''),
+            title:            escapeHtml(tender.title || ''),
             closing_date:     formatDate(tender.closing_date),
             days_remaining:   String(days),
             submission_count: String(subCount || 0),
@@ -301,14 +307,14 @@ Deno.serve(async (req: Request) => {
 
           const portalUrl = `${APP_URL}/tender-submit/${inv.token}`;
           const vars: Record<string, string> = {
-            invitee_name:   inv.invitee_name || 'Tenderer',
-            tender_number:  tender.tender_number || '',
-            title:          tender.title || '',
+            invitee_name:   escapeHtml(inv.invitee_name || 'Tenderer'),
+            tender_number:  escapeHtml(tender.tender_number || ''),
+            title:          escapeHtml(tender.title || ''),
             questions_date: formatDate(tender.questions_date),
             days_remaining: String(days),
             submission_link: portalUrl,
-            sender_name:    fromName,
-            company_name:   branding.company_name || 'ConstructIQ',
+            sender_name:    escapeHtml(fromName),
+            company_name:   escapeHtml(branding.company_name || 'ConstructIQ'),
           };
 
           const rawBody = tpl?.body_html || `<p>Dear <strong>{invitee_name}</strong>,</p><p>This is a reminder that the questions deadline for tender <strong>{tender_number}: {title}</strong> is in <strong>{days_remaining} day(s)</strong> on {questions_date}.</p><p style="margin-top:24px;"><a href="{submission_link}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#fff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">Submit a Question</a></p><p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br>{sender_name}<br>{company_name}</p>`;

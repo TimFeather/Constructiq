@@ -10,6 +10,7 @@
  */
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { Resend } from 'npm:resend@4.0.0';
+import { escapeHtml } from '../_shared/escapeHtml.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz',
@@ -27,7 +28,8 @@ Deno.serve(async (req: Request) => {
 
   // Allow either service-role call (from pg_cron) or authenticated admin call (manual test)
   const authHeader = req.headers.get('Authorization') || '';
-  const isServiceRole = authHeader.includes(SERVICE_ROLE_KEY);
+  const srToken = authHeader.replace('Bearer ', '');
+  const isServiceRole = srToken === SERVICE_ROLE_KEY;
 
   if (!isServiceRole) {
     const supabaseUser = createClient(SUPABASE_URL, Deno.env.get('SUPABASE_ANON_KEY')!, {
@@ -104,8 +106,8 @@ Deno.serve(async (req: Request) => {
 <table width="100%" style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1);">
   <tr><td style="background:${brandColour};height:4px;"></td></tr>
   <tr><td style="padding:32px 40px;font-size:15px;color:#111827;line-height:1.7;">
-    <p>Dear <strong>${inv.invitee_name || 'Tenderer'}</strong>,</p>
-    <p>This is a reminder that the tender <strong>${tender.title}</strong>${tender.tender_number ? ` (${tender.tender_number})` : ''} closes tomorrow.</p>
+    <p>Dear <strong>${escapeHtml(inv.invitee_name || 'Tenderer')}</strong>,</p>
+    <p>This is a reminder that the tender <strong>${escapeHtml(tender.title)}</strong>${tender.tender_number ? ` (${escapeHtml(tender.tender_number)})` : ''} closes tomorrow.</p>
     <table style="width:100%;border-collapse:collapse;margin:16px 0;background:#fef3c7;border-radius:6px;border:1px solid #fcd34d;">
       <tr><td style="padding:12px 16px;font-weight:600;color:#92400e;">⏰ Closing: ${closingFormatted}</td></tr>
     </table>
@@ -136,12 +138,12 @@ Deno.serve(async (req: Request) => {
       if (!internalUsers || internalUsers.length === 0) continue;
 
       const submittedRows = submitted.map((i: any) =>
-        `<tr><td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;">${i.invitee_name || i.invitee_email}</td>
+        `<tr><td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;">${escapeHtml(i.invitee_name || i.invitee_email)}</td>
              <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;color:#059669;font-weight:600;">✓ Submitted</td></tr>`
       ).join('');
 
       const pendingRows = pending.map((i: any) =>
-        `<tr><td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;">${i.invitee_name || i.invitee_email}</td>
+        `<tr><td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;">${escapeHtml(i.invitee_name || i.invitee_email)}</td>
              <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;color:#dc2626;font-weight:600;">✗ Not yet submitted</td></tr>`
       ).join('');
 
@@ -150,7 +152,7 @@ Deno.serve(async (req: Request) => {
   <tr><td style="background:${brandColour};height:4px;"></td></tr>
   <tr><td style="padding:32px 40px;font-size:15px;color:#111827;line-height:1.7;">
     <h2 style="margin:0 0 8px;font-size:18px;">Tender Closing Tomorrow</h2>
-    <p style="margin:0 0 4px;color:#6b7280;font-size:14px;">${tender.tender_number ? tender.tender_number + ' — ' : ''}${tender.title}</p>
+    <p style="margin:0 0 4px;color:#6b7280;font-size:14px;">${tender.tender_number ? escapeHtml(tender.tender_number) + ' — ' : ''}${escapeHtml(tender.title)}</p>
     <p style="margin:0 0 20px;color:#6b7280;font-size:14px;">Closing: <strong>${closingFormatted}</strong></p>
     <p><strong>${submitted.length}</strong> of <strong>${allInvitations.length}</strong> invitees have submitted pricing.</p>
     <table style="width:100%;border-collapse:collapse;margin:16px 0;border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;">

@@ -21,9 +21,9 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const disabled = Deno.env.get('TEST_UTILITIES_DISABLED') === 'true';
-    if (disabled) {
-      return Response.json({ disabled: true, message: 'Test utilities are disabled' }, { headers: corsHeaders });
+    const enabled = Deno.env.get('TEST_UTILITIES_ENABLED') === 'true';
+    if (!enabled) {
+      return Response.json({ disabled: true, message: 'Test utilities are disabled (set TEST_UTILITIES_ENABLED=true to enable)' }, { headers: corsHeaders });
     }
 
     // Get auth user + verify admin/pricing role

@@ -19,6 +19,7 @@
  */
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { Resend } from 'npm:resend@4.0.0';
+import { escapeHtml } from '../_shared/escapeHtml.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz',
@@ -56,6 +57,19 @@ function buildEmailHtml(bodyHtml: string, branding: any = {}) {
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+
+  // Auth: require SERVICE_ROLE_KEY (pg_cron) or admin/pricing JWT (manual trigger)
+  const authHeader = req.headers.get('Authorization') || '';
+  const token = authHeader.replace('Bearer ', '');
+  const isServiceRole = token === SERVICE_ROLE_KEY;
+
+  if (!isServiceRole) {
+    const { data: { user } } = await supabaseAdmin.auth.getUser(token);
+    if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401, headers: corsHeaders });
+    const { data: profile } = await supabaseAdmin.from('users').select('role').eq('id', user.id).single();
+    if (!['admin', 'pricing'].includes(profile?.role || ''))
+      return Response.json({ error: 'Forbidden' }, { status: 403, headers: corsHeaders });
+  }
 
   try {
     // Get branding
@@ -128,15 +142,15 @@ Deno.serve(async (req: Request) => {
           : `Reminder: RFI due tomorrow — ${rfi.title}`;
 
         const bodyHtml = `
-<p>Hi <strong>${assigneeName}</strong>,</p>
+<p>Hi <strong>${escapeHtml(assigneeName)}</strong>,</p>
 <p>This is a reminder that the following RFI is due <strong>tomorrow</strong>.</p>
 <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;">
-  <tr><td style="padding:6px 0;color:#6b7280;width:140px;">Project</td><td style="padding:6px 0;font-weight:500;">${projectName}</td></tr>
-  <tr><td style="padding:6px 0;color:#6b7280;">Title</td><td style="padding:6px 0;font-weight:500;">${rfi.title}</td></tr>
-  <tr><td style="padding:6px 0;color:#6b7280;">Priority</td><td style="padding:6px 0;">${rfi.priority || 'Normal'}</td></tr>
+  <tr><td style="padding:6px 0;color:#6b7280;width:140px;">Project</td><td style="padding:6px 0;font-weight:500;">${escapeHtml(projectName)}</td></tr>
+  <tr><td style="padding:6px 0;color:#6b7280;">Title</td><td style="padding:6px 0;font-weight:500;">${escapeHtml(rfi.title)}</td></tr>
+  <tr><td style="padding:6px 0;color:#6b7280;">Priority</td><td style="padding:6px 0;">${escapeHtml(rfi.priority || 'Normal')}</td></tr>
   <tr><td style="padding:6px 0;color:#6b7280;">Due Date</td><td style="padding:6px 0;color:#dc2626;font-weight:600;">${dueFmt}</td></tr>
 </table>
-${rfi.description ? `<p style="color:#374151;"><strong>Description:</strong><br>${rfi.description}</p>` : ''}
+${rfi.description ? `<p style="color:#374151;"><strong>Description:</strong><br>${escapeHtml(rfi.description)}</p>` : ''}
 <p style="margin-top:24px;">
   <a href="${rfiUrl}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View &amp; Respond to RFI</a>
 </p>`;

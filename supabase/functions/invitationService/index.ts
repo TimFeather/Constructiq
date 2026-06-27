@@ -1,5 +1,6 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { Resend } from 'npm:resend@4.0.0';
+import { escapeHtml } from '../_shared/escapeHtml.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz',
@@ -66,8 +67,8 @@ async function sendInvitationEmail({ to, toName, projectName, inviterName, brand
 <tr><td style="background:${brandColour};padding:24px 32px;">${logoHtml}</td></tr>
 <tr><td style="padding:32px;">
 <h2 style="margin:0 0 16px;font-size:22px;color:#1a202c;">You've been invited to ConstructIQ</h2>
-<p style="margin:0 0 12px;color:#4a5568;line-height:1.6;">Hi ${toName || to},</p>
-<p style="margin:0 0 12px;color:#4a5568;line-height:1.6;"><strong>${inviterName || 'A team member'}</strong> has invited you to join <strong>${projectName ? `the project "${projectName}"` : 'ConstructIQ'}</strong>.</p>
+<p style="margin:0 0 12px;color:#4a5568;line-height:1.6;">Hi ${escapeHtml(toName || to)},</p>
+<p style="margin:0 0 12px;color:#4a5568;line-height:1.6;"><strong>${escapeHtml(inviterName || 'A team member')}</strong> has invited you to join <strong>${projectName ? `the project "${escapeHtml(projectName)}"` : 'ConstructIQ'}</strong>.</p>
 <p style="margin:0 0 24px;color:#4a5568;line-height:1.6;">Create your account to get started.</p>
 <a href="${registerUrl}" style="display:inline-block;background:${brandColour};color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:600;font-size:15px;">Create Your Account →</a>
 </td></tr></table></td></tr></table></body></html>`;
@@ -469,15 +470,15 @@ Deno.serve(async (req) => {
 <table width="100%" style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1);">
   <tr><td style="background:${brandColour};height:4px;"></td></tr>
   <tr><td style="padding:32px 40px;font-size:15px;color:#111827;line-height:1.7;">
-    <p>Hi <strong>${member.name || existingUser.full_name || email}</strong>,</p>
-    <p>You have been added to <strong>${projectName}</strong> as a <strong>${member.role || 'team member'}</strong>.</p>
+    <p>Hi <strong>${escapeHtml(member.name || existingUser.full_name || email)}</strong>,</p>
+    <p>You have been added to <strong>${escapeHtml(projectName)}</strong> as a <strong>${escapeHtml(member.role || 'team member')}</strong>.</p>
     <p>Log in to ConstructIQ to view the project.</p>
     <p style="margin-top:24px;">
       <a href="${APP_URL}" style="background:${brandColour};color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;display:inline-block;">
         Open ConstructIQ
       </a>
     </p>
-    <p style="color:#6b7280;font-size:13px;margin-top:24px;">Regards,<br>${branding.company_name || 'ConstructIQ'}</p>
+    <p style="color:#6b7280;font-size:13px;margin-top:24px;">Regards,<br>${escapeHtml(branding.company_name || 'ConstructIQ')}</p>
   </td></tr>
   <tr><td style="background:${brandColour};height:2px;"></td></tr>
 </table></body></html>`,
@@ -549,17 +550,17 @@ Deno.serve(async (req) => {
 <table width="100%" style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;">
   <tr><td style="background:${brandColour};height:4px;"></td></tr>
   <tr><td style="padding:32px 40px;font-size:15px;color:#111827;line-height:1.7;">
-    <p>Hi ${r.name || r.email},</p>
-    <p>A new Contract Instruction has been issued for <strong>${projectName}</strong>.</p>
+    <p>Hi ${escapeHtml(r.name || r.email)},</p>
+    <p>A new Contract Instruction has been issued for <strong>${escapeHtml(projectName)}</strong>.</p>
     <table style="width:100%;border-collapse:collapse;margin:16px 0;background:#f9fafb;border-radius:6px;">
       <tr><td style="padding:10px 14px;font-size:13px;color:#6b7280;border-bottom:1px solid #e5e7eb;">CI Number</td>
-          <td style="padding:10px 14px;font-weight:600;">${ciNumber}</td></tr>
+          <td style="padding:10px 14px;font-weight:600;">${escapeHtml(ciNumber)}</td></tr>
       <tr><td style="padding:10px 14px;font-size:13px;color:#6b7280;border-bottom:1px solid #e5e7eb;">Type</td>
-          <td style="padding:10px 14px;">${ciType}</td></tr>
+          <td style="padding:10px 14px;">${escapeHtml(ciType)}</td></tr>
       <tr><td style="padding:10px 14px;font-size:13px;color:#6b7280;">Title</td>
-          <td style="padding:10px 14px;">${ciTitle}</td></tr>
+          <td style="padding:10px 14px;">${escapeHtml(ciTitle)}</td></tr>
     </table>
-    <p style="color:#6b7280;font-size:13px;">Regards,<br>${branding.company_name || 'ConstructIQ'}</p>
+    <p style="color:#6b7280;font-size:13px;">Regards,<br>${escapeHtml(branding.company_name || 'ConstructIQ')}</p>
   </td></tr>
   <tr><td style="background:${brandColour};height:2px;"></td></tr>
 </table></body></html>`,

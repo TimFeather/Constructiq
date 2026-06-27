@@ -30,6 +30,21 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    // Auth: require SERVICE_ROLE_KEY (backend callers) or admin/pricing/internal JWT
+    const authHeader = req.headers.get('Authorization') || '';
+    const token = authHeader.replace('Bearer ', '');
+    const isServiceRole = token === SERVICE_ROLE_KEY;
+
+    let authUser: any = null;
+    if (!isServiceRole) {
+      const { data: { user } } = await supabaseAdmin.auth.getUser(token);
+      if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401, headers: corsHeaders });
+      const { data: profile } = await supabaseAdmin.from('users').select('role').eq('id', user.id).single();
+      if (!['admin', 'pricing', 'internal'].includes(profile?.role || ''))
+        return Response.json({ error: 'Forbidden' }, { status: 403, headers: corsHeaders });
+      authUser = user;
+    }
+
     const body = await req.json();
     const { tenderId, event_type, description, actor_name, actor_email, metadata } = body;
 
@@ -40,26 +55,17 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Try to get the current user; fall back to 'System' for automated calls
     let actorName  = actor_name  || 'System';
     let actorEmail = actor_email || '';
-    try {
-      const jwt = req.headers.get('Authorization')?.replace('Bearer ', '') ?? '';
-      if (jwt) {
-        const { data: { user: authUser } } = await supabaseAdmin.auth.getUser(jwt);
-        if (authUser) {
-          const { data: profile } = await supabaseAdmin
-            .from('users')
-            .select('*')
-            .eq('id', authUser.id)
-            .single();
-          const user: any = { ...profile, id: authUser.id, email: authUser.email };
-          actorName  = actor_name  || user.full_name || user.email || 'System';
-          actorEmail = actor_email || user.email     || '';
-        }
-      }
-    } catch (_) {
-      // Unauthenticated / automated call — use System
+    if (authUser) {
+      const { data: profile } = await supabaseAdmin
+        .from('users')
+        .select('*')
+        .eq('id', authUser.id)
+        .single();
+      const user: any = { ...profile, id: authUser.id, email: authUser.email };
+      actorName  = actor_name  || user.full_name || user.email || 'System';
+      actorEmail = actor_email || user.email     || '';
     }
 
     const { data: record, error: insertError } = await supabaseAdmin

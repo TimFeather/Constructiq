@@ -33,11 +33,30 @@ Deno.serve(async (req) => {
     if (!tenderId) return fail('tenderId is required', 400);
     if (!data || typeof data !== 'object') return fail('data is required', 400);
 
-    trace(`UPDATE tender id=${tenderId} fields=${Object.keys(data).join(',')}`);
+    const ALLOWED_FIELDS = new Set([
+      'title', 'description', 'status', 'location',
+      'issue_date', 'site_visit_date', 'questions_date', 'closing_date',
+      'estimated_value', 'trade_packages',
+      'tender_lead_user_id', 'tender_lead_name', 'tender_lead_email',
+      'client_name', 'client_contact', 'client_email',
+      'architect_name', 'architect_contact', 'architect_email',
+      'project_manager_name', 'project_manager_contact', 'project_manager_email',
+      'additional_contacts', 'notes', 'documents',
+      'scoring_criteria', 'converted_project_id',
+      'our_result', 'our_result_notes',
+    ]);
+
+    const sanitised: Record<string, any> = {};
+    for (const [key, value] of Object.entries(data)) {
+      if (ALLOWED_FIELDS.has(key)) sanitised[key] = value;
+    }
+    if (Object.keys(sanitised).length === 0) return fail('No permitted fields in data', 400);
+
+    trace(`UPDATE tender id=${tenderId} fields=${Object.keys(sanitised).join(',')}`);
 
     const { data: updated, error: updateErr } = await supabaseAdmin
       .from('tenders')
-      .update(data)
+      .update(sanitised)
       .eq('id', tenderId)
       .select()
       .single();
