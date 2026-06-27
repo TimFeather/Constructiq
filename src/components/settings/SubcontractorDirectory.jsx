@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Plus, Search, Pencil, Trash2, Upload } from 'lucide-react';
+import { Plus, Search, Pencil, Trash2, Upload, Download } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 
 const DEFAULT_TRADES = [
@@ -64,6 +64,22 @@ export default function SubcontractorDirectory() {
     },
   });
 
+  const handleCSVDownload = () => {
+    const csv = [
+      'full_name,business_name,email,phone,trade',
+      'John Smith,Smith Electrical,john@smithelec.co.nz,021 123 456,Electrical',
+      'Jane Brown,Brown Plumbing,jane@brownplumb.co.nz,027 987 654,Plumbing',
+      'Mike Jones,Jones Roofing,mike@jonesroofing.co.nz,021 555 123,Roofing',
+    ].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'subcontractor_template.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleCSVImport = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -110,6 +126,9 @@ export default function SubcontractorDirectory() {
               <CardDescription>{contacts.length} contact{contacts.length !== 1 ? 's' : ''} saved</CardDescription>
             </div>
             <div className="flex gap-2">
+              <Button variant="outline" size="sm" className="gap-2" onClick={handleCSVDownload}>
+                <Download className="w-3.5 h-3.5" /> CSV Template
+              </Button>
               <label>
                 <Button variant="outline" size="sm" className="gap-2 cursor-pointer" asChild>
                   <span><Upload className="w-3.5 h-3.5" /> Import CSV</span>

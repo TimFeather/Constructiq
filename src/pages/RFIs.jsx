@@ -3,7 +3,7 @@ import { Project, RFI } from '@/api/entities';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
 import { Link } from 'react-router-dom';
-import { isAdmin } from '@/lib/permissions';
+import { isAdmin, canCreate } from '@/lib/permissions';
 import { Plus, Search, MessageSquareMore, Clock, UserIcon, ArrowLeft, Calendar, FolderKanban, Archive } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -54,6 +54,7 @@ const RFICard = ({ rfi, projectMap, rfiNumber }) => {
 export default function RFIs() {
   const { user } = useAuth();
   const isAdminUser = isAdmin(user);
+  const canCreateRfi = canCreate(user, 'rfis');
   const [selectedProjectId, setSelectedProjectId] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [formDefaultProjectId, setFormDefaultProjectId] = useState('');
@@ -141,9 +142,11 @@ export default function RFIs() {
           title={selectedProject.name}
           description={`${projectRfis.length} RFI${projectRfis.length !== 1 ? 's' : ''}`}
           actions={
-            <Button onClick={() => { setFormDefaultProjectId(selectedProjectId); setShowForm(true); }} className="gap-2">
-              <Plus className="w-4 h-4" /> New RFI
-            </Button>
+            canCreateRfi && (
+              <Button onClick={() => { setFormDefaultProjectId(selectedProjectId); setShowForm(true); }} className="gap-2">
+                <Plus className="w-4 h-4" /> New RFI
+              </Button>
+            )
           }
         />
         <div className="flex flex-col sm:flex-row gap-3 mb-4">
@@ -162,7 +165,7 @@ export default function RFIs() {
           </Select>
         </div>
         {filteredProjectRfis.length === 0 ? (
-          <EmptyState icon={MessageSquareMore} title={projectRfis.length === 0 ? "No RFIs for this project" : "No RFIs match your filters"} description={projectRfis.length === 0 ? "Create the first RFI" : "Try adjusting your search or filters"} actionLabel={projectRfis.length === 0 ? "New RFI" : undefined} onAction={projectRfis.length === 0 ? () => setShowForm(true) : undefined} />
+          <EmptyState icon={MessageSquareMore} title={projectRfis.length === 0 ? "No RFIs for this project" : "No RFIs match your filters"} description={projectRfis.length === 0 ? "Create the first RFI" : "Try adjusting your search or filters"} actionLabel={projectRfis.length === 0 && canCreateRfi ? "New RFI" : undefined} onAction={projectRfis.length === 0 && canCreateRfi ? () => setShowForm(true) : undefined} />
         ) : (
           <div className="space-y-3">
             {filteredProjectRfis.map(rfi => (
@@ -181,7 +184,7 @@ export default function RFIs() {
         title="RFIs"
         description="Requests for Information"
         actions={
-          viewMode === 'active' && (
+          viewMode === 'active' && canCreateRfi && (
             <Button onClick={() => setShowForm(true)} className="gap-2">
               <Plus className="w-4 h-4" /> New RFI
             </Button>

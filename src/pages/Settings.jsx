@@ -29,7 +29,7 @@ import SystemHealth from '@/components/settings/SystemHealth';
 
 
 export default function Settings() {
-  const { user } = useAuth();
+  const { user, checkUserAuth } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -72,7 +72,7 @@ export default function Settings() {
       return supabase.from('users').update(data).eq('id', authUser.id);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['auth'] });
+      checkUserAuth();
       toast({ title: 'Profile saved', duration: 4000 });
     },
     onError: (err) => {

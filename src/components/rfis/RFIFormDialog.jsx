@@ -23,9 +23,12 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
     title: '', description: '', project_id: defaultProjectId || '', due_date: '', priority: 'Medium',
   });
 
-  // Reset form when dialog opens
+  // Reset form fully when dialog opens
   React.useEffect(() => {
-    if (open) setForm(f => ({ ...f, project_id: defaultProjectId || f.project_id }));
+    if (open) {
+      setForm({ title: '', description: '', project_id: defaultProjectId || '', due_date: '', priority: 'Medium' });
+      setSelectedEmails([]);
+    }
   }, [open, defaultProjectId]);
   const [selectedEmails, setSelectedEmails] = useState([]);
   const queryClient = useQueryClient();
@@ -128,12 +131,12 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    createMutation.mutate(form);
+    createMutation.mutate({ ...form, due_date: form.due_date || null });
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-lg" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>New RFI</DialogTitle>
         </DialogHeader>

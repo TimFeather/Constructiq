@@ -1,4 +1,4 @@
-import { uploadFile, sendEmail } from '@/api/supabaseClient';
+import { uploadFile } from '@/api/supabaseClient';
 import React, { useState } from 'react';
 import { Document, Project } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -75,17 +75,8 @@ export default function Documents() {
 
   const statusMutation = useMutation({
     mutationFn: ({ id, status }) => Document.update(id, { status }),
-    onSuccess: (_, { status, ownerEmail }) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['documents'] });
-      if (ownerEmail) {
-        sendEmail({
-          to: ownerEmail,
-          subject: `Document status changed to ${status}`,
-          body: `A document you uploaded has been updated to status: ${status}.`,
-        }).catch((err) => {
-          console.warn('[Documents] Status notification failed:', err?.message);
-        });
-      }
     },
   });
 

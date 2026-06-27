@@ -67,7 +67,19 @@ export default function Register() {
     }
     setLoading(true);
     try {
-      const { error: signUpError } = await supabase.auth.signUp({ email: form.email, password: form.password });
+      const { error: signUpError } = await supabase.auth.signUp({
+        email: form.email,
+        password: form.password,
+        options: {
+          data: {
+            first_name: form.first_name,
+            last_name: form.last_name,
+            full_name: [form.first_name, form.last_name].filter(Boolean).join(' ') || form.email,
+            phone: form.phone,
+            business_name: form.business_name,
+          },
+        },
+      });
       if (signUpError) throw signUpError;
       setShowOtp(true);
     } catch (err) {
@@ -122,24 +134,29 @@ export default function Register() {
 
   if (showOtp) {
     return (
-      <AuthLayout icon={Mail} title="Verify your email" subtitle={`We sent a confirmation email to ${form.email}`}>
+      <AuthLayout icon={Mail} title="Check your email" subtitle={`We sent a verification email to ${form.email}`}>
         {error && <div className="mb-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">{error}</div>}
-        <div className="flex justify-center mb-6">
-          <InputOTP maxLength={6} value={otpCode} onChange={setOtpCode} autoFocus autoComplete="one-time-code">
+        <div className="mb-6 p-4 rounded-lg bg-muted/50 text-sm text-center text-foreground">
+          Click the <strong>verification link</strong> in the email to activate your account and get started.
+        </div>
+        <p className="text-center text-xs text-muted-foreground mb-3">
+          If you received a 6-digit code instead, enter it below:
+        </p>
+        <div className="flex justify-center mb-4">
+          <InputOTP maxLength={6} value={otpCode} onChange={setOtpCode} autoComplete="one-time-code">
             <InputOTPGroup>
               {[0,1,2,3,4,5].map(i => <InputOTPSlot key={i} index={i} />)}
             </InputOTPGroup>
           </InputOTP>
         </div>
-        <Button className="w-full h-12 font-medium" onClick={handleVerify} disabled={loading || otpCode.length < 6}>
-          {loading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying...</> : "Verify"}
-        </Button>
-        <p className="text-center text-sm text-muted-foreground mt-3">
-          Check your inbox for a 6-digit code or a confirmation link — either will work.
-        </p>
+        {otpCode.length === 6 && (
+          <Button className="w-full h-12 font-medium mb-3" onClick={handleVerify} disabled={loading}>
+            {loading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying...</> : "Verify Code"}
+          </Button>
+        )}
         <p className="text-center text-sm text-muted-foreground mt-2">
           Didn't receive it?{" "}
-          <button onClick={handleResend} className="text-primary font-medium hover:underline">Resend</button>
+          <button onClick={handleResend} className="text-primary font-medium hover:underline">Resend email</button>
         </p>
       </AuthLayout>
     );

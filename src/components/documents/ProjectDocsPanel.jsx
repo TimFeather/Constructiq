@@ -156,6 +156,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
   const handleDropPanel = async (e) => {
     e.preventDefault();
     setIsDragOver(false);
+    if (isExternal) return;
     const files = Array.from(e.dataTransfer.files);
     for (const file of files) {
       await handleUpload(file, allowedFolders ? allowedFolders[0] : '');
@@ -375,9 +376,11 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
         </div>
       </div>
 
-      <p className="text-xs text-muted-foreground flex items-center gap-1">
-        <Upload className="w-3 h-3" /> You can also drag & drop files directly onto this area
-      </p>
+      {!isExternal && (
+        <p className="text-xs text-muted-foreground flex items-center gap-1">
+          <Upload className="w-3 h-3" /> You can also drag & drop files directly onto this area
+        </p>
+      )}
 
       {/* New Folder inline input */}
       {showNewFolder && (

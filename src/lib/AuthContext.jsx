@@ -64,6 +64,21 @@ export const AuthProvider = ({ children }) => {
 
       if (error && error.code !== 'PGRST116') throw error;
 
+      // If the user just verified via email link, their profile row exists but has no name/phone/business
+      // (those were stored as Supabase auth metadata at signup). Sync them now, once.
+      const meta = authUser.user_metadata || {};
+      if (profile && !profile.first_name && meta.first_name) {
+        const syncData = {
+          first_name:    meta.first_name || '',
+          last_name:     meta.last_name  || '',
+          full_name:     meta.full_name  || authUser.email,
+          phone:         meta.phone         || '',
+          business_name: meta.business_name || '',
+        };
+        await supabase.from('users').update(syncData).eq('id', authUser.id);
+        Object.assign(profile, syncData);
+      }
+
       // Merge auth user + profile
       const fullUser = {
         id: authUser.id,
