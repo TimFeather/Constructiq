@@ -43,7 +43,7 @@ const FALLBACK_PERMISSIONS = {
 export default function ProjectDocsPanel({ project, docs = [] }) {
   const { user } = useAuth();
   const [showUpload, setShowUpload] = useState(false);
-  const [uploadForm, setUploadForm] = useState({ name: '', file: null, folder: '' });
+  const [uploadForm, setUploadForm] = useState({ name: '', file: null, folder: '', visibility: 'public' });
   const [uploading, setUploading] = useState(false);
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
@@ -138,13 +138,13 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
       file_url,
       file_type: getFileType(f.name),
       status: 'Draft',
-      visibility: 'public',
+      visibility: uploadForm.visibility || 'public',
       uploaded_by_name: user?.full_name || 'Unknown',
       uploaded_by_email: user?.email || '',
     });
     invalidate();
     setShowUpload(false);
-    setUploadForm({ name: '', file: null, folder: '' });
+    setUploadForm({ name: '', file: null, folder: '', visibility: 'public' });
     setUploading(false);
   };
 
@@ -369,7 +369,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
           )}
           {!isExternal && !showArchived && (
             <Button size="sm" className="gap-1.5 h-8 text-xs" onClick={() => {
-              setUploadForm({ name: '', file: null, folder: '' });
+              setUploadForm({ name: '', file: null, folder: '', visibility: 'public' });
               setShowUpload(true);
             }}>
               <Upload className="w-3 h-3" /> Upload
@@ -522,6 +522,16 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
                 <SelectContent>
                   {isInternal && <SelectItem value="__none__">No folder (Unfiled)</SelectItem>}
                   {(allowedFolders || allFolders).map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Visibility</Label>
+              <Select value={uploadForm.visibility} onValueChange={v => setUploadForm({ ...uploadForm, visibility: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="public">Shared — all team members with folder access</SelectItem>
+                  <SelectItem value="private">Internal only — admin / internal / pricing</SelectItem>
                 </SelectContent>
               </Select>
             </div>
