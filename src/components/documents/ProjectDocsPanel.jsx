@@ -213,6 +213,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
   grouped[UNFILED] = [];
   visibleDocs.forEach(d => {
     const key = d.folder && allFolders.includes(d.folder) ? d.folder : UNFILED;
+    if (grouped[key] === undefined) return; // folder not visible to this role — skip
     grouped[key].push(d);
   });
 
