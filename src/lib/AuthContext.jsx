@@ -30,8 +30,8 @@ export const AuthProvider = ({ children }) => {
 
     // Listen for auth state changes (login, logout, token refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      // Skip silent token refreshes if already authenticated (use ref — state is stale in closure)
-      if ((event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') && isAuthenticatedRef.current) {
+      // Skip token refreshes AND re-emitted SIGNED_IN from tab-focus recovery
+      if ((event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION' || event === 'SIGNED_IN') && isAuthenticatedRef.current) {
         return;
       }
       if (session) {

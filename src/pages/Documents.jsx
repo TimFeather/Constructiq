@@ -4,7 +4,7 @@ import { Document, Project } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/lib/AuthContext';
-import { Search, FileText, Upload, ExternalLink, Folder, ArrowLeft, Calendar, FolderOpen } from 'lucide-react';
+import { Search, FileText, Upload, ExternalLink, Folder, ArrowLeft, Calendar, FolderOpen, Archive } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -38,6 +38,7 @@ export default function Documents() {
   const [newFolder, setNewFolder] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadPct, setUploadPct] = useState(0);
+  const [viewMode, setViewMode] = useState('active');
   const queryClient = useQueryClient();
 
   const isAdmin = ['admin', 'internal', 'pricing'].includes(user?.role);
@@ -57,7 +58,12 @@ export default function Documents() {
     : allProjects.filter(p => p.team?.some(m => normalizeEmail(m.user_email) === normalizeEmail(user?.email)));
 
   const projectIds = new Set(projects.map(p => p.id));
-  const documents = allDocuments.filter(d => projectIds.has(d.project_id));
+  const allVisibleDocs = allDocuments.filter(d => projectIds.has(d.project_id));
+  const documents = viewMode === 'archived'
+    ? allVisibleDocs.filter(d => d.archived)
+    : allVisibleDocs.filter(d => !d.archived);
+  const activeDocCount = allVisibleDocs.filter(d => !d.archived).length;
+  const archivedDocCount = allVisibleDocs.filter(d => d.archived).length;
 
   const statusMutation = useMutation({
     mutationFn: ({ id, status }) => Document.update(id, { status }),
@@ -156,6 +162,23 @@ export default function Documents() {
             title="Documents"
             description="Select a project to view its documents"
           />
+          <div className="flex gap-2 mb-4">
+            <Button
+              variant={viewMode === 'active' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setViewMode('active')}
+            >
+              Active {activeDocCount > 0 && `(${activeDocCount})`}
+            </Button>
+            <Button
+              variant={viewMode === 'archived' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setViewMode('archived')}
+            >
+              <Archive className="w-3.5 h-3.5 mr-1.5" />
+              Archived {archivedDocCount > 0 && `(${archivedDocCount})`}
+            </Button>
+          </div>
           <div className="relative mb-6">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input placeholder="Search projects..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9 max-w-sm" />
@@ -172,6 +195,8 @@ export default function Documents() {
                 </Card>
               ))}
             </div>
+          ) : projects.filter(p => p.name?.toLowerCase().includes(search.toLowerCase()) && documents.some(d => d.project_id === p.id)).length === 0 && viewMode === 'archived' ? (
+            <EmptyState icon={Archive} title="No archived documents" description="Archived documents will appear here when a project is archived" />
           ) : projects.filter(p => p.name?.toLowerCase().includes(search.toLowerCase())).length === 0 ? (
             <EmptyState icon={FolderOpen} title="No projects found" description="Projects will appear here once created" />
           ) : (

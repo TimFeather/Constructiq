@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
 import { Link } from 'react-router-dom';
 import { isAdmin } from '@/lib/permissions';
-import { Plus, Search, MessageSquareMore, Clock, UserIcon, ArrowLeft, Calendar, FolderKanban } from 'lucide-react';
+import { Plus, Search, MessageSquareMore, Clock, UserIcon, ArrowLeft, Calendar, FolderKanban, Archive } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -57,6 +57,7 @@ export default function RFIs() {
   const [selectedProjectId, setSelectedProjectId] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [formDefaultProjectId, setFormDefaultProjectId] = useState('');
+  const [viewMode, setViewMode] = useState('active');
 
   const { data: allRfis = [], isLoading } = useQuery({
     queryKey: ['rfis'],
@@ -71,7 +72,12 @@ export default function RFIs() {
   const projects = allProjects;
 
   const projectIds = new Set(projects.map(p => p.id));
-  const rfis = allRfis.filter(r => projectIds.has(r.project_id));
+  const allVisibleRfis = allRfis.filter(r => projectIds.has(r.project_id));
+  const rfis = viewMode === 'archived'
+    ? allVisibleRfis.filter(r => r.archived)
+    : allVisibleRfis.filter(r => !r.archived);
+  const activeRfiCount = allVisibleRfis.filter(r => !r.archived).length;
+  const archivedRfiCount = allVisibleRfis.filter(r => r.archived).length;
   const projectMap = Object.fromEntries(projects.map(p => [p.id, p.name]));
 
   // Build per-project sequential RFI numbers
@@ -86,10 +92,12 @@ export default function RFIs() {
     list.forEach((r, i) => { projectRfiNumber[r.id] = i + 1; });
   });
 
-  // RFIs assigned to me
-  const myRfis = rfis.filter(r =>
-    r.assignees?.some(a => normalizeEmail(a.email) === normalizeEmail(user?.email)) ||
-    normalizeEmail(r.assigned_to_email) === normalizeEmail(user?.email)
+  // RFIs assigned to me (always exclude archived)
+  const myRfis = allVisibleRfis.filter(r =>
+    !r.archived && (
+      r.assignees?.some(a => normalizeEmail(a.email) === normalizeEmail(user?.email)) ||
+      normalizeEmail(r.assigned_to_email) === normalizeEmail(user?.email)
+    )
   );
 
   const [projectSearch, setProjectSearch] = useState('');
@@ -164,29 +172,51 @@ export default function RFIs() {
         title="RFIs"
         description="Requests for Information"
         actions={
-          <Button onClick={() => setShowForm(true)} className="gap-2">
-            <Plus className="w-4 h-4" /> New RFI
-          </Button>
+          viewMode === 'active' && (
+            <Button onClick={() => setShowForm(true)} className="gap-2">
+              <Plus className="w-4 h-4" /> New RFI
+            </Button>
+          )
         }
       />
 
-      {/* Assigned to me */}
-      <section className="mb-8">
-        <h2 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-          <UserIcon className="w-4 h-4 text-primary" /> Assigned to Me
-        </h2>
-        {isLoading ? (
-          <div className="space-y-3">{[1,2].map(i => <div key={i} className="h-20 bg-muted rounded-lg animate-pulse" />)}</div>
-        ) : myRfis.length === 0 ? (
-          <Card><CardContent className="p-4 text-sm text-muted-foreground">No RFIs currently assigned to you.</CardContent></Card>
-        ) : (
-          <div className="space-y-3">
-            {myRfis.map(rfi => (
-              <RFICard key={rfi.id} rfi={rfi} projectMap={projectMap} rfiNumber={projectRfiNumber[rfi.id] || rfi.number} />
-            ))}
-          </div>
-        )}
-      </section>
+      <div className="flex gap-2 mb-4">
+        <Button
+          variant={viewMode === 'active' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setViewMode('active')}
+        >
+          Active {activeRfiCount > 0 && `(${activeRfiCount})`}
+        </Button>
+        <Button
+          variant={viewMode === 'archived' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setViewMode('archived')}
+        >
+          <Archive className="w-3.5 h-3.5 mr-1.5" />
+          Archived {archivedRfiCount > 0 && `(${archivedRfiCount})`}
+        </Button>
+      </div>
+
+      {/* Assigned to me — only show in active view */}
+      {viewMode === 'active' && (
+        <section className="mb-8">
+          <h2 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+            <UserIcon className="w-4 h-4 text-primary" /> Assigned to Me
+          </h2>
+          {isLoading ? (
+            <div className="space-y-3">{[1,2].map(i => <div key={i} className="h-20 bg-muted rounded-lg animate-pulse" />)}</div>
+          ) : myRfis.length === 0 ? (
+            <Card><CardContent className="p-4 text-sm text-muted-foreground">No RFIs currently assigned to you.</CardContent></Card>
+          ) : (
+            <div className="space-y-3">
+              {myRfis.map(rfi => (
+                <RFICard key={rfi.id} rfi={rfi} projectMap={projectMap} rfiNumber={projectRfiNumber[rfi.id] || rfi.number} />
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Browse by project */}
       <section>
@@ -197,6 +227,8 @@ export default function RFIs() {
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {[1,2,3].map(i => <div key={i} className="h-24 bg-muted rounded-lg animate-pulse" />)}
           </div>
+        ) : viewMode === 'archived' && rfis.length === 0 ? (
+          <EmptyState icon={Archive} title="No archived RFIs" description="Archived RFIs will appear here when a project is archived" />
         ) : projects.length === 0 ? (
           <EmptyState icon={FolderKanban} title="No projects" description="You are not assigned to any projects" />
         ) : (
