@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { Users, Clock, RotateCcw, XCircle, Search, Pencil, ShieldOff, ShieldCheck, UserX } from 'lucide-react';
+import { Users, Clock, RotateCcw, XCircle, Search, Pencil, ShieldOff, ShieldCheck, UserX, UserPlus, Send } from 'lucide-react';
 import { isAdmin } from '@/lib/permissions';
 import { useToast } from '@/components/ui/use-toast';
 import { format } from 'date-fns';
@@ -365,8 +365,48 @@ function DeactivatedUsersTab() {
 // ─── Root ─────────────────────────────────────────────────────────────────────
 
 export default function PeopleSettings() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [showInvite, setShowInvite] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState('external');
+  const [inviteName, setInviteName] = useState('');
+
+  const inviteMutation = useMutation({
+    mutationFn: () => invokeFunction('invitationService', {
+      action: 'invitePlatform',
+      email: inviteEmail.trim(),
+      appRole: inviteRole,
+      fullName: inviteName.trim(),
+    }),
+    onSuccess: (res) => {
+      if (res.data?.error) {
+        toast({ title: 'Invite failed', description: res.data.error, variant: 'destructive' });
+        return;
+      }
+      queryClient.invalidateQueries({ queryKey: ['invitedUsers'] });
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      toast({ title: 'Invitation sent', description: `Invite sent to ${inviteEmail.trim()}` });
+      setShowInvite(false);
+      setInviteEmail('');
+      setInviteRole('external');
+      setInviteName('');
+    },
+    onError: (e) => toast({ title: 'Invite failed', description: e.message, variant: 'destructive' }),
+  });
+
   return (
     <div className="space-y-1">
+      <div className="flex items-center justify-between mb-4">
+        <div />
+        {isAdmin(user) && (
+          <Button onClick={() => setShowInvite(true)} className="gap-2">
+            <UserPlus className="w-4 h-4" /> Invite to ConstructIQ
+          </Button>
+        )}
+      </div>
+
       <Tabs defaultValue="active">
         <TabsList className="mb-4">
           <TabsTrigger value="active" className="gap-1.5">
@@ -390,6 +430,56 @@ export default function PeopleSettings() {
           <DeactivatedUsersTab />
         </TabsContent>
       </Tabs>
+
+      <Dialog open={showInvite} onOpenChange={setShowInvite}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Invite to ConstructIQ</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <Label className="text-xs mb-1 block">Email Address *</Label>
+              <Input
+                type="email"
+                value={inviteEmail}
+                onChange={e => setInviteEmail(e.target.value)}
+                placeholder="user@example.com"
+              />
+            </div>
+            <div>
+              <Label className="text-xs mb-1 block">Full Name (optional)</Label>
+              <Input
+                value={inviteName}
+                onChange={e => setInviteName(e.target.value)}
+                placeholder="John Smith"
+              />
+            </div>
+            <div>
+              <Label className="text-xs mb-1 block">Platform Role</Label>
+              <Select value={inviteRole} onValueChange={setInviteRole}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="admin">Admin — Full platform access</SelectItem>
+                  <SelectItem value="internal">Internal — Staff member</SelectItem>
+                  <SelectItem value="pricing">Pricing — Tender pricing access</SelectItem>
+                  <SelectItem value="external">External — Project member only</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowInvite(false)}>Cancel</Button>
+            <Button
+              onClick={() => inviteMutation.mutate()}
+              disabled={!inviteEmail.trim() || inviteMutation.isPending}
+              className="gap-2"
+            >
+              <Send className="w-4 h-4" />
+              {inviteMutation.isPending ? 'Sending...' : 'Send Invite'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

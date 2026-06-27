@@ -8,7 +8,7 @@
 import React, { useState, useMemo } from 'react';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
-import { TenderSubmission } from '@/api/entities';
+import { TenderSubmission, TenderInvitee } from '@/api/entities';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -247,14 +247,32 @@ export default function SubmissionScorer({ tender, onUpdate, canManage }) {
   }, [JSON.stringify(tender.scoring_criteria)]);
   const [savingCriteria, setSavingCriteria] = useState(false);
 
-  const { data: submissions = [] } = useQuery({
+  const { data: rawSubmissions = [] } = useQuery({
     queryKey: ['tenderSubmissions', tender.id],
     queryFn:  () => TenderSubmission.filter({ tender_id: tender.id }),
     enabled:  !!tender.id,
-    // Poll every 30s while tender is Issued so incoming submissions appear without manual refresh
     refetchInterval: tender.status === 'Issued' ? 30000 : false,
     refetchIntervalInBackground: false,
   });
+
+  const { data: invitees = [] } = useQuery({
+    queryKey: ['tenderInvitees', tender.id],
+    queryFn:  () => TenderInvitee.filter({ tender_id: tender.id }),
+    enabled:  !!tender.id,
+  });
+
+  const submissions = useMemo(() => {
+    if (!invitees.length) return rawSubmissions;
+    const inviteeMap = {};
+    for (const inv of invitees) {
+      inviteeMap[(inv.email || '').toLowerCase()] = inv;
+    }
+    return rawSubmissions.map(sub => {
+      if (sub.trade) return sub;
+      const inv = inviteeMap[(sub.invitee_email || '').toLowerCase()];
+      return inv?.trade ? { ...sub, trade: inv.trade } : sub;
+    });
+  }, [rawSubmissions, invitees]);
 
   const totalWeight = criteria.reduce((s, c) => s + (c.weight_percent || 0), 0);
 

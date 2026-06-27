@@ -227,13 +227,17 @@ export default function RFIs() {
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {[1,2,3].map(i => <div key={i} className="h-24 bg-muted rounded-lg animate-pulse" />)}
           </div>
-        ) : viewMode === 'archived' && rfis.length === 0 ? (
-          <EmptyState icon={Archive} title="No archived RFIs" description="Archived RFIs will appear here when a project is archived" />
-        ) : projects.length === 0 ? (
-          <EmptyState icon={FolderKanban} title="No projects" description="You are not assigned to any projects" />
-        ) : (
+        ) : (() => {
+          const matchingProjects = projects.filter(p => rfis.some(r => r.project_id === p.id));
+          if (matchingProjects.length === 0) {
+            return viewMode === 'archived'
+              ? <EmptyState icon={Archive} title="No archived RFIs" description="Archived RFIs will appear here when a project is archived" />
+              : <EmptyState icon={FolderKanban} title="No projects" description="You are not assigned to any projects" />;
+          }
+          return null;
+        })() || (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {projects.map(project => {
+            {projects.filter(p => rfis.some(r => r.project_id === p.id)).map(project => {
               const count = rfis.filter(r => r.project_id === project.id).length;
               const openCount = rfis.filter(r => r.project_id === project.id && r.status === 'Open').length;
               return (

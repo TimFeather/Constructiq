@@ -121,6 +121,85 @@ Deno.serve(async (req) => {
       return Response.json({ status: 'new' }, { headers: corsHeaders });
     }
 
+    // ── invitePlatform — invite a user to ConstructIQ (no project required) ─
+    if (action === 'invitePlatform') {
+      const { email, appRole, fullName } = body;
+      if (!email) return Response.json({ error: 'email required' }, { status: 400, headers: corsHeaders });
+
+      const normalEmail = normalizeEmail(email);
+      const permissionRole = VALID_APP_ROLES.includes((appRole || '').toLowerCase().trim())
+        ? (appRole || '').toLowerCase().trim()
+        : 'external';
+      const now = new Date().toISOString();
+
+      const { data: brandings } = await supabaseAdmin.from('email_branding').select('*').limit(1);
+      const branding = brandings?.[0] || {};
+
+      const { data: existingInvites } = await supabaseAdmin.from('invited_users').select('*').eq('email', normalEmail);
+      let invitedUser: any = (existingInvites ?? []).find((i: any) => ['Pending', 'Expired'].includes(i.status)) || null;
+      let isNewInvite = false;
+
+      if (!invitedUser) {
+        // Check if user already has an account
+        const { data: existingUsers } = await supabaseAdmin.from('users').select('id, email').eq('email', normalEmail);
+        if (existingUsers && existingUsers.length > 0) {
+          return Response.json({ error: 'User already has an account' }, { status: 409, headers: corsHeaders });
+        }
+
+        const { data: newInvite } = await supabaseAdmin.from('invited_users').insert({
+          email: normalEmail,
+          app_role: permissionRole,
+          project_role: '',
+          invited_by_email: user.email,
+          status: 'Pending',
+          token: generateToken(),
+          token_created_at: now,
+          token_expires_at: tokenExpiryDate(),
+          last_invited_at: now,
+          resend_count: 0,
+        }).select().single();
+        invitedUser = newInvite;
+        isNewInvite = true;
+      } else {
+        // Update existing pending/expired invite with new role + refresh token
+        const { data: updated } = await supabaseAdmin.from('invited_users').update({
+          app_role: permissionRole,
+          status: 'Pending',
+          token: generateToken(),
+          token_created_at: now,
+          token_expires_at: tokenExpiryDate(),
+          last_invited_at: now,
+          resend_count: (invitedUser.resend_count || 0) + 1,
+        }).eq('id', invitedUser.id).select().single();
+        invitedUser = updated;
+      }
+
+      sendInvitationEmail({ to: normalEmail, toName: fullName, inviterName: user.full_name || user.email, branding }).catch((e: any) => {
+        console.error('[invitationService] Platform invite email failed:', e.message);
+        supabaseAdmin.from('audit_logs').insert({
+          action: 'Email Failed',
+          entity_type: 'InvitedUser',
+          entity_id: invitedUser?.id,
+          user_id: user.id,
+          user_name: user.full_name || user.email,
+          description: `Platform invitation email to ${normalEmail} failed: ${e.message}`,
+          created_at: now,
+        }).then(() => {});
+      });
+
+      supabaseAdmin.from('audit_logs').insert({
+        action: isNewInvite ? 'Platform Invitation Created' : 'Platform Invitation Resent',
+        entity_type: 'InvitedUser',
+        entity_id: invitedUser?.id,
+        user_id: user.id,
+        user_name: user.full_name || user.email,
+        description: `Platform invitation ${isNewInvite ? 'sent' : 'resent'} to ${normalEmail} with role ${permissionRole}`,
+        created_date: now,
+      }).then(null, () => {});
+
+      return Response.json({ success: true, isNewInvite, invitedUser }, { headers: corsHeaders });
+    }
+
     // ── invite ───────────────────────────────────────────────────────────────
     if (action === 'invite') {
       const { email, fullName, businessName, phone, trade, projectId, projectName, role, appRole, projectRole } = body;

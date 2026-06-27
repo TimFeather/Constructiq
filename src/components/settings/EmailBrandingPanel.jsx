@@ -55,7 +55,9 @@ export default function EmailBrandingPanel() {
   const saveMutation = useMutation({
     mutationFn: async (data) => {
       if (branding?.id) {
-        return EmailBranding.update(branding.id, data);
+        const result = await EmailBranding.update(branding.id, data);
+        if (!result) throw new Error('Update returned no data — check your permissions');
+        return result;
       } else {
         return EmailBranding.create(data);
       }
@@ -63,6 +65,9 @@ export default function EmailBrandingPanel() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['emailBranding'] });
       toast({ title: 'Branding saved' });
+    },
+    onError: (e) => {
+      toast({ title: 'Save failed', description: e?.message || 'Check your permissions', variant: 'destructive' });
     },
   });
 
