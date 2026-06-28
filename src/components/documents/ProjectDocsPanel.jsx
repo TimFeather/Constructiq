@@ -428,8 +428,11 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
         <DragDropContext onDragEnd={handleDragEnd}>
           <div className="space-y-2">
             {folders.map(f => renderDroppable(f, f, true))}
-            {/* Show unfiled only for internal */}
-            {isInternal && renderDroppable(UNFILED, 'Unfiled', false)}
+            {/* Unfiled: internal always; external when it holds shared docs they can see
+                (RLS already limits external to shared/assigned docs on their projects). */}
+            {isInternal
+              ? renderDroppable(UNFILED, 'Unfiled', false)
+              : (grouped[UNFILED]?.length > 0 && renderDroppable(UNFILED, 'Documents', false))}
           </div>
         </DragDropContext>
       )}
