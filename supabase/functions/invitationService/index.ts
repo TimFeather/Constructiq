@@ -51,10 +51,11 @@ function isTokenValid(invitedUser: any) {
   return new Date(invitedUser.token_expires_at) > new Date();
 }
 
-async function sendInvitationEmail({ to, toName, projectName, inviterName, branding }: any) {
+async function sendInvitationEmail({ to, toName, projectName, inviterName, branding, token }: any) {
   const resend = new Resend(Deno.env.get('RESEND_API_KEY'));
   const fromName = branding?.sender_name || branding?.company_name || 'ConstructIQ';
-  const registerUrl = `${APP_URL}/register`;
+  // Invite-only: the register page requires this token to create an account.
+  const registerUrl = token ? `${APP_URL}/register?token=${encodeURIComponent(token)}` : `${APP_URL}/register`;
   const brandColour = branding?.brand_colour || '#1a56db';
   const logoHtml = branding?.logo_url
     ? `<img src="${branding.logo_url}" alt="${fromName}" style="height:40px;" />`
@@ -175,7 +176,7 @@ Deno.serve(async (req) => {
         invitedUser = updated;
       }
 
-      sendInvitationEmail({ to: normalEmail, toName: fullName, inviterName: user.full_name || user.email, branding }).catch((e: any) => {
+      sendInvitationEmail({ to: normalEmail, toName: fullName, inviterName: user.full_name || user.email, branding, token: invitedUser?.token }).catch((e: any) => {
         console.error('[invitationService] Platform invite email failed:', e.message);
         supabaseAdmin.from('audit_logs').insert({
           action: 'Email Failed',
@@ -276,7 +277,7 @@ Deno.serve(async (req) => {
       }
 
       if (isNewInvite) {
-        sendInvitationEmail({ to: normalEmail, toName: fullName, projectName, inviterName: user.full_name || user.email, branding }).catch((e: any) => {
+        sendInvitationEmail({ to: normalEmail, toName: fullName, projectName, inviterName: user.full_name || user.email, branding, token: invitedUser?.token }).catch((e: any) => {
           console.error('[invitationService] Email failed:', e.message);
           supabaseAdmin.from('audit_logs').insert({
             action: 'Email Failed',
@@ -333,7 +334,7 @@ Deno.serve(async (req) => {
         projectName = projects?.name || '';
       }
 
-      await sendInvitationEmail({ to: invitedUser.email, projectName, inviterName: user.full_name || user.email, branding });
+      await sendInvitationEmail({ to: invitedUser.email, projectName, inviterName: user.full_name || user.email, branding, token });
       return Response.json({ success: true }, { headers: corsHeaders });
     }
 
@@ -512,6 +513,7 @@ Deno.serve(async (req) => {
               projectName,
               inviterName: null,
               branding,
+              token,
             }).catch((_e: any) => {
               console.warn(`[bulkInviteProjectTeam] Email failed for ${email}:`, _e?.message);
             });

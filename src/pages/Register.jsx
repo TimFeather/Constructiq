@@ -5,52 +5,25 @@ import { clearClientAuthState } from "@/lib/clientAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { UserPlus, Mail, Lock, Loader2, Phone, Building2 } from "lucide-react";
-import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
+import { UserPlus, Lock, Loader2, Phone, Building2, ShieldAlert } from "lucide-react";
 import AuthLayout from "@/components/AuthLayout";
-import GoogleIcon from "@/components/GoogleIcon";
-import { toast } from "@/components/ui/use-toast";
 
 export default function Register() {
-  // Read invitation metadata from URL params (future: could be passed via query string)
+  // ConstructIQ is invite-only. A valid invitation token (from the invite email
+  // link) is required to create an account — there is no public self-signup.
   const urlParams = new URLSearchParams(window.location.search);
-  const prefillBusiness = urlParams.get('company') || '';
+  const inviteToken = urlParams.get("token") || "";
+  const prefillBusiness = urlParams.get("company") || "";
 
   const [form, setForm] = useState({
-    email: "", password: "", confirmPassword: "",
+    password: "", confirmPassword: "",
     first_name: "", last_name: "", phone: "", business_name: prefillBusiness,
   });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [showOtp, setShowOtp] = useState(false);
-  const [otpCode, setOtpCode] = useState("");
 
-  // On mount: detect and clear any stale onboarding/invitation/auth state.
-  // Prevents registration loops in normal browsers where previous session data
-  // persists from an incomplete onboarding attempt.
+  // On mount: clear any stale onboarding/auth state for a clean slate.
   useEffect(() => {
-    const hasInvitationToken = !!(
-      localStorage.getItem('invitation_token') ||
-      localStorage.getItem('invite_token') ||
-      sessionStorage.getItem('invitation_token') ||
-      sessionStorage.getItem('invite_token')
-    );
-    const hasOnboardingState = !!(
-      localStorage.getItem('onboarding') ||
-      localStorage.getItem('onboarding_step') ||
-      sessionStorage.getItem('onboarding')
-    );
-    const hasStaleRegistration = !!(
-      localStorage.getItem('pending_email') ||
-      sessionStorage.getItem('pending_email') ||
-      localStorage.getItem('registration_email')
-    );
-
-    if (hasInvitationToken || hasOnboardingState || hasStaleRegistration) {
-      console.info('STALE SESSION DETECTED', { hasInvitationToken, hasOnboardingState, hasStaleRegistration });
-    }
-
-    // Always clear — ensures a clean slate regardless of what was cached
     clearClientAuthState();
   }, []);
 
@@ -67,21 +40,38 @@ export default function Register() {
     }
     setLoading(true);
     try {
-      const { error: signUpError } = await supabase.auth.signUp({
-        email: form.email,
-        password: form.password,
-        options: {
-          data: {
-            first_name: form.first_name,
-            last_name: form.last_name,
-            full_name: [form.first_name, form.last_name].filter(Boolean).join(' ') || form.email,
-            phone: form.phone,
-            business_name: form.business_name,
-          },
+      // Gated account creation — the edge function validates the invite token
+      // server-side and creates the account (public signups are disabled).
+      const { data, error: fnError } = await supabase.functions.invoke("registerInvited", {
+        body: {
+          token: inviteToken,
+          password: form.password,
+          first_name: form.first_name,
+          last_name: form.last_name,
+          phone: form.phone,
+          business_name: form.business_name,
         },
       });
-      if (signUpError) throw signUpError;
-      setShowOtp(true);
+      // Edge function returns a non-2xx (with { error }) for invalid/expired invites.
+      if (fnError) {
+        // Try to surface the function's own error message body.
+        let message = fnError.message || "Registration failed";
+        try {
+          const ctx = await fnError.context?.json?.();
+          if (ctx?.error) message = ctx.error;
+        } catch (_) { /* ignore */ }
+        throw new Error(message);
+      }
+      if (data?.error) throw new Error(data.error);
+      if (!data?.email) throw new Error("Registration failed — please try again.");
+
+      // Account exists and is confirmed — sign in directly.
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: data.email,
+        password: form.password,
+      });
+      if (signInError) throw signInError;
+      window.location.href = "/";
     } catch (err) {
       setError(err.message || "Registration failed");
     } finally {
@@ -89,75 +79,20 @@ export default function Register() {
     }
   };
 
-  const handleVerify = async () => {
-    setError("");
-    setLoading(true);
-    try {
-      const { data, error: verifyError } = await supabase.auth.verifyOtp({ email: form.email, token: otpCode, type: 'signup' });
-      if (verifyError) throw verifyError;
-      // Save extra profile data
-      if (data?.user) {
-        const fullName = [form.first_name, form.last_name].filter(Boolean).join(' ') || data.user.email;
-        await supabase.from('users').upsert({
-          id: data.user.id,
-          email: data.user.email,
-          full_name: fullName,
-          first_name: form.first_name,
-          last_name: form.last_name,
-          phone: form.phone,
-          business_name: form.business_name,
-          role: 'external',
-        });
-      }
-      window.location.href = "/";
-    } catch (err) {
-      setError(err.message || "Invalid verification code");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleResend = async () => {
-    setError("");
-    try {
-      const { error } = await supabase.auth.resend({ type: 'signup', email: form.email });
-      if (error) throw error;
-      toast({ title: "Code sent", description: "Check your email for the new code." });
-    } catch (err) {
-      setError(err.message || "Failed to resend code");
-    }
-  };
-
-  const handleGoogle = async () => {
-    await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin + '/' } });
-  };
-
-  if (showOtp) {
+  // No token → no registration. Show an invite-only notice.
+  if (!inviteToken) {
     return (
-      <AuthLayout icon={Mail} title="Check your email" subtitle={`We sent a verification email to ${form.email}`}>
-        {error && <div className="mb-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">{error}</div>}
-        <div className="mb-6 p-4 rounded-lg bg-muted/50 text-sm text-center text-foreground">
-          Click the <strong>verification link</strong> in the email to activate your account and get started.
+      <AuthLayout
+        icon={ShieldAlert}
+        title="Invitation required"
+        subtitle="ConstructIQ is invite-only"
+        footer={<>Already have an account?{" "}<Link to="/login" className="text-primary font-medium hover:underline">Log in</Link></>}
+      >
+        <div className="p-4 rounded-lg bg-muted/50 text-sm text-center text-foreground leading-relaxed">
+          Accounts can only be created from an invitation. Please open the
+          <strong> "Create your account" </strong> link in your invitation email,
+          or contact your administrator to be invited.
         </div>
-        <p className="text-center text-xs text-muted-foreground mb-3">
-          If you received a 6-digit code instead, enter it below:
-        </p>
-        <div className="flex justify-center mb-4">
-          <InputOTP maxLength={6} value={otpCode} onChange={setOtpCode} autoComplete="one-time-code">
-            <InputOTPGroup>
-              {[0,1,2,3,4,5].map(i => <InputOTPSlot key={i} index={i} />)}
-            </InputOTPGroup>
-          </InputOTP>
-        </div>
-        {otpCode.length === 6 && (
-          <Button className="w-full h-12 font-medium mb-3" onClick={handleVerify} disabled={loading}>
-            {loading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying...</> : "Verify Code"}
-          </Button>
-        )}
-        <p className="text-center text-sm text-muted-foreground mt-2">
-          Didn't receive it?{" "}
-          <button onClick={handleResend} className="text-primary font-medium hover:underline">Resend email</button>
-        </p>
       </AuthLayout>
     );
   }
@@ -166,23 +101,9 @@ export default function Register() {
     <AuthLayout
       icon={UserPlus}
       title="Create your account"
-      subtitle="Sign up to get started"
-      footer={
-        <>Already have an account?{" "}<Link to="/login" className="text-primary font-medium hover:underline">Log in</Link></>
-      }
+      subtitle="Complete your details to accept your invitation"
+      footer={<>Already have an account?{" "}<Link to="/login" className="text-primary font-medium hover:underline">Log in</Link></>}
     >
-      <Button variant="outline" className="w-full h-12 text-sm font-medium mb-6" onClick={handleGoogle}>
-        <GoogleIcon className="w-5 h-5 mr-2" />
-        Continue with Google
-      </Button>
-
-      <div className="relative mb-6">
-        <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-border" /></div>
-        <div className="relative flex justify-center text-xs uppercase">
-          <span className="bg-card px-3 text-muted-foreground">or</span>
-        </div>
-      </div>
-
       {error && <div className="mb-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">{error}</div>}
 
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -194,13 +115,6 @@ export default function Register() {
           <div className="space-y-2">
             <Label htmlFor="last_name">Last Name</Label>
             <Input id="last_name" value={form.last_name} onChange={e => setForm({...form, last_name: e.target.value})} placeholder="Last name" className="h-11" />
-          </div>
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="email">Email</Label>
-          <div className="relative">
-            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input id="email" type="email" autoComplete="email" placeholder="you@example.com" value={form.email} onChange={e => setForm({...form, email: e.target.value})} className="pl-10 h-12" required />
           </div>
         </div>
         <div className="space-y-2">

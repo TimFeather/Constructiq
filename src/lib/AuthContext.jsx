@@ -68,10 +68,11 @@ export const AuthProvider = ({ children }) => {
       // (those were stored as Supabase auth metadata at signup). Sync them now, once.
       const meta = authUser.user_metadata || {};
       if (profile && !profile.first_name && meta.first_name) {
+        // NB: full_name is a GENERATED column in public.users — never write it
+        // (Postgres rejects writes to generated columns; it derives from names).
         const syncData = {
           first_name:    meta.first_name || '',
           last_name:     meta.last_name  || '',
-          full_name:     meta.full_name  || authUser.email,
           phone:         meta.phone         || '',
           business_name: meta.business_name || '',
         };
