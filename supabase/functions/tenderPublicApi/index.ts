@@ -172,9 +172,30 @@ ${portalUrl ? `<p style="margin-top:24px;"><a href="${portalUrl}" style="display
           );
         }
 
+        // Validate type + size server-side. This is a public endpoint, so the
+        // client's accept filter can't be trusted. Limits mirror the app-wide
+        // uploadFile() validator (ALLOWED_UPLOAD_EXTS / 500 MB) exactly, so any
+        // file the rest of ConstructIQ accepts is still accepted here — this only
+        // rejects disallowed types and oversized/abusive uploads.
+        const ALLOWED_EXTS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'dwg', 'dxf', 'png', 'jpg', 'jpeg', 'zip', 'csv', 'ppt', 'pptx'];
+        const MAX_UPLOAD_BYTES = 500 * 1024 * 1024; // 500 MB
+        const ext = (fileName.split('.').pop() || '').toLowerCase();
+        if (!ALLOWED_EXTS.includes(ext)) {
+          return Response.json(
+            { error: `File type .${ext} is not allowed. Accepted: ${ALLOWED_EXTS.join(', ')}` },
+            { status: 400, headers: corsHeaders }
+          );
+        }
+
         console.log(`[tenderPublicApi] UPLOAD START fileName=${fileName} fileType=${fileType} base64Length=${fileData?.length}`);
 
         const binary = Uint8Array.from(atob(fileData), (c) => c.charCodeAt(0));
+        if (binary.length > MAX_UPLOAD_BYTES) {
+          return Response.json(
+            { error: `File exceeds 500 MB limit (${(binary.length / 1024 / 1024).toFixed(1)} MB)` },
+            { status: 400, headers: corsHeaders }
+          );
+        }
         const mimeType = fileType || 'application/octet-stream';
 
         // Upload to Supabase Storage (tender-submissions bucket)
@@ -557,7 +578,26 @@ ${portalUrl ? `<p style="margin-top:24px;"><a href="${portalUrl}" style="display
         .eq('tender_id', tender.id)
         .order('created_at', { ascending: false });
 
-      return Response.json({ questions: questions ?? [] }, { headers: corsHeaders });
+      // Clarifications are shared with all bidders (standard tender practice), but
+      // the ASKER's identity must never leak to competitors. Strip author PII and
+      // expose only the Q&A content + an is_mine flag for the requesting invitee.
+      const myEmail = (invitation.invitee_email || '').toLowerCase();
+      const safeQuestions = (questions ?? []).map((q: any) => ({
+        id:          q.id,
+        subject:     q.subject,
+        description: q.description,
+        status:      q.status,
+        created_at:  q.created_at,
+        is_mine:     (q.created_by_email || '').toLowerCase() === myEmail,
+        tender_rfi_responses: (q.tender_rfi_responses ?? []).map((r: any) => ({
+          id:          r.id,
+          author_name: r.author_name, // the issuer answering — safe to show
+          content:     r.content,
+          created_at:  r.created_at,
+        })),
+      }));
+
+      return Response.json({ questions: safeQuestions }, { headers: corsHeaders });
     }
 
     // ── CREATE QUESTION ───────────────────────────────────────────────────────
