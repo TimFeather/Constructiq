@@ -6,6 +6,7 @@ import React, { useState, useMemo, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ContractInstruction } from '@/api/entities';
 import { invokeFunction, uploadFile } from '@/api/supabaseClient';
+import SecureFileLink from '@/components/shared/SecureFileLink';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -220,10 +221,10 @@ export default function ProjectCIPanel({ project, canManage }) {
                       <p className="text-xs font-medium text-muted-foreground mb-1">Attachments:</p>
                       <div className="space-y-1">
                         {ci.attachments.map((a, i) => (
-                          <a key={i} href={a.file_url} target="_blank" rel="noreferrer"
+                          <SecureFileLink key={i} value={a.file_url}
                             className="flex items-center gap-1.5 text-xs text-primary hover:underline">
                             📎 {a.file_name || 'Attachment'}
-                          </a>
+                          </SecureFileLink>
                         ))}
                       </div>
                     </div>
@@ -314,7 +315,8 @@ function CreateCIDialog({ project, onClose, onCreated }) {
     try {
       const results = [];
       for (const file of files) {
-        const { file_url } = await uploadFile(file);
+        // CI attachments are private — store in the private project-files bucket.
+        const { file_url } = await uploadFile(file, 'project-files');
         results.push({ file_url, file_name: file.name });
       }
       setUploadedFiles(prev => [...prev, ...results]);
