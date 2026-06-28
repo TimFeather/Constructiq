@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { AlertTriangle, RefreshCw, Trash2, Users, BarChart2 } from 'lucide-react';
+import { AlertTriangle, RefreshCw, Trash2, Users, BarChart2, ShieldCheck, Search } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 
 const ACTIONS = [
@@ -116,6 +116,140 @@ function SummaryPanel() {
   );
 }
 
+// ── Phase 6 storage migration trigger (temporary — remove after Phase 7) ──────
+// Drives the migrateStorageToPrivate edge function: a Dry Run that only counts,
+// and an Execute that copies private files Documents -> project-files and rewrites
+// their stored paths. Execute is non-destructive (originals are kept) and idempotent.
+function StorageMigrationPanel() {
+  const { toast } = useToast();
+  const [busy, setBusy] = useState(null); // 'dry-run' | 'execute' | null
+  const [report, setReport] = useState(null);
+  const [progress, setProgress] = useState('');
+
+  const dryRun = async () => {
+    setBusy('dry-run');
+    setReport(null);
+    setProgress('');
+    try {
+      const res = await invokeFunction('migrateStorageToPrivate', { mode: 'dry-run' });
+      setReport(res.data);
+    } catch (e) {
+      toast({ title: 'Dry run failed', description: e.message, variant: 'destructive' });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const execute = async () => {
+    if (!window.confirm(
+      'Copy all private files from the public Documents bucket into project-files and rewrite their stored paths?\n\n' +
+      'This is non-destructive (originals are kept) and safe to re-run. Make sure you have your CSV backups first.'
+    )) return;
+
+    setBusy('execute');
+    setReport(null);
+    setProgress('Starting…');
+    try {
+      let last = null;
+      // The function processes up to `limit` files per call; loop until nothing
+      // is left or a call makes no progress (prevents an infinite loop on errors).
+      for (let i = 0; i < 50; i++) {
+        const res = await invokeFunction('migrateStorageToPrivate', { mode: 'execute', limit: 500 });
+        last = res.data;
+        const s = last?.summary || {};
+        setProgress(`Pass ${i + 1}: migrated ${s.total_migrated ?? 0}, remaining ${s.remaining ?? '?'}, errors ${s.total_errors ?? 0}`);
+        if (!s.remaining || s.remaining <= 0) break;
+        if (!s.total_migrated || s.total_migrated <= 0) break; // no progress — stop
+      }
+      setReport(last);
+      const s = last?.summary || {};
+      toast({
+        title: 'Migration complete',
+        description: `Migrated ${s.total_migrated ?? 0} file(s), ${s.remaining ?? 0} remaining, ${s.total_errors ?? 0} error(s).`,
+      });
+    } catch (e) {
+      toast({ title: 'Migration failed', description: e.message, variant: 'destructive' });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const s = report?.summary;
+  const t = report?.tables;
+
+  return (
+    <div className="p-3 rounded-lg bg-white border border-indigo-200">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium flex items-center gap-1.5">
+            <ShieldCheck className="w-4 h-4 text-indigo-600" /> Storage Security Migration (Phase 6)
+          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Copies private files (documents, RFIs, contract instructions) from the public Documents bucket
+            into the private project-files bucket and rewrites their paths. Non-destructive &amp; idempotent.
+            Run Dry Run first.
+          </p>
+        </div>
+        <div className="flex flex-col gap-1.5 flex-shrink-0">
+          <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" disabled={!!busy} onClick={dryRun}>
+            {busy === 'dry-run' ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
+            {busy === 'dry-run' ? 'Scanning…' : 'Dry Run'}
+          </Button>
+          <Button size="sm" className="h-8 gap-1.5 text-xs bg-indigo-600 hover:bg-indigo-700" disabled={!!busy} onClick={execute}>
+            {busy === 'execute' ? <RefreshCw className="w-3 h-3 animate-spin" /> : <ShieldCheck className="w-3 h-3" />}
+            {busy === 'execute' ? 'Migrating…' : 'Execute'}
+          </Button>
+        </div>
+      </div>
+
+      {progress && <p className="mt-2 text-xs font-mono text-indigo-700">{progress}</p>}
+
+      {s && (
+        <div className="mt-3 space-y-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {[
+              { label: report.mode === 'execute' ? 'Migrated' : 'To migrate', value: report.mode === 'execute' ? s.total_migrated : s.total_to_migrate },
+              { label: 'Remaining', value: s.remaining, warn: s.remaining > 0 },
+              { label: 'Errors', value: s.total_errors, warn: s.total_errors > 0 },
+              { label: 'Mode', value: report.mode },
+            ].map(({ label, value, warn }) => (
+              <div key={label} className={`rounded-md px-3 py-2 border text-xs flex flex-col gap-0.5 ${warn ? 'bg-red-50 border-red-200' : 'bg-muted/40 border-border'}`}>
+                <span className="text-muted-foreground">{label}</span>
+                <span className={`text-base font-semibold tabular-nums leading-tight ${warn ? 'text-red-600' : 'text-foreground'}`}>{value}</span>
+              </div>
+            ))}
+          </div>
+          {t && (
+            <div className="text-[11px] font-mono text-muted-foreground space-y-1">
+              {['documents', 'rfis', 'contract_instructions'].map(name => {
+                const x = t[name];
+                if (!x) return null;
+                return (
+                  <div key={name}>
+                    <span className="text-foreground font-medium">{name}</span>: rows {x.rows_scanned}, to_migrate {x.to_migrate}, already_path {x.already_path}, external {x.external}, migrated {x.migrated}, errors {x.errors?.length || 0}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {(() => {
+            const allErrors = t ? [...(t.documents?.errors || []), ...(t.rfis?.errors || []), ...(t.contract_instructions?.errors || [])] : [];
+            if (allErrors.length === 0) return null;
+            return (
+              <div className="rounded-md p-2 bg-red-50 border border-red-200 text-[11px] font-mono text-red-700 max-h-40 overflow-auto">
+                {allErrors.slice(0, 20).map((e, i) => (
+                  <div key={i}>{e.id} — {e.path}: {e.error}</div>
+                ))}
+                {allErrors.length > 20 && <div>…and {allErrors.length - 20} more</div>}
+              </div>
+            );
+          })()}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function TestUtilities() {
   const { toast } = useToast();
   const [running, setRunning] = useState(null);
@@ -173,6 +307,8 @@ export default function TestUtilities() {
             </Button>
           </div>
         ))}
+
+        <StorageMigrationPanel />
 
         <SummaryPanel />
 
