@@ -1,6 +1,18 @@
 -- ============================================================
--- ConstructIQ — Supabase Schema
--- Run this entire file in the Supabase SQL Editor
+-- ConstructIQ — Supabase Schema (canonical, synced to LIVE DB)
+-- Run this entire file in the Supabase SQL Editor to rebuild.
+--
+-- SYNCED 2026-06-28 against live information_schema / pg_policies
+-- (queries A–D). This file now reflects the live database including
+-- migrations 001/002/003 and all prior manual hardening. Policies,
+-- columns, and CHECK constraints below are LIVE TRUTH — do not trust
+-- pre-2026-06-28 git history of this file.
+--
+-- Key facts captured in this sync:
+--   • users.full_name is a GENERATED column (verified live).
+--   • The active tender-activity table is tender_activity (SINGULAR);
+--     tender_activities (plural) is a legacy orphan — see §11b.
+--   • trade_templates is a real table (was previously missing here).
 -- ============================================================
 
 -- ── Helper stub (replaced after users table exists) ─────
@@ -25,15 +37,29 @@ create table public.users (
   updated_at        timestamptz default now()
 );
 alter table public.users enable row level security;
--- Users can read their own row; admins/internal can read all
+
+-- Own row; admins/internal read all.
 create policy "users_select" on public.users for select using (
   auth.uid() = id
   or get_my_role() in ('admin','internal')
 );
-create policy "users_insert" on public.users for insert with check (auth.uid() = id);
-create policy "users_update" on public.users for update using (
-  auth.uid() = id or get_my_role() = 'admin'
+-- Self-insert may only create an 'external' row (hardening, migration 002).
+create policy "users_insert" on public.users for insert with check (
+  auth.uid() = id and role = 'external'
 );
+-- Admin can update anyone.
+create policy "users_update_admin" on public.users for update using (
+  get_my_role() = 'admin'
+);
+-- Self-update may NOT change own role or email (migration 002 — prevents
+-- self-escalation and email-impersonation of invitees/assignees).
+create policy "users_update_self" on public.users for update
+  using (auth.uid() = id)
+  with check (
+    auth.uid() = id
+    and role  = (select role  from public.users where id = auth.uid())
+    and email = (select email from public.users where id = auth.uid())
+  );
 
 -- Auto-create user profile on signup
 create or replace function public.handle_new_user()
@@ -49,16 +75,10 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
 
--- ── Helper: app role check ────────────────────────────────
--- Must be created after public.users exists
+-- ── Helper: app role check (after public.users exists) ───
 create or replace function public.get_my_role()
-returns text
-language sql
-stable
-security definer
-as $$
-  select role from public.users where id = auth.uid()
-$$;
+returns text language sql stable security definer
+as $$ select role from public.users where id = auth.uid() $$;
 
 -- ── 2. projects ──────────────────────────────────────────
 create table public.projects (
@@ -67,13 +87,14 @@ create table public.projects (
   description   text,
   start_date    date,
   end_date      date,
-  status        text default 'Active' check (status in ('Active','On Hold','Complete')),
+  status        text default 'Active' check (status in ('Active','On Hold','Complete','Archived')),
   team          jsonb default '[]',   -- array of team member objects
   created_by_id uuid references public.users(id),
   created_at    timestamptz default now(),
   updated_at    timestamptz default now()
 );
 alter table public.projects enable row level security;
+-- Scoped (migration 003): non-privileged users see only their own/team projects.
 create policy "projects_select" on public.projects for select using (
   get_my_role() in ('admin','internal','pricing')
   or created_by_id = auth.uid()
@@ -117,13 +138,20 @@ create table public.tasks (
   constraint_data  jsonb,
   created_by_id    uuid references public.users(id),
   created_at       timestamptz default now(),
-  updated_at       timestamptz default now()
+  updated_at       timestamptz default now(),
+  archived         boolean default false
 );
 alter table public.tasks enable row level security;
+-- External users scoped to their team projects (no longer open to all external).
 create policy "tasks_select" on public.tasks for select using (
-  get_my_role() in ('admin','internal','pricing','external')
+  get_my_role() in ('admin','internal','pricing')
   or created_by_id = auth.uid()
   or assignee_email = (select email from public.users where id = auth.uid())
+  or (get_my_role() = 'external' and exists (
+        select 1 from public.projects p
+        where p.id = tasks.project_id
+        and p.team @> jsonb_build_array(jsonb_build_object('user_email', (select email from public.users where id = auth.uid())))
+     ))
 );
 create policy "tasks_insert" on public.tasks for insert with check (
   get_my_role() in ('admin','internal')
@@ -157,18 +185,23 @@ create table public.rfis (
   responses          jsonb default '[]',
   created_by_id      uuid references public.users(id),
   created_at         timestamptz default now(),
-  updated_at         timestamptz default now()
+  updated_at         timestamptz default now(),
+  archived           boolean default false,
+  is_public          boolean default false,
+  edited_by_id       uuid,
+  edited_at          timestamptz
 );
 alter table public.rfis enable row level security;
+-- Live policy: privileged see all; external see non-archived RFIs on their team projects.
 create policy "rfis_select" on public.rfis for select using (
   get_my_role() in ('admin','internal','pricing')
-  or created_by_id = auth.uid()
-  or assigned_to_email = (select email from public.users where id = auth.uid())
-  or assignees @> jsonb_build_array(jsonb_build_object('email', (select email from public.users where id = auth.uid())))
-  or (is_public and exists (
-    select 1 from projects where id = rfis.project_id
-    and team @> jsonb_build_array(jsonb_build_object('user_email', (select email from public.users where id = auth.uid())))
-  ))
+  or (get_my_role() = 'external'
+      and (archived = false or archived is null)
+      and exists (
+        select 1 from public.projects p
+        where p.id = rfis.project_id
+        and p.team @> jsonb_build_array(jsonb_build_object('user_email', (select email from public.users where id = auth.uid())))
+      ))
 );
 create policy "rfis_insert" on public.rfis for insert with check (
   get_my_role() in ('admin','internal','pricing')
@@ -198,21 +231,28 @@ create table public.documents (
   versions            jsonb default '[]',
   created_by_id       uuid references public.users(id),
   created_at          timestamptz default now(),
-  updated_at          timestamptz default now()
+  updated_at          timestamptz default now(),
+  archived            boolean default false,
+  is_public           boolean default false,
+  visibility          text default 'private' check (visibility in ('private','public','assigned')),
+  assigned_to_email   text
 );
 alter table public.documents enable row level security;
 create policy "documents_select" on public.documents for select using (
   get_my_role() in ('admin','internal','pricing')
   or created_by_id = auth.uid()
   or uploaded_by_email = (select email from public.users where id = auth.uid())
-  or (visibility = 'public' and exists (
-    select 1 from projects where id = documents.project_id
-    and team @> jsonb_build_array(jsonb_build_object('user_email', (select email from public.users where id = auth.uid())))
-  ))
+  or ((visibility is null or visibility = 'public')
+      and (archived = false or archived is null)
+      and exists (
+        select 1 from public.projects p
+        where p.id = documents.project_id
+        and p.team @> jsonb_build_array(jsonb_build_object('user_email', (select email from public.users where id = auth.uid())))
+      ))
   or (visibility = 'assigned' and assigned_to_email = (select email from public.users where id = auth.uid()))
 );
 create policy "documents_insert" on public.documents for insert with check (
-  get_my_role() in ('admin','internal')
+  get_my_role() in ('admin','internal','pricing')
 );
 create policy "documents_update" on public.documents for update using (
   get_my_role() in ('admin','internal')
@@ -245,7 +285,7 @@ create table public.tenders (
   tender_number            text,
   title                    text not null,
   description              text,
-  status                   text default 'Draft' check (status in ('Draft','Issued','Closed','Awarded','Unsuccessful','Converted','On Hold','Cancelled')),
+  status                   text default 'Draft' check (status in ('Draft','Issued','Submitted','Awarded','Unsuccessful','Archived','On Hold','Cancelled','Converted')),
   issue_date               date,
   closing_date             text,  -- ISO datetime string
   award_date               date,
@@ -258,6 +298,7 @@ create table public.tenders (
   tender_lead_user_id      uuid references public.users(id),
   tender_lead_name         text,
   tender_lead_email        text,
+  tender_lead_phone        text,
   client_name              text,
   client_contact           text,
   client_email             text,
@@ -269,6 +310,8 @@ create table public.tenders (
   project_manager_email    text,
   additional_contacts      jsonb default '[]',
   location                 text,
+  site_visit_date          date,
+  questions_date           date,
   trade_packages           jsonb default '[]',
   documents                jsonb default '[]',
   invitees                 jsonb default '[]',
@@ -280,12 +323,14 @@ create table public.tenders (
   updated_at               timestamptz default now()
 );
 alter table public.tenders enable row level security;
+-- Read for privileged roles, owner, lead, or any converted tender.
 create policy "tenders_select" on public.tenders for select using (
-  get_my_role() in ('admin','pricing')
+  (select role from public.users where id = auth.uid()) in ('admin','pricing','internal')
   or created_by_email = (select email from public.users where id = auth.uid())
   or tender_lead_email = (select email from public.users where id = auth.uid())
+  or converted_project_id is not null
 );
--- insert/update/delete managed via Edge Functions (service role)
+-- insert/update/delete managed via Edge Functions (service role) — no policies.
 
 -- Add FK from folders to tenders now that tenders exists
 alter table public.folders add constraint folders_tender_id_fkey
@@ -296,7 +341,7 @@ create table public.tender_invitees (
   id            uuid primary key default gen_random_uuid(),
   tender_id     uuid not null references public.tenders(id) on delete cascade,
   contact_id    uuid,
-  full_name     text,
+  full_name     text not null,
   business_name text,
   email         text,
   phone         text,
@@ -305,6 +350,9 @@ create table public.tender_invitees (
   created_at    timestamptz default now(),
   updated_at    timestamptz default now()
 );
+-- Unique invite per (tender, email) — migration 001.
+create unique index if not exists uq_tender_invitees_tender_email
+  on public.tender_invitees(tender_id, lower(email)) where email is not null;
 alter table public.tender_invitees enable row level security;
 create policy "tender_invitees_select" on public.tender_invitees for select using (
   get_my_role() in ('admin','pricing','internal')
@@ -333,10 +381,10 @@ create table public.tender_invitations (
   updated_at           timestamptz default now()
 );
 alter table public.tender_invitations enable row level security;
--- Internal read only — tenderPublicApi uses SERVICE_ROLE_KEY and bypasses RLS
+-- Internal read only — tenderPublicApi uses SERVICE_ROLE_KEY and bypasses RLS.
 create policy "tender_invitations_internal_read" on public.tender_invitations
-  for select using (get_my_role() in ('admin', 'pricing', 'internal'));
--- Writes only via service role (Edge Functions)
+  for select using (get_my_role() in ('admin','pricing','internal'));
+-- Writes only via service role (Edge Functions).
 
 -- ── 10. tender_submissions ───────────────────────────────
 create table public.tender_submissions (
@@ -363,6 +411,8 @@ create table public.tender_submissions (
   outcome_notification_type       text default '' check (outcome_notification_type in ('','Awarded','Unsuccessful')),
   outcome_notification_message_id text,
   outcome_notification_error      text,
+  pricing_files                   jsonb default '[]',
+  price_lines                     jsonb default '[]',
   created_at                      timestamptz default now(),
   updated_at                      timestamptz default now()
 );
@@ -376,31 +426,33 @@ create policy "tender_submissions_update" on public.tender_submissions for updat
 create policy "tender_submissions_delete" on public.tender_submissions for delete using (
   get_my_role() in ('admin','pricing')
 );
--- All submission inserts go through tenderPublicApi edge function (service role)
--- No direct REST insert allowed
+-- All submission inserts go through tenderPublicApi (service role). No insert policy.
 
--- ── 11. tender_activities ────────────────────────────────
-create table public.tender_activities (
+-- ── 11. tender_activity (ACTIVE — singular) ──────────────
+-- This is the table the app writes/reads (entities.js, all edge functions).
+create table public.tender_activity (
   id          uuid primary key default gen_random_uuid(),
   tender_id   uuid not null references public.tenders(id) on delete cascade,
-  event_type  text not null check (event_type in ('tender_created','status_changed','invitation_sent','submission_received','outcome_set','note_added','tender_lead_assigned','document_uploaded','tender_converted','reminder_sent')),
+  event_type  text not null,
   actor_name  text,
   actor_email text,
   description text,
-  metadata    jsonb default '{}',
-  occurred_at text,
+  occurred_at timestamptz default now(),
   created_at  timestamptz default now()
 );
-alter table public.tender_activities enable row level security;
-create policy "tender_activities_select" on public.tender_activities for select using (
-  get_my_role() in ('admin','pricing','internal')
+alter table public.tender_activity enable row level security;
+create policy "ta_all" on public.tender_activity for all using (
+  (select role from public.users where id = auth.uid()) in ('admin','pricing','internal')
 );
-create policy "tender_activities_insert" on public.tender_activities for insert with check (
-  get_my_role() in ('admin','pricing','internal')
+create policy "tender_activity_insert" on public.tender_activity for insert with check (
+  (select role from public.users where id = auth.uid()) in ('admin','pricing','internal')
 );
-create policy "tender_activities_delete" on public.tender_activities for delete using (
-  get_my_role() = 'admin'
+create policy "tender_activity_select" on public.tender_activity for select using (
+  (select role from public.users where id = auth.uid()) in ('admin','pricing','internal')
 );
+
+-- (The legacy plural tender_activities table was dropped in migration 004 —
+--  it was a dead orphan with no code path. Do not recreate it.)
 
 -- ── 12. tender_contacts ──────────────────────────────────
 create table public.tender_contacts (
@@ -435,7 +487,7 @@ create table public.tender_counter (
   created_at    timestamptz default now()
 );
 alter table public.tender_counter enable row level security;
--- Managed entirely via service role in Edge Functions
+-- Managed entirely via service role in Edge Functions.
 
 -- ── 14. tender_settings ──────────────────────────────────
 create table public.tender_settings (
@@ -575,7 +627,7 @@ create table public.email_branding (
   updated_at      timestamptz default now()
 );
 alter table public.email_branding enable row level security;
-create policy "email_branding_select" on public.email_branding for select using (true);
+create policy "email_branding_select" on public.email_branding for select using (auth.uid() is not null);
 create policy "email_branding_write" on public.email_branding for all using (
   get_my_role() = 'admin'
 );
@@ -592,7 +644,7 @@ create table public.email_templates (
   updated_at   timestamptz default now()
 );
 alter table public.email_templates enable row level security;
-create policy "email_templates_select" on public.email_templates for select using (true);
+create policy "email_templates_select" on public.email_templates for select using (auth.uid() is not null);
 create policy "email_templates_write" on public.email_templates for all using (
   get_my_role() = 'admin'
 );
@@ -613,10 +665,10 @@ create policy "doc_folder_templates_all" on public.document_folder_templates for
   get_my_role() = 'admin'
 );
 create policy "doc_folder_templates_select" on public.document_folder_templates for select using (
-  get_my_role() in ('admin', 'pricing', 'internal', 'external')
+  get_my_role() in ('admin','pricing','internal','external')
 );
 
--- ── 22. tender_notices ────────────────────────────────────
+-- ── 22. tender_notices ───────────────────────────────────
 create table public.tender_notices (
   id                      uuid primary key default gen_random_uuid(),
   tender_id               uuid not null references public.tenders(id) on delete cascade,
@@ -634,10 +686,12 @@ create table public.tender_notices (
   updated_at              timestamptz default now()
 );
 alter table public.tender_notices enable row level security;
-create policy "tender_notices_internal_crud" on public.tender_notices
-  for all using (get_my_role() in ('admin', 'pricing'));
+create policy "tn_internal" on public.tender_notices for all using (
+  (select role from public.users where id = auth.uid()) in ('admin','pricing')
+);
+-- Auth required (migration M1) — was previously anon-readable.
 create policy "tender_notices_public_read" on public.tender_notices
-  for select using (status = 'Issued');
+  for select using (status = 'Issued' and auth.uid() is not null);
 
 -- ── 23. tender_notice_attachments ────────────────────────
 create table public.tender_notice_attachments (
@@ -651,13 +705,17 @@ create table public.tender_notice_attachments (
   created_at               timestamptz default now()
 );
 alter table public.tender_notice_attachments enable row level security;
-create policy "tender_notice_attachments_all" on public.tender_notice_attachments
-  for all using (
-    get_my_role() in ('admin', 'pricing') or exists (
-      select 1 from public.tender_notices tn
-      where tn.id = notice_id and tn.status = 'Issued'
-    )
-  );
+-- Split into read/write (migration M2) — writes admin/pricing only.
+create policy "tender_notice_attachments_select" on public.tender_notice_attachments for select using (
+  get_my_role() in ('admin','pricing')
+  or (auth.uid() is not null and exists (
+        select 1 from public.tender_notices tn
+        where tn.id = notice_id and tn.status = 'Issued'
+     ))
+);
+create policy "tender_notice_attachments_write" on public.tender_notice_attachments for all using (
+  get_my_role() in ('admin','pricing')
+);
 
 -- ── 24. contract_instructions ────────────────────────────
 create table public.contract_instructions (
@@ -672,45 +730,47 @@ create table public.contract_instructions (
   issued_by        text,
   attachments      jsonb default '[]',
   created_at       timestamptz default now(),
-  updated_at       timestamptz default now()
+  updated_at       timestamptz default now(),
+  archived         boolean default false
 );
 alter table public.contract_instructions enable row level security;
-create policy "ci_all" on public.contract_instructions
-  for all using (get_my_role() in ('admin', 'pricing', 'internal'));
-create policy "ci_external_read" on public.contract_instructions
-  for select using (
-    get_my_role() = 'external'
-    and archived = false
-    and exists (
-      select 1 from public.projects p
-      where p.id = project_id
-      and p.team @> jsonb_build_array(jsonb_build_object('user_email',
-        (select email from public.users where id = auth.uid())))
-    )
-  );
+create policy "ci_manage" on public.contract_instructions for all using (
+  (select role from public.users where id = auth.uid()) in ('admin','pricing','internal')
+);
+create policy "ci_read" on public.contract_instructions for select using (
+  (select role from public.users where id = auth.uid()) in ('admin','pricing','internal')
+  or exists (
+    select 1 from public.projects p
+    where p.id = project_id
+    and p.team @> jsonb_build_array(jsonb_build_object('user_email', (select email from public.users where id = auth.uid())))
+  )
+);
+create policy "ci_external_read" on public.contract_instructions for select using (
+  get_my_role() = 'external'
+  and archived = false
+  and exists (
+    select 1 from public.projects p
+    where p.id = project_id
+    and p.team @> jsonb_build_array(jsonb_build_object('user_email', (select email from public.users where id = auth.uid())))
+  )
+);
 
--- ── Post-migration constraints ────────────────────────────
--- Run via migration 001_security_fixes.sql:
---   alter table public.projects drop constraint if exists projects_status_check;
---   alter table public.projects add constraint projects_status_check
---     check (status in ('Active', 'On Hold', 'Complete', 'Archived'));
---   alter table public.tender_invitees alter column full_name set not null;
---   create unique index if not exists uq_tender_invitees_tender_email
---     on public.tender_invitees(tender_id, lower(email)) where email is not null;
+-- ── 25. trade_templates ──────────────────────────────────
+-- Subcontractor trade categories (Settings → Trade Templates).
+create table public.trade_templates (
+  id         uuid primary key default gen_random_uuid(),
+  name       text not null,
+  category   text,
+  sort_order integer default 0,
+  created_at timestamptz default now()
+);
+alter table public.trade_templates enable row level security;
+create policy "trade_templates_read" on public.trade_templates for select using (auth.uid() is not null);
+create policy "trade_templates_write" on public.trade_templates for all using (
+  (select role from public.users where id = auth.uid()) = 'admin'
+);
 
--- ── Seed: default tender counter row ─────────────────────
-insert into public.tender_counter (current_value) values (0);
-
--- ── Seed: default tender settings row ────────────────────
-insert into public.tender_settings (
-  notify_lead_on_submission,
-  notify_admins_on_submission,
-  send_24h_reminder,
-  send_immediate_notifications,
-  send_daily_summary
-) values (true, false, true, true, false);
-
--- ── Reminder Settings ────────────────────────────────────
+-- ── 26. reminder_settings ────────────────────────────────
 create table if not exists public.reminder_settings (
   id            uuid primary key default gen_random_uuid(),
   reminder_type text not null unique check (reminder_type in ('tender_external','tender_internal','rfi_reminder')),
@@ -723,17 +783,9 @@ create table if not exists public.reminder_settings (
 alter table public.reminder_settings enable row level security;
 create policy "reminder_settings_read" on public.reminder_settings for select using (auth.uid() is not null);
 create policy "reminder_settings_write" on public.reminder_settings for all using (get_my_role() = 'admin');
-
 grant select, insert, update, delete on public.reminder_settings to authenticated;
 
--- Seed defaults
-insert into public.reminder_settings (reminder_type, enabled, days_before) values
-  ('tender_external', true, 2),
-  ('tender_internal', true, 1),
-  ('rfi_reminder',    true, 1)
-on conflict (reminder_type) do nothing;
-
--- ── Reminder Log (dedup — prevents double-sending) ────────
+-- ── 27. reminder_log (dedup — prevents double-sending) ────
 create table if not exists public.reminder_log (
   id              uuid primary key default gen_random_uuid(),
   reminder_type   text not null,
@@ -744,120 +796,101 @@ create table if not exists public.reminder_log (
 );
 alter table public.reminder_log enable row level security;
 create policy "reminder_log_admin" on public.reminder_log for all using (get_my_role() = 'admin');
-
 grant select, insert on public.reminder_log to authenticated;
 
--- ── Archive flag for child records on project archive ──
-alter table public.documents add column if not exists archived boolean default false;
-alter table public.rfis add column if not exists archived boolean default false;
+-- ── 28. tender_rfis (portal questions) ───────────────────
+create table if not exists public.tender_rfis (
+  id               uuid primary key default gen_random_uuid(),
+  tender_id        uuid not null references public.tenders(id) on delete cascade,
+  invitation_id    uuid not null references public.tender_invitations(id) on delete cascade,
+  created_by_email text not null,
+  created_by_name  text,
+  subject          text not null,
+  description      text,
+  status           text not null default 'Open' check (status in ('Open','Answered','Closed')),
+  edited_by_email  text,
+  edited_at        timestamptz,
+  created_at       timestamptz default now(),
+  updated_at       timestamptz default now()
+);
+alter table public.tender_rfis enable row level security;
+create policy "tender_rfis_admin" on public.tender_rfis for all
+  using (get_my_role() in ('admin','pricing','internal'));
+-- Portal inserts go through tenderPublicApi (service role) — no insert policy.
+create policy "tender_rfis_invitee_select" on public.tender_rfis for select using (
+  created_by_email = (select email from public.users where id = auth.uid())
+  or exists (
+    select 1 from public.tender_invitations ti
+    where ti.id = invitation_id and ti.invitee_email = (select email from public.users where id = auth.uid())
+  )
+);
 
--- ── Visibility & permission controls ──
--- RFIs: is_public = share with all project team members
-alter table public.rfis add column if not exists is_public boolean default false;
+-- ── 29. tender_rfi_responses ─────────────────────────────
+create table if not exists public.tender_rfi_responses (
+  id              uuid primary key default gen_random_uuid(),
+  rfi_id          uuid not null references public.tender_rfis(id) on delete cascade,
+  author_email    text not null,
+  author_name     text,
+  content         text not null,
+  edited_by_email text,
+  edited_at       timestamptz,
+  created_at      timestamptz default now()
+);
+alter table public.tender_rfi_responses enable row level security;
+create policy "tender_rfi_responses_admin" on public.tender_rfi_responses for all
+  using (get_my_role() in ('admin','pricing','internal'));
+-- Portal inserts go through tenderPublicApi (service role) — no insert policy.
+create policy "tender_rfi_responses_select" on public.tender_rfi_responses for select using (
+  exists (
+    select 1 from public.tender_rfis tr
+    where tr.id = rfi_id
+    and (
+      tr.created_by_email = (select email from public.users where id = auth.uid())
+      or exists (
+        select 1 from public.tender_invitations ti
+        where ti.id = tr.invitation_id and ti.invitee_email = (select email from public.users where id = auth.uid())
+      )
+    )
+  )
+);
 
--- Documents: visibility model (private/public/assigned)
-alter table public.documents add column if not exists visibility text default 'private' check (visibility in ('private','public','assigned'));
-alter table public.documents add column if not exists assigned_to_email text;
-alter table public.tasks add column if not exists archived boolean default false;
-alter table public.contract_instructions add column if not exists archived boolean default false;
+-- ── Indexes (migration 001) ──────────────────────────────
+create index if not exists idx_tender_invitees_tender_id      on public.tender_invitees(tender_id);
+create index if not exists idx_tender_invitations_tender_id   on public.tender_invitations(tender_id);
+create index if not exists idx_tender_invitations_invitee_id  on public.tender_invitations(invitee_id);
+create index if not exists idx_tender_submissions_tender_id   on public.tender_submissions(tender_id);
+create index if not exists idx_documents_project_id           on public.documents(project_id);
+create index if not exists idx_rfis_project_id                on public.rfis(project_id);
+create index if not exists idx_tasks_project_id               on public.tasks(project_id);
+create index if not exists idx_pending_assignments_email      on public.pending_project_assignments(email, status);
+create index if not exists idx_invited_users_email            on public.invited_users(email);
 
--- Trigger: when project archived, mark all children as archived
+-- ── Project-archive cascade: mark child records archived ──
 create or replace function public.archive_project_children()
 returns trigger as $$
 begin
   if new.status = 'Archived' and old.status != 'Archived' then
-    update documents set archived = true where project_id = new.id;
-    update rfis set archived = true where project_id = new.id;
-    update tasks set archived = true where project_id = new.id;
-    update contract_instructions set archived = true where project_id = new.id;
+    update documents              set archived = true where project_id = new.id;
+    update rfis                   set archived = true where project_id = new.id;
+    update tasks                  set archived = true where project_id = new.id;
+    update contract_instructions  set archived = true where project_id = new.id;
   end if;
   return new;
 end;
 $$ language plpgsql;
-
--- ── Tender Portal Questions (RFIs) ──────────────────────────
-create table if not exists public.tender_rfis (
-  id uuid primary key default gen_random_uuid(),
-  tender_id uuid not null references public.tenders(id) on delete cascade,
-  invitation_id uuid not null references public.tender_invitations(id) on delete cascade,
-  created_by_email text not null,
-  created_by_name text,
-  subject text not null,
-  description text,
-  status text not null default 'Open' check (status in ('Open','Answered','Closed')),
-  edited_by_email text,
-  edited_at timestamptz,
-  created_at timestamptz default now(),
-  updated_at timestamptz default now()
-);
-
-alter table public.tender_rfis enable row level security;
-
-create policy "tender_rfis_admin" on public.tender_rfis for all
-  using (get_my_role() in ('admin','pricing','internal'));
-
-create policy "tender_rfis_portal_insert" on public.tender_rfis for insert
-  with check (true);
-
-create policy "tender_rfis_invitee_select" on public.tender_rfis for select
-  using (
-    created_by_email = (select email from public.users where id = auth.uid())
-    or exists (
-      select 1 from public.tender_invitations ti
-      where ti.id = invitation_id and ti.invitee_email = (select email from public.users where id = auth.uid())
-    )
-  );
-
--- Tender Portal Question Responses ──────────────────────
-create table if not exists public.tender_rfi_responses (
-  id uuid primary key default gen_random_uuid(),
-  rfi_id uuid not null references public.tender_rfis(id) on delete cascade,
-  author_email text not null,
-  author_name text,
-  content text not null,
-  edited_by_email text,
-  edited_at timestamptz,
-  created_at timestamptz default now()
-);
-
-alter table public.tender_rfi_responses enable row level security;
-
-create policy "tender_rfi_responses_admin" on public.tender_rfi_responses for all
-  using (get_my_role() in ('admin','pricing','internal'));
-
-create policy "tender_rfi_responses_portal_insert" on public.tender_rfi_responses for insert
-  with check (true);
-
-create policy "tender_rfi_responses_select" on public.tender_rfi_responses for select
-  using (
-    exists (
-      select 1 from public.tender_rfis tr
-      where tr.id = rfi_id
-      and (
-        tr.created_by_email = (select email from public.users where id = auth.uid())
-        or exists (
-          select 1 from public.tender_invitations ti
-          where ti.id = tr.invitation_id and ti.invitee_email = (select email from public.users where id = auth.uid())
-        )
-      )
-    )
-  );
-
-drop trigger if exists archive_project_children_trigger on projects;
+drop trigger if exists archive_project_children_trigger on public.projects;
 create trigger archive_project_children_trigger
-  after update of status on projects
-  for each row
-  execute function archive_project_children();
+  after update of status on public.projects
+  for each row execute function public.archive_project_children();
 
--- ── Edit tracking for author-only edits ──
--- RFI responses: allow author to edit
-alter table public.tender_rfi_responses add column if not exists edited_by_email text;
-alter table public.tender_rfi_responses add column if not exists edited_at timestamptz;
-
--- RFIs: allow creator to edit (track edits)
-alter table public.rfis add column if not exists edited_by_id uuid;
-alter table public.rfis add column if not exists edited_at timestamptz;
-
--- Tender RFIs (questions on portal): allow creator to edit
-alter table public.tender_rfis add column if not exists edited_by_email text;
-alter table public.tender_rfis add column if not exists edited_at timestamptz;
+-- ── Seeds ────────────────────────────────────────────────
+insert into public.tender_counter (current_value) values (0);
+insert into public.tender_settings (
+  notify_lead_on_submission, notify_admins_on_submission,
+  send_24h_reminder, send_immediate_notifications, send_daily_summary
+) values (true, false, true, true, false);
+insert into public.reminder_settings (reminder_type, enabled, days_before) values
+  ('tender_external', true, 2),
+  ('tender_internal', true, 1),
+  ('rfi_reminder',    true, 1)
+on conflict (reminder_type) do nothing;
