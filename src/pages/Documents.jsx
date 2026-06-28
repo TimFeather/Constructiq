@@ -4,7 +4,7 @@ import { Document, Project } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/lib/AuthContext';
-import { Search, FileText, Upload, ExternalLink, Folder, ArrowLeft, Calendar, FolderOpen, Archive } from 'lucide-react';
+import { Search, FileText, Upload, ArrowLeft, Calendar, FolderOpen, Archive } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -88,7 +88,8 @@ export default function Documents() {
       const folder = uploadForm.folder === '__new__'
         ? newFolder.trim()
         : (uploadForm.folder || undefined);
-      const { file_url } = await uploadFile(uploadForm.file, 'Documents', setUploadPct);
+      // Project documents are private — store in the private project-files bucket.
+      const { file_url } = await uploadFile(uploadForm.file, 'project-files', setUploadPct);
       await Document.create({
         name: uploadForm.name,
         project_id: uploadForm.project_id,

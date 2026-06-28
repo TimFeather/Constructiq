@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Document, Project, Tender, TenderSubmission } from '@/api/entities';
-import { invokeFunction } from '@/api/supabaseClient';
+import { invokeFunction, uploadFile, isStoredUrl } from '@/api/supabaseClient';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -37,6 +37,30 @@ export default function ConvertToProjectModal({ tender, open, onOpenChange }) {
   );
 
   const toggleDoc = (idx) => setIncludedDocs(prev => ({ ...prev, [idx]: !prev[idx] }));
+
+  // Re-host a public tender document into the private project-files bucket so the
+  // converted project's documents are not publicly accessible. Falls back to the
+  // original (public) URL if the re-upload fails, so a document is never lost.
+  const rehostToPrivate = async (doc) => {
+    if (!doc.file_url || !isStoredUrl(doc.file_url)) return doc.file_url; // already a path / nothing to fetch
+    try {
+      const res = await fetch(doc.file_url);
+      if (!res.ok) throw new Error(`fetch failed (${res.status})`);
+      const blob = await res.blob();
+      // Derive an extension from the stored path so uploadFile's validation passes.
+      const urlPath = doc.file_url.split('?')[0];
+      const ext = urlPath.includes('.') ? urlPath.split('.').pop().toLowerCase() : '';
+      const baseName = /\.[a-z0-9]+$/i.test(doc.name || '')
+        ? doc.name
+        : `${doc.name || 'document'}${ext ? '.' + ext : ''}`;
+      const file = new File([blob], baseName, { type: blob.type || 'application/octet-stream' });
+      const { file_url } = await uploadFile(file, 'project-files');
+      return file_url; // private storage path
+    } catch (err) {
+      console.warn(`[ConvertToProject] Could not privatise "${doc.name}", keeping public link:`, err);
+      return doc.file_url; // fallback: keep the public URL so the document is not lost
+    }
+  };
 
   const handleConvert = async () => {
     setConverting(true);
@@ -75,21 +99,20 @@ export default function ConvertToProjectModal({ tender, open, onOpenChange }) {
 
       const newProject = await Project.create(projectData);
 
-      // Copy selected docs
-      const docsToCreate = (tender.documents || [])
-        .filter((_, idx) => includedDocs[idx])
-        .map(doc => ({
+      // Copy selected docs — re-host each into the private project-files bucket so
+      // the converted project's documents are not publicly accessible.
+      const selectedDocs = (tender.documents || []).filter((_, idx) => includedDocs[idx]);
+      for (const doc of selectedDocs) {
+        const privateUrl = await rehostToPrivate(doc);
+        await Document.create({
           name: doc.name,
           project_id: newProject.id,
           folder: 'Tender',
-          file_url: doc.file_url,
+          file_url: privateUrl,
           file_type: doc.file_type,
           status: 'Draft',
           uploaded_by_name: 'Imported from Tender',
-        }));
-
-      for (const doc of docsToCreate) {
-        await Document.create(doc);
+        });
       }
 
       // Update tender status — Archived moves it to the Archive tab

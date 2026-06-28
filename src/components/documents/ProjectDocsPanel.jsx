@@ -1,4 +1,5 @@
 import { uploadFile, sendEmail } from '@/api/supabaseClient';
+import SecureFileLink, { useSignedUrl } from '@/components/shared/SecureFileLink';
 import React, { useState, useRef } from 'react';
 import { Document, DocumentFolderTemplate } from '@/api/entities';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
@@ -11,7 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import StatusBadge from '@/components/shared/StatusBadge';
-import { Upload, ExternalLink, FileText, Folder, FolderOpen, Plus, GripVertical, ChevronDown, ChevronRight, FolderPlus, Trash2, Eye, Archive } from 'lucide-react';
+import { Upload, ExternalLink, FileText, Folder, FolderOpen, GripVertical, ChevronDown, ChevronRight, FolderPlus, Trash2, Eye, Archive } from 'lucide-react';
 import { format } from 'date-fns';
 
 function getFileType(name) {
@@ -130,7 +131,9 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
     const docName = f?.name?.replace(/\.[^/.]+$/, '') || uploadForm.name;
     if (!f || !docName) return;
     setUploading(true);
-    const { file_url } = await uploadFile(f );
+    // Project documents are private — store in the private project-files bucket.
+    // uploadFile returns a storage path here (not a public URL); render via signed URL.
+    const { file_url } = await uploadFile(f, 'project-files');
     await Document.create({
       name: docName,
       project_id: project.id,
@@ -167,7 +170,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
   const handleNewVersion = async () => {
     if (!versionFile || !versioningDoc) return;
     setVersionUploading(true);
-    const { file_url: newFileUrl } = await uploadFile(versionFile );
+    const { file_url: newFileUrl } = await uploadFile(versionFile, 'project-files');
     const existingVersions = versioningDoc.versions || [];
     await Document.update(versioningDoc.id, {
       file_url: newFileUrl,
@@ -205,6 +208,10 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
 
   const toggleFolder = (f) => setCollapsedFolders(prev => ({ ...prev, [f]: !prev[f] }));
 
+  // Preview modal renders the file inline (<img>/<iframe>), so the URL must be
+  // resolved before render — sign it up front (no-op for legacy public URLs).
+  const preview = useSignedUrl(previewDoc?.file_url, { bucket: 'project-files' });
+
   const visibleDocs = showArchived ? docs.filter(d => d.archived) : docs.filter(d => !d.archived);
   const archivedCount = docs.filter(d => d.archived).length;
 
@@ -229,10 +236,10 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
             {isInternal && <GripVertical className="w-4 h-4" />}
           </span>
           <FileText className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-          <a href={doc.file_url} target="_blank" rel="noopener noreferrer"
+          <SecureFileLink value={doc.file_url}
             className="font-medium text-primary hover:underline flex items-center gap-1 flex-1 min-w-0 truncate">
             {doc.name}
-          </a>
+          </SecureFileLink>
           <span className="text-xs text-muted-foreground hidden sm:block flex-shrink-0">{doc.uploaded_by_name}</span>
           <span className="text-xs text-muted-foreground hidden lg:block flex-shrink-0">
             {doc.created_at ? format(new Date(doc.created_at), 'MMM d, yyyy') : '—'}
@@ -264,9 +271,9 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
               <Eye className="w-3.5 h-3.5" />
             </button>
           )}
-          <a href={doc.file_url} target="_blank" rel="noopener noreferrer" className="flex-shrink-0">
+          <SecureFileLink value={doc.file_url} className="flex-shrink-0" title="Open file">
             <ExternalLink className="w-3.5 h-3.5 text-muted-foreground hover:text-primary" />
-          </a>
+          </SecureFileLink>
           {isInternal && (
             <button
               className="flex-shrink-0 text-xs text-muted-foreground hover:text-primary transition-colors px-1 py-0.5 rounded border border-transparent hover:border-border"
@@ -434,19 +441,25 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
             <DialogTitle className="text-sm font-medium truncate">{previewDoc?.name}</DialogTitle>
           </DialogHeader>
           <div className="flex-1 overflow-hidden">
-            {previewDoc?.file_url && (
+            {previewDoc?.file_url && preview.loading && (
+              <div className="flex items-center justify-center h-full text-sm text-muted-foreground">Loading preview…</div>
+            )}
+            {previewDoc?.file_url && preview.error && (
+              <div className="flex items-center justify-center h-full text-sm text-destructive">Could not load preview. Try opening in a new tab.</div>
+            )}
+            {previewDoc?.file_url && preview.url && (
               /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(previewDoc.file_url) ? (
                 <div className="flex items-center justify-center h-full p-4 bg-muted/30">
-                  <img src={previewDoc.file_url} alt={previewDoc.name} className="max-h-full max-w-full object-contain rounded" />
+                  <img src={preview.url} alt={previewDoc.name} className="max-h-full max-w-full object-contain rounded" />
                 </div>
               ) : (
-                <iframe src={previewDoc.file_url} title={previewDoc.name} className="w-full h-full border-0" />
+                <iframe src={preview.url} title={previewDoc.name} className="w-full h-full border-0" />
               )
             )}
           </div>
           <div className="px-4 py-3 border-t flex justify-between flex-shrink-0">
             <Button variant="outline" size="sm" asChild>
-              <a href={previewDoc?.file_url} target="_blank" rel="noopener noreferrer">Open in new tab</a>
+              <SecureFileLink value={previewDoc?.file_url}>Open in new tab</SecureFileLink>
             </Button>
             <Button variant="ghost" size="sm" onClick={() => setPreviewDoc(null)}>Close</Button>
           </div>
@@ -475,7 +488,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
                     <div key={i} className="flex items-center justify-between text-xs bg-muted/30 rounded px-2 py-1">
                       <span className="font-mono">v{v.version_number}</span>
                       <span className="text-muted-foreground">{v.uploaded_by_name}</span>
-                      <a href={v.file_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Download</a>
+                      <SecureFileLink value={v.file_url} className="text-primary hover:underline">Download</SecureFileLink>
                     </div>
                   ))}
                 </div>

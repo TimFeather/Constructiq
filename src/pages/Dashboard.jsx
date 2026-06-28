@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { FolderKanban, FileText, MessageSquareMore, GanttChart, ArrowRight, Clock } from 'lucide-react';
 import StatusBadge from '@/components/shared/StatusBadge';
 import PageHeader from '@/components/shared/PageHeader';
+import SecureFileLink from '@/components/shared/SecureFileLink';
 import { format } from 'date-fns';
 
 function StatCard({ icon: Icon, label, value, color, to }) {
@@ -249,14 +250,12 @@ export default function Dashboard() {
                   {recentDocs.map(doc => (
                     <tr key={doc.id} className="hover:bg-muted/50">
                       <td className="py-2.5">
-                        <a 
-                          href={doc.file_url} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
+                        <SecureFileLink
+                          value={doc.file_url}
                           className="text-primary hover:underline font-medium truncate block max-w-[200px]"
                         >
                           {doc.name}
-                        </a>
+                        </SecureFileLink>
                       </td>
                       <td className="py-2.5 hidden sm:table-cell text-muted-foreground">{doc.file_type}</td>
                       <td className="py-2.5 hidden md:table-cell text-muted-foreground">{doc.uploaded_by_name}</td>

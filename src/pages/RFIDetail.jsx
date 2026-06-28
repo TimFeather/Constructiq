@@ -1,4 +1,5 @@
 import { invokeFunction, uploadFile } from '@/api/supabaseClient';
+import SecureFileLink from '@/components/shared/SecureFileLink';
 import React, { useState } from 'react';
 import { EmailBranding, EmailTemplate, Project, RFI, User } from '@/api/entities';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -7,7 +8,7 @@ import { useAuth } from '@/lib/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { ArrowLeft, Send, Clock, UserIcon, Paperclip, Trash2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -76,7 +77,8 @@ export default function RFIDetail() {
     mutationFn: async () => {
       let attachments = [];
       if (responseFile) {
-        const { file_url } = await uploadFile(responseFile );
+        // RFI response attachments are private — store in the private project-files bucket.
+        const { file_url } = await uploadFile(responseFile, 'project-files');
         attachments = [{ name: responseFile.name, url: file_url }];
       }
       const newResponse = {
@@ -196,9 +198,9 @@ export default function RFIDetail() {
               <div className="mt-4 space-y-1">
                 <p className="text-xs font-medium text-muted-foreground mb-2">Attachments</p>
                 {rfi.attachments.map((a, i) => (
-                  <a key={i} href={a.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-primary hover:underline">
+                  <SecureFileLink key={i} value={a.url} className="flex items-center gap-2 text-sm text-primary hover:underline">
                     <Paperclip className="w-3 h-3" /> {a.name}
-                  </a>
+                  </SecureFileLink>
                 ))}
               </div>
             )}
@@ -273,9 +275,9 @@ export default function RFIDetail() {
                 {resp.attachments?.length > 0 && (
                   <div className="mt-2 space-y-1">
                     {resp.attachments.map((a, j) => (
-                      <a key={j} href={a.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-primary hover:underline">
+                      <SecureFileLink key={j} value={a.url} className="flex items-center gap-1 text-xs text-primary hover:underline">
                         <Paperclip className="w-3 h-3" /> {a.name}
-                      </a>
+                      </SecureFileLink>
                     ))}
                   </div>
                 )}

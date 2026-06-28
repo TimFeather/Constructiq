@@ -203,7 +203,9 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
     if (!uploadForm.file || !uploadForm.name) return;
     setSingleUploading(true);
     try {
-      const { file_url } = await uploadFile(uploadForm.file );
+      // Tender packages are downloaded by unauthenticated suppliers on the public
+      // portal — keep them in the public Documents bucket (permanent public URL).
+      const { file_url } = await uploadFile(uploadForm.file, 'Documents');
       const newDoc = {
         name:        uploadForm.name,
         file_url,

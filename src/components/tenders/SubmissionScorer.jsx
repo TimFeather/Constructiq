@@ -9,6 +9,7 @@ import React, { useState, useMemo } from 'react';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { TenderSubmission, TenderInvitee } from '@/api/entities';
+import { invokeFunction } from '@/api/supabaseClient';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -30,11 +31,27 @@ function calcWeightedScore(submission, criteria) {
 }
 
 function PricingFilesBlock({ submission }) {
-  const files = submission.pricing_files?.length > 0
+  // Locally-derived list — used for display and as a fallback. The stored file_url
+  // is an expiring signed URL, so we fetch freshly-signed URLs from the edge
+  // function (the 'tender-submissions' bucket is service_role-only and can't be
+  // signed from the browser). This block only mounts when a scoring panel is open,
+  // so the request stays lazy/per-submission.
+  const localFiles = submission.pricing_files?.length > 0
     ? submission.pricing_files
     : submission.uploaded_file_url
       ? [{ file_url: submission.uploaded_file_url, file_name: submission.uploaded_file_name }]
       : [];
+
+  const { data: signedFiles } = useQuery({
+    queryKey: ['submissionFileUrls', submission.id],
+    queryFn:  () => invokeFunction('getSubmissionFileUrl', { submissionId: submission.id }).then(r => r.data?.files || []),
+    enabled:  !!submission.id,
+    staleTime: 50 * 60 * 1000, // signed URLs live ~1h — refetch comfortably before expiry
+  });
+
+  // Prefer the server's freshly-signed list (same order); fall back to local.
+  const files = signedFiles?.length ? signedFiles : localFiles;
+  const urlFor = (f) => f.signed_url || f.file_url;
   const [zipping, setZipping] = useState(false);
 
   const downloadZip = async () => {
@@ -43,7 +60,9 @@ function PricingFilesBlock({ submission }) {
       const zip = new JSZip();
       for (let i = 0; i < files.length; i++) {
         const f = files[i];
-        const res = await fetch(f.file_url);
+        const url = urlFor(f);
+        if (!url) throw new Error(`No URL for ${f.file_name}`);
+        const res = await fetch(url);
         if (!res.ok) throw new Error(`Failed to fetch ${f.file_name}`);
         const blob = await res.blob();
         zip.file(f.file_name || `file-${i + 1}`, blob);
@@ -75,7 +94,7 @@ function PricingFilesBlock({ submission }) {
       </div>
       <div className="space-y-1">
         {files.map((f, i) => (
-          <a key={i} href={f.file_url} target="_blank" rel="noopener noreferrer"
+          <a key={i} href={urlFor(f)} target="_blank" rel="noopener noreferrer"
             className="flex items-center gap-1 text-primary text-sm hover:underline">
             <Download className="w-3 h-3" /> {f.file_name || `File ${i + 1}`}
           </a>

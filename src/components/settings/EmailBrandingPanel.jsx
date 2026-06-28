@@ -76,7 +76,9 @@ export default function EmailBrandingPanel() {
     if (!file) return;
     setUploading(true);
     try {
-      const { file_url } = await uploadFile(file);
+      // Logos must live in the PUBLIC 'Documents' bucket — they are embedded in outbound
+      // emails and loaded by unauthenticated email clients, so they cannot use signed URLs.
+      const { file_url } = await uploadFile(file, 'Documents');
       setForm(f => ({ ...f, logo_url: file_url }));
       toast({ title: 'Logo uploaded', duration: 4000 });
     } catch (err) {
@@ -126,7 +128,7 @@ export default function EmailBrandingPanel() {
                   <X className="w-3.5 h-3.5" /> Remove
                 </Button>
               )}
-              <input ref={fileInputRef} type="file" accept="image/png,image/jpg,image/jpeg,image/gif,image/svg+xml" className="hidden" onChange={handleLogoUpload} />
+              <input ref={fileInputRef} type="file" accept="image/png,image/jpg,image/jpeg" className="hidden" onChange={handleLogoUpload} />
             </div>
             {form.logo_url && (
               <div className={`mt-3 ${form.logo_alignment === 'center' ? 'text-center' : form.logo_alignment === 'right' ? 'text-right' : 'text-left'}`}>

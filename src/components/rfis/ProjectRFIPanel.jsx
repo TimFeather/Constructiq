@@ -1,4 +1,5 @@
 import { uploadFile, sendEmail } from '@/api/supabaseClient';
+import SecureFileLink from '@/components/shared/SecureFileLink';
 import React, { useState, useRef } from 'react';
 import { Document, EmailTemplate, RFI, User } from '@/api/entities';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -76,7 +77,8 @@ function RFICard({ rfi, project, emailTemplates = [], registeredUsers = [] }) {
 
     const uploadedAttachments = await Promise.all(
       attachments.map(async (a) => {
-        const { file_url } = await uploadFile(a.file );
+        // RFI attachments are private — store in the private project-files bucket.
+        const { file_url } = await uploadFile(a.file, 'project-files');
         return { name: a.name, url: file_url };
       })
     );
@@ -190,10 +192,10 @@ function RFICard({ rfi, project, emailTemplates = [], registeredUsers = [] }) {
                 <div className="flex flex-wrap gap-2">
                   {rfi.attachments.map((att, i) => (
                     <div key={i} className="flex items-center gap-1">
-                      <a href={att.url} target="_blank" rel="noopener noreferrer"
+                      <SecureFileLink value={att.url}
                         className="flex items-center gap-1 text-xs text-primary bg-primary/10 px-2 py-1 rounded hover:bg-primary/20 transition-colors">
                         <Paperclip className="w-3 h-3" />{att.name}
-                      </a>
+                      </SecureFileLink>
                       {isAdminOrInternal && (
                         <button
                           onClick={() => saveAttachmentToDocuments(att)}
@@ -227,10 +229,10 @@ function RFICard({ rfi, project, emailTemplates = [], registeredUsers = [] }) {
                       <div className="flex flex-wrap gap-2 pt-1">
                         {resp.attachments.map((att, j) => (
                           <div key={j} className="flex items-center gap-1">
-                            <a href={att.url} target="_blank" rel="noopener noreferrer"
+                            <SecureFileLink value={att.url}
                               className="flex items-center gap-1 text-xs text-primary bg-primary/10 px-2 py-1 rounded hover:bg-primary/20 transition-colors">
                               <ExternalLink className="w-3 h-3" />{att.name}
-                            </a>
+                            </SecureFileLink>
                             {isAdminOrInternal && (
                               <button
                                 onClick={() => saveAttachmentToDocuments(att)}
@@ -369,7 +371,8 @@ export default function ProjectRFIPanel({ project, rfis = [] }) {
 
     const uploadedAttachments = await Promise.all(
       attachments.map(async (a) => {
-        const { file_url } = await uploadFile(a.file );
+        // RFI attachments are private — store in the private project-files bucket.
+        const { file_url } = await uploadFile(a.file, 'project-files');
         return { name: a.name, url: file_url };
       })
     );

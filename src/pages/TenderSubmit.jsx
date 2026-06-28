@@ -12,7 +12,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import {
   HardHat, Calendar, MapPin, Download, CheckCircle2,
   AlertCircle, Mail, Phone, Building2, FileText, Bell, MessageSquare, X,
-  Plus, Trash2, Loader2, RefreshCw,
+  Plus, Loader2, RefreshCw,
 } from 'lucide-react';
 import { format, parseISO, isPast } from 'date-fns';
 
@@ -123,7 +123,7 @@ export default function TenderSubmit() {
           const savedFiles = s.pricing_files?.length
             ? s.pricing_files
             : s.uploaded_file_url ? [{ file_url: s.uploaded_file_url, file_name: s.uploaded_file_name }] : [];
-          setPricingFiles(savedFiles.map((f, i) => ({ id: i + 1, file_name: f.file_name, file_url: f.file_url, status: 'done' })));
+          setPricingFiles(savedFiles.map((f, i) => ({ id: i + 1, file_name: f.file_name, file_url: f.file_url, storage_path: f.storage_path, status: 'done' })));
         }
       })
       .catch(e => setError(e?.response?.data?.error || 'Invalid or expired link'))
@@ -186,7 +186,7 @@ export default function TenderSubmit() {
         action: 'upload', token,
         fileName: file.name, fileData: base64, fileType: file.type,
       });
-      setPricingFiles(prev => prev.map(f => f.id === id ? { ...f, status: 'done', file_url: res.data.file_url } : f));
+      setPricingFiles(prev => prev.map(f => f.id === id ? { ...f, status: 'done', file_url: res.data.file_url, storage_path: res.data.storage_path } : f));
     } catch (err) {
       setPricingFiles(prev => prev.map(f => f.id === id ? { ...f, status: 'error', error: err?.message || 'Upload failed' } : f));
     }
@@ -228,7 +228,7 @@ export default function TenderSubmit() {
           lump_sum_price:     totalPrice,
           price_lines:        validLines.map(l => ({ description: l.description || 'Item', amount: Number(l.amount) })),
           notes:              form.notes,
-          pricing_files:      doneFiles.map(f => ({ file_url: f.file_url, file_name: f.file_name })),
+          pricing_files:      doneFiles.map(f => ({ file_url: f.file_url, file_name: f.file_name, storage_path: f.storage_path })),
           uploaded_file_url:  doneFiles[0]?.file_url  || '',
           uploaded_file_name: doneFiles[0]?.file_name || '',
         },
@@ -281,22 +281,56 @@ export default function TenderSubmit() {
 
   // ── Submitted confirmation ───────────────────────────────────────────────────
   if (submitted && !editingSubmission) {
+    // Files the supplier lodged (names only — the files themselves are private).
+    const submittedFiles = pricingFiles.filter(f => f.status === 'done');
     return (
       <div className="min-h-screen bg-background">
         <PortalHeader tender={tender} invitee={invitee} isOverdue={isOverdue} branding={branding}
           onSubmitClick={() => { setEditingSubmission(true); setActiveTab('submit'); }} showSubmitBtn={!isOverdue} />
         <div className="max-w-3xl mx-auto px-4 py-12 flex items-center justify-center">
-          <div className="text-center space-y-4 max-w-sm">
+          <div className="text-center space-y-5 max-w-md w-full">
             <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto" />
-            <h2 className="text-xl font-bold">Submission Received</h2>
+            <div className="space-y-1">
+              <h2 className="text-xl font-bold">Submission Received</h2>
+              {tender?.title && <p className="text-sm font-medium text-foreground">{tender.title}</p>}
+            </div>
             <p className="text-sm text-muted-foreground">
               Your pricing was submitted
               {invitee?.submission?.submitted_at
                 ? ` on ${format(new Date(invitee.submission.submitted_at), 'dd MMM yyyy h:mm a')}`
                 : ''}.
             </p>
+
+            {submittedFiles.length > 0 && (
+              <div className="text-left border rounded-lg p-3 bg-muted/20">
+                <p className="text-xs font-medium text-muted-foreground mb-1.5">Files lodged</p>
+                <ul className="space-y-1">
+                  {submittedFiles.map((f, i) => (
+                    <li key={i} className="flex items-center gap-2 text-sm">
+                      <FileText className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                      <span className="truncate">{f.file_name}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {(issuer?.name || issuer?.email) && (
+              <div className="text-left border rounded-lg p-3">
+                <p className="text-xs text-muted-foreground mb-1.5">
+                  For any further information required, please contact:
+                </p>
+                {issuer?.name && <p className="text-sm font-medium">{issuer.name}</p>}
+                {issuer?.email && (
+                  <a href={`mailto:${issuer.email}`} className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline">
+                    <Mail className="w-3.5 h-3.5" /> {issuer.email}
+                  </a>
+                )}
+              </div>
+            )}
+
             {!isOverdue && (
-              <div className="pt-2">
+              <div className="pt-1">
                 <p className="text-sm text-muted-foreground mb-3">
                   The tender is still open. You can update your submission before the closing date.
                 </p>
