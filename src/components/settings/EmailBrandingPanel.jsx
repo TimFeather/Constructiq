@@ -128,7 +128,7 @@ export default function EmailBrandingPanel() {
                   <X className="w-3.5 h-3.5" /> Remove
                 </Button>
               )}
-              <input ref={fileInputRef} type="file" accept="image/png,image/jpg,image/jpeg,image/gif,image/svg+xml" className="hidden" onChange={handleLogoUpload} />
+              <input ref={fileInputRef} type="file" accept="image/png,image/jpg,image/jpeg" className="hidden" onChange={handleLogoUpload} />
             </div>
             {form.logo_url && (
               <div className={`mt-3 ${form.logo_alignment === 'center' ? 'text-center' : form.logo_alignment === 'right' ? 'text-right' : 'text-left'}`}>

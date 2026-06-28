@@ -87,18 +87,42 @@ Deno.serve(async (req: Request) => {
     tomorrowNZT.setUTCDate(tomorrowNZT.getUTCDate() + 1);
     const tomorrow = tomorrowNZT.toISOString().split('T')[0];
 
-    console.log(`[sendRfiReminders] Checking RFIs due on ${tomorrow}`);
+    console.log(`[sendRfiReminders] Checking RFIs due on ${tomorrow} or overdue with no response`);
 
     // Fetch open RFIs due tomorrow
-    const { data: rfis, error: rfisError } = await supabaseAdmin
+    const { data: dueTomorrow, error: rfisError } = await supabaseAdmin
       .from('rfis')
-      .select('id, title, description, due_date, priority, project_id, assignees, assigned_to_email')
+      .select('id, title, description, due_date, priority, project_id, assignees, assigned_to_email, responses')
       .eq('status', 'Open')
       .eq('due_date', tomorrow);
 
+    // Also fetch overdue open RFIs (past due_date) with no responses yet
+    const todayNZT = new Date(now.getTime() + nztOffset);
+    const todayDate = todayNZT.toISOString().split('T')[0];
+    const { data: overdueNoResponse } = await supabaseAdmin
+      .from('rfis')
+      .select('id, title, description, due_date, priority, project_id, assignees, assigned_to_email, responses')
+      .eq('status', 'Open')
+      .lt('due_date', todayDate);
+
+    // Merge, de-duplicate by id, exclude overdue that have responses
+    const seen = new Set<string>();
+    const rfis: any[] = [];
+    for (const r of [...(dueTomorrow ?? [])]) {
+      if (!seen.has(r.id)) { seen.add(r.id); rfis.push({ ...r, _reminderType: 'due_tomorrow' }); }
+    }
+    for (const r of (overdueNoResponse ?? [])) {
+      const hasResponses = Array.isArray(r.responses) ? r.responses.length > 0 : !!r.responses;
+      if (!hasResponses && !seen.has(r.id)) {
+        seen.add(r.id);
+        rfis.push({ ...r, _reminderType: 'overdue_no_response' });
+      }
+    }
+
     if (rfisError) throw new Error(`RFI query failed: ${rfisError.message}`);
-    if (!rfis || rfis.length === 0) {
-      console.log('[sendRfiReminders] No RFIs due tomorrow');
+
+    if (rfis.length === 0) {
+      console.log('[sendRfiReminders] No RFIs due tomorrow or overdue without response');
       return Response.json({ success: true, sent: 0 }, { headers: corsHeaders });
     }
 
@@ -130,20 +154,29 @@ Deno.serve(async (req: Request) => {
         .in('email', [...assigneeEmails]);
       const userNameMap = Object.fromEntries((assigneeUsers ?? []).map((u: any) => [u.email.toLowerCase(), u.full_name || u.email]));
 
-      const projectName = projectMap[rfi.project_id] || 'Unknown Project';
-      const rfiUrl      = `${APP_URL}/rfis/${rfi.id}`;
-      const dueFmt      = new Date(rfi.due_date + 'T00:00:00').toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' });
+      const projectName    = projectMap[rfi.project_id] || 'Unknown Project';
+      const rfiUrl         = `${APP_URL}/rfis/${rfi.id}`;
+      const dueFmt         = rfi.due_date
+        ? new Date(rfi.due_date + 'T00:00:00').toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' })
+        : 'Not set';
+      const isOverdue      = rfi._reminderType === 'overdue_no_response';
 
       for (const email of assigneeEmails) {
         const assigneeName = userNameMap[email] || email;
 
-        const subject = tpl?.subject
-          ? tpl.subject.replace(/{assignee_name}/g, assigneeName).replace(/{rfi_ref}/g, 'RFI').replace(/{title}/g, rfi.title)
-          : `Reminder: RFI due tomorrow — ${rfi.title}`;
+        const subject = isOverdue
+          ? `Action required: RFI awaiting your response — ${rfi.title}`
+          : (tpl?.subject
+              ? tpl.subject.replace(/{assignee_name}/g, assigneeName).replace(/{rfi_ref}/g, 'RFI').replace(/{title}/g, rfi.title)
+              : `Reminder: RFI due tomorrow — ${rfi.title}`);
+
+        const urgencyLine = isOverdue
+          ? `<p>This RFI is <strong style="color:#dc2626;">overdue</strong> and is still awaiting your response. Please respond as soon as possible.</p>`
+          : `<p>This is a reminder that the following RFI is due <strong>tomorrow</strong>.</p>`;
 
         const bodyHtml = `
 <p>Hi <strong>${escapeHtml(assigneeName)}</strong>,</p>
-<p>This is a reminder that the following RFI is due <strong>tomorrow</strong>.</p>
+${urgencyLine}
 <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;">
   <tr><td style="padding:6px 0;color:#6b7280;width:140px;">Project</td><td style="padding:6px 0;font-weight:500;">${escapeHtml(projectName)}</td></tr>
   <tr><td style="padding:6px 0;color:#6b7280;">Title</td><td style="padding:6px 0;font-weight:500;">${escapeHtml(rfi.title)}</td></tr>

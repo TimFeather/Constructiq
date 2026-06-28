@@ -65,7 +65,7 @@ export default function AppearanceSettings({ user }) {
           )}
           <div className="flex items-center gap-2">
             <label className="cursor-pointer">
-              <input type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} />
+              <input type="file" accept="image/png,image/jpg,image/jpeg" className="hidden" onChange={handleLogoUpload} />
               <div className="flex items-center gap-2 px-3 py-2 text-sm border rounded-md hover:bg-muted/50 transition-colors cursor-pointer">
                 {uploading ? (
                   <div className="w-4 h-4 border-2 border-muted-foreground border-t-primary rounded-full animate-spin" />
@@ -77,7 +77,7 @@ export default function AppearanceSettings({ user }) {
             </label>
             {logoUrl && <span className="text-xs text-muted-foreground truncate max-w-[200px]">Logo uploaded ✓</span>}
           </div>
-          <p className="text-xs text-muted-foreground">Recommended: PNG or SVG, max 200×60px, transparent background</p>
+          <p className="text-xs text-muted-foreground">Recommended: PNG or JPG, max 200×60px, transparent background</p>
         </div>
 
         <Button onClick={() => saveMutation.mutate({ company_logo_url: logoUrl, company_name: companyName })}

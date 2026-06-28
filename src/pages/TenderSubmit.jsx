@@ -123,7 +123,7 @@ export default function TenderSubmit() {
           const savedFiles = s.pricing_files?.length
             ? s.pricing_files
             : s.uploaded_file_url ? [{ file_url: s.uploaded_file_url, file_name: s.uploaded_file_name }] : [];
-          setPricingFiles(savedFiles.map((f, i) => ({ id: i + 1, file_name: f.file_name, file_url: f.file_url, status: 'done' })));
+          setPricingFiles(savedFiles.map((f, i) => ({ id: i + 1, file_name: f.file_name, file_url: f.file_url, storage_path: f.storage_path, status: 'done' })));
         }
       })
       .catch(e => setError(e?.response?.data?.error || 'Invalid or expired link'))
@@ -186,7 +186,7 @@ export default function TenderSubmit() {
         action: 'upload', token,
         fileName: file.name, fileData: base64, fileType: file.type,
       });
-      setPricingFiles(prev => prev.map(f => f.id === id ? { ...f, status: 'done', file_url: res.data.file_url } : f));
+      setPricingFiles(prev => prev.map(f => f.id === id ? { ...f, status: 'done', file_url: res.data.file_url, storage_path: res.data.storage_path } : f));
     } catch (err) {
       setPricingFiles(prev => prev.map(f => f.id === id ? { ...f, status: 'error', error: err?.message || 'Upload failed' } : f));
     }
@@ -228,7 +228,7 @@ export default function TenderSubmit() {
           lump_sum_price:     totalPrice,
           price_lines:        validLines.map(l => ({ description: l.description || 'Item', amount: Number(l.amount) })),
           notes:              form.notes,
-          pricing_files:      doneFiles.map(f => ({ file_url: f.file_url, file_name: f.file_name })),
+          pricing_files:      doneFiles.map(f => ({ file_url: f.file_url, file_name: f.file_name, storage_path: f.storage_path })),
           uploaded_file_url:  doneFiles[0]?.file_url  || '',
           uploaded_file_name: doneFiles[0]?.file_name || '',
         },

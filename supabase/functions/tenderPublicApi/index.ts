@@ -205,7 +205,10 @@ ${portalUrl ? `<p style="margin-top:24px;"><a href="${portalUrl}" style="display
 
         console.log(`[tenderPublicApi] UPLOAD SUCCESS file_url=${signedUrl.split('?')[0]}... expires=${expirySeconds}s`);
 
-        return Response.json({ file_url: signedUrl }, { headers: corsHeaders });
+        // Return the signed URL (for immediate display on the portal) AND the storage
+        // path. The path is the durable reference — signed URLs expire (~30 days max),
+        // so admins regenerate fresh ones at scoring time via getSubmissionFileUrl.
+        return Response.json({ file_url: signedUrl, storage_path: storagePath }, { headers: corsHeaders });
 
       } catch (uploadError: any) {
         console.error(`[tenderPublicApi] UPLOAD ERROR: ${uploadError?.message}`, uploadError);
