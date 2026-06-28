@@ -76,7 +76,9 @@ export default function EmailBrandingPanel() {
     if (!file) return;
     setUploading(true);
     try {
-      const { file_url } = await uploadFile(file);
+      // Logos must live in the PUBLIC 'Documents' bucket — they are embedded in outbound
+      // emails and loaded by unauthenticated email clients, so they cannot use signed URLs.
+      const { file_url } = await uploadFile(file, 'Documents');
       setForm(f => ({ ...f, logo_url: file_url }));
       toast({ title: 'Logo uploaded', duration: 4000 });
     } catch (err) {

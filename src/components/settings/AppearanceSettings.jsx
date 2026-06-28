@@ -29,7 +29,9 @@ export default function AppearanceSettings({ user }) {
     if (!file) return;
     setUploading(true);
     try {
-      const { file_url } = await uploadFile(file);
+      // Logos must live in the PUBLIC 'Documents' bucket — they are embedded in outbound
+      // emails and loaded by unauthenticated email clients, so they cannot use signed URLs.
+      const { file_url } = await uploadFile(file, 'Documents');
       setLogoUrl(file_url);
     } catch (err) {
       console.error('Logo upload failed:', err);
