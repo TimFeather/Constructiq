@@ -24,8 +24,30 @@ export async function invokeFunction(name, payload = {}) {
 const ALLOWED_UPLOAD_EXTS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'dwg', 'dxf', 'png', 'jpg', 'jpeg', 'zip', 'csv', 'ppt', 'pptx'];
 const MAX_UPLOAD_BYTES = 500 * 1024 * 1024; // 500 MB
 
+// Buckets whose contents are NOT publicly readable. Uploads to these buckets return a
+// storage PATH (not a URL) — the file must be rendered via a signed URL generated at
+// view time with getSignedUrl()/getSignedUrls() (see <SecureFileLink>). Public buckets
+// (e.g. 'Documents') keep returning a permanent public URL as before.
+const PRIVATE_BUCKETS = new Set(['project-files']);
+
+export function isPrivateBucket(bucket) {
+  return PRIVATE_BUCKETS.has(bucket);
+}
+
+// True when a stored file_url value is already a usable URL (a permanent public URL or
+// an existing signed URL) rather than a bare storage path that still needs signing.
+// Lets components/migrations treat legacy public URLs and new private paths uniformly.
+export function isStoredUrl(value) {
+  return typeof value === 'string' && /^https?:\/\//i.test(value);
+}
+
 // Drop-in replacement for base44.integrations.Core.UploadFile({ file })
 // onProgress(pct: 0–100) is optional — called during upload if the browser supports it
+//
+// Returns { file_url, bucket, path }:
+//   • public bucket  → file_url is a permanent public URL
+//   • private bucket → file_url is the storage path (sign it at view time)
+// Callers that only need the stored value can continue to destructure { file_url }.
 export async function uploadFile(file, bucket = 'Documents', onProgress = null) {
   const ext = (file.name.split('.').pop() || '').toLowerCase();
   if (!ALLOWED_UPLOAD_EXTS.includes(ext)) {
@@ -46,8 +68,37 @@ export async function uploadFile(file, bucket = 'Documents', onProgress = null) 
     }
     throw error;
   }
+  // Private buckets have no public URL — return the path so it can be signed on demand.
+  if (PRIVATE_BUCKETS.has(bucket)) {
+    return { file_url: path, bucket, path };
+  }
   const { data } = supabase.storage.from(bucket).getPublicUrl(path);
-  return { file_url: data.publicUrl };
+  return { file_url: data.publicUrl, bucket, path };
+}
+
+// Generate a short-lived signed URL for a single private-bucket file.
+// `path` is the storage path returned by uploadFile() (e.g. "1719…-abc.pdf").
+// expiresIn is in SECONDS (default 1 hour). Returns null for an empty path.
+export async function getSignedUrl(bucket, path, expiresIn = 3600) {
+  if (!path) return null;
+  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, expiresIn);
+  if (error) throw error;
+  return data.signedUrl;
+}
+
+// Batch version of getSignedUrl — signs many paths in a single round-trip.
+// Returns a Map of path → signedUrl (value is null for any path that failed to sign).
+// Empty/falsy paths are skipped.
+export async function getSignedUrls(bucket, paths, expiresIn = 3600) {
+  const clean = (paths || []).filter(Boolean);
+  if (clean.length === 0) return new Map();
+  const { data, error } = await supabase.storage.from(bucket).createSignedUrls(clean, expiresIn);
+  if (error) throw error;
+  const map = new Map();
+  for (const item of data || []) {
+    map.set(item.path, item.error ? null : item.signedUrl);
+  }
+  return map;
 }
 
 // Drop-in replacement for base44.integrations.Core.SendEmail(...)
