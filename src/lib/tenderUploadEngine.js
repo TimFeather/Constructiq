@@ -151,7 +151,9 @@ async function uploadWithRetry(file, maxRetries = 3) {
   let lastErr;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      const { file_url } = await uploadFile(file);
+      // Tender documents are downloaded by unauthenticated suppliers on the public
+      // portal — keep them in the public Documents bucket (permanent public URL).
+      const { file_url } = await uploadFile(file, 'Documents');
       return file_url;
     } catch (err) {
       lastErr = err;

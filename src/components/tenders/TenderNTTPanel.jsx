@@ -4,14 +4,13 @@
  */
 import React, { useState, useMemo, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { TenderNotice, TenderNoticeAttachment, Document as DocEntity } from '@/api/entities';
+import { TenderNotice } from '@/api/entities';
 import { invokeFunction, uploadFile } from '@/api/supabaseClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
@@ -502,7 +501,9 @@ function CreateNTTDialog({ tender, onClose, onCreated }) {
     try {
       const results = [];
       for (const file of files) {
-        const { file_url } = await uploadFile(file);
+        // NTT attachments are sent to suppliers and viewed on the public portal —
+        // keep them in the public Documents bucket (permanent public URL).
+        const { file_url } = await uploadFile(file, 'Documents');
         results.push({ file_url, file_name: file.name });
       }
       setUploadedFiles(prev => [...prev, ...results]);
