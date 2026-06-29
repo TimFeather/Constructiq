@@ -87,13 +87,15 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
   const docFolders = docs.map(d => d.folder).filter(Boolean);
   const allFolders = [...new Set([...templateFolders, ...docFolders, ...extraFolders])];
 
-  // Apply role-based visibility: external only sees permitted folders that also have docs
-  const foldersWithDocs = new Set(docs.map(d => d.folder).filter(Boolean));
+  // Role-based folder visibility: show a folder when the template grants this role
+  // access to it. (External users were previously ALSO restricted to folders that
+  // already contained a document, which hid empty folders they were permitted to
+  // see — e.g. an empty "Sub Contractor Uploads". They now see every folder granted
+  // to them, like internal users.) Whether the DOCUMENTS inside are visible is a
+  // separate gate enforced by RLS — external users only receive 'public'/shared docs.
   const folders = allFolders.filter(f => {
     const allowed = templatePerms[f] ?? ['admin', 'internal', 'pricing'];
-    if (!allowed.includes(userRole)) return false;
-    if (isExternal) return foldersWithDocs.has(f);
-    return true;
+    return allowed.includes(userRole);
   });
 
   const invalidate = () => {
