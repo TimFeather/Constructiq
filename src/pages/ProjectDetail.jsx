@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Document, Project, RFI, Task, Tender } from '@/api/entities';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ArrowLeft, Pencil, FileText, MessageSquareMore, BarChart2, ExternalLink, FileSignature, HardHat } from 'lucide-react';
@@ -10,7 +10,7 @@ import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
 import TeamManager from '@/components/projects/TeamManager';
 import ProjectFormDialog from '@/components/projects/ProjectFormDialog';
-import AwardedContractors from '@/components/projects/AwardedContractors';
+import ProjectSubcontractors from '@/components/projects/ProjectSubcontractors';
 import ProjectRFIPanel from '@/components/rfis/ProjectRFIPanel';
 import ProjectDocsPanel from '@/components/documents/ProjectDocsPanel';
 import ProjectCIPanel from '@/components/projects/ProjectCIPanel';
@@ -151,11 +151,9 @@ export default function ProjectDetail() {
           <TabsTrigger value="cis" className="gap-1">
             <FileSignature className="w-3.5 h-3.5" /> CIs
           </TabsTrigger>
-          {linkedTender && (
-            <TabsTrigger value="contractors" className="gap-1">
-              <HardHat className="w-3.5 h-3.5" /> Awarded Contractors
-            </TabsTrigger>
-          )}
+          <TabsTrigger value="subcontractors" className="gap-1">
+            <HardHat className="w-3.5 h-3.5" /> Subcontractors
+          </TabsTrigger>
         </TabsList></div>
 
         <TabsContent value="team">
@@ -237,11 +235,9 @@ export default function ProjectDetail() {
           </div>
         </TabsContent>
 
-        {linkedTender && (
-          <TabsContent value="contractors">
-            <AwardedContractors tenderId={linkedTender.id} />
-          </TabsContent>
-        )}
+        <TabsContent value="subcontractors">
+          <ProjectSubcontractors project={project} linkedTenderId={linkedTender?.id} />
+        </TabsContent>
       </Tabs>
 
       <ProjectFormDialog open={showEdit} onOpenChange={setShowEdit} project={project} />
