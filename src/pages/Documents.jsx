@@ -1,5 +1,5 @@
-import { uploadFile } from '@/api/supabaseClient';
-import React, { useState } from 'react';
+import { uploadFile, removeFile } from '@/api/supabaseClient';
+import React, { useState, useRef } from 'react';
 import { Document, Project } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/components/ui/use-toast';
@@ -40,6 +40,12 @@ export default function Documents() {
   const [uploading, setUploading] = useState(false);
   const [uploadPct, setUploadPct] = useState(0);
   const [viewMode, setViewMode] = useState('active');
+  // uploadControllerRef aborts the in-flight network transfer when the user cancels.
+  // uploadAbortRef is a belt-and-braces flag: if the upload happened to finish in the
+  // instant before abort landed, it tells the resolved handler to clean up the file and
+  // skip the DB write — so there's never an orphan or a half-created row either way.
+  const uploadControllerRef = useRef(null);
+  const uploadAbortRef = useRef(false);
   const queryClient = useQueryClient();
 
   const isAdmin = canEdit(user, 'documents');
@@ -84,17 +90,28 @@ export default function Documents() {
     if (!uploadForm.file || !uploadForm.name || !uploadForm.project_id) return;
     setUploading(true);
     setUploadPct(0);
+    uploadAbortRef.current = false;
+    const controller = new AbortController();
+    uploadControllerRef.current = controller;
+    // `up` stays null until the storage upload actually succeeds, so the rollback below
+    // only ever removes a file THIS call just wrote — never a pre-existing one.
+    let up = null;
     try {
       const folder = uploadForm.folder === '__new__'
         ? newFolder.trim()
         : (uploadForm.folder || undefined);
       // Project documents are private — store in the private project-files bucket.
-      const { file_url } = await uploadFile(uploadForm.file, 'project-files', setUploadPct);
+      up = await uploadFile(uploadForm.file, 'project-files', setUploadPct, controller.signal);
+      // Upload finished just before an abort landed — discard the file, don't create a row.
+      if (uploadAbortRef.current) {
+        await removeFile(up.bucket, up.path);
+        return;
+      }
       await Document.create({
         name: uploadForm.name,
         project_id: uploadForm.project_id,
         folder: folder || undefined,
-        file_url,
+        file_url: up.file_url,
         file_type: getFileType(uploadForm.file.name),
         status: 'Draft',
         visibility: 'public',
@@ -106,11 +123,24 @@ export default function Documents() {
       setUploadForm({ name: '', project_id: '', file: null, folder: '' });
       setNewFolder('');
     } catch (err) {
+      // File uploaded but the DB row failed — roll back the storage write so no orphan remains.
+      if (up) await removeFile(up.bucket, up.path);
+      // User cancelled — the aborted transfer rejects here; that's expected, no error toast.
+      if (uploadAbortRef.current) return;
       console.error('Upload failed:', err);
       toast({ title: 'Upload failed', description: err?.message || 'Please check your connection and try again.', variant: 'destructive' });
     } finally {
+      uploadControllerRef.current = null;
       setUploading(false);
     }
+  };
+
+  // Closing the upload dialog while an upload is in flight aborts the network transfer
+  // (and flags it) so nothing is uploaded or created.
+  const closeUploadDialog = (open) => {
+    if (open) { setShowUpload(true); return; }
+    if (uploading) { uploadAbortRef.current = true; uploadControllerRef.current?.abort(); }
+    setShowUpload(false);
   };
 
   // Folders available for selected project
@@ -247,7 +277,7 @@ export default function Documents() {
       )}
 
       {/* Upload Dialog */}
-      <Dialog open={showUpload} onOpenChange={setShowUpload}>
+      <Dialog open={showUpload} onOpenChange={closeUploadDialog}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader><DialogTitle>Upload Document</DialogTitle></DialogHeader>
           <div className="space-y-4">
@@ -299,7 +329,7 @@ export default function Documents() {
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowUpload(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => closeUploadDialog(false)}>Cancel</Button>
             <Button onClick={handleUpload} disabled={uploading || !uploadForm.file || !uploadForm.name || !uploadForm.project_id}>
               {uploading ? `Uploading ${uploadPct}%…` : 'Upload'}
             </Button>

@@ -1,7 +1,8 @@
-import { uploadFile, sendEmail } from '@/api/supabaseClient';
+import { uploadFile, sendEmail, removeFile } from '@/api/supabaseClient';
+import { useToast } from '@/components/ui/use-toast';
 import SecureFileLink, { useSignedUrl } from '@/components/shared/SecureFileLink';
 import React, { useState, useRef } from 'react';
-import { Document, DocumentFolderTemplate } from '@/api/entities';
+import { Document, DocumentFolderTemplate, Project } from '@/api/entities';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
@@ -60,6 +61,14 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
   const [previewDoc, setPreviewDoc] = useState(null);
   const [showArchived, setShowArchived] = useState(false);
   const dropZoneRef = useRef(null);
+  // Controllers abort the in-flight network transfer when a dialog is closed mid-upload.
+  // The *AbortRef flags are belt-and-braces: if the upload finished in the instant before
+  // abort landed, they tell the resolved handler to clean up the file and skip the row.
+  const uploadControllerRef = useRef(null);
+  const versionControllerRef = useRef(null);
+  const uploadAbortRef = useRef(false);
+  const versionAbortRef = useRef(false);
+  const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const { data: templates = [] } = useQuery({
@@ -85,7 +94,9 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
   const allowedFolders = isInternal ? null : visibleTemplateFolders;
 
   const docFolders = docs.map(d => d.folder).filter(Boolean);
-  const allFolders = [...new Set([...templateFolders, ...docFolders, ...extraFolders])];
+  // project.doc_folders persists user-created folders (including empty ones) across reloads.
+  const persistedFolders = project.doc_folders || [];
+  const allFolders = [...new Set([...templateFolders, ...docFolders, ...extraFolders, ...persistedFolders])];
 
   // Role-based folder visibility: show a folder when the template grants this role
   // access to it. (External users were previously ALSO restricted to folders that
@@ -107,6 +118,34 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
     mutationFn: ({ id, folder }) => Document.update(id, { folder: folder || null }),
     onSuccess: invalidate,
   });
+
+  // Persist a new (possibly empty) folder name on the project so it survives a reload.
+  // Internal-only — gated by the "New Folder" button visibility (isInternal) and matched
+  // by projects_update RLS (admin / creator / internal-on-team).
+  const folderMutation = useMutation({
+    mutationFn: (name) => {
+      const existing = project.doc_folders || [];
+      if (existing.includes(name)) return Promise.resolve(project);
+      return Project.update(project.id, { doc_folders: [...existing, name] });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['project', project.id] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+    onError: (err) => {
+      toast({ title: 'Folder not saved', description: err?.message || 'The folder will disappear on reload. Please try again.', variant: 'destructive' });
+    },
+  });
+
+  // Create a folder: instant local display (extraFolders) + persistence (folderMutation).
+  const createFolder = () => {
+    const name = newFolderName.trim();
+    if (!name) return;
+    setExtraFolders(prev => [...new Set([...prev, name])]);
+    folderMutation.mutate(name);
+    setShowNewFolder(false);
+    setNewFolderName('');
+  };
 
   const statusMutation = useMutation({
     mutationFn: ({ id, status, ownerEmail }) => {
@@ -133,24 +172,46 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
     const docName = f?.name?.replace(/\.[^/.]+$/, '') || uploadForm.name;
     if (!f || !docName) return;
     setUploading(true);
-    // Project documents are private — store in the private project-files bucket.
-    // uploadFile returns a storage path here (not a public URL); render via signed URL.
-    const { file_url } = await uploadFile(f, 'project-files');
-    await Document.create({
-      name: docName,
-      project_id: project.id,
-      folder: folder || uploadForm.folder || undefined,
-      file_url,
-      file_type: getFileType(f.name),
-      status: 'Draft',
-      visibility: uploadForm.visibility || 'public',
-      uploaded_by_name: user?.full_name || 'Unknown',
-      uploaded_by_email: user?.email || '',
-    });
-    invalidate();
-    setShowUpload(false);
-    setUploadForm({ name: '', file: null, folder: '', visibility: 'public' });
-    setUploading(false);
+    uploadAbortRef.current = false;
+    const controller = new AbortController();
+    uploadControllerRef.current = controller;
+    // `up` stays null until the storage upload succeeds, so the rollback only ever
+    // removes a file THIS call just wrote — never a pre-existing one.
+    let up = null;
+    try {
+      // Project documents are private — store in the private project-files bucket.
+      // uploadFile returns a storage path here (not a public URL); render via signed URL.
+      up = await uploadFile(f, 'project-files', null, controller.signal);
+      // Upload finished just before an abort landed — discard the file, don't create a row.
+      if (uploadAbortRef.current) {
+        await removeFile(up.bucket, up.path);
+        return;
+      }
+      await Document.create({
+        name: docName,
+        project_id: project.id,
+        folder: folder || uploadForm.folder || undefined,
+        file_url: up.file_url,
+        file_type: getFileType(f.name),
+        status: 'Draft',
+        visibility: uploadForm.visibility || 'public',
+        uploaded_by_name: user?.full_name || 'Unknown',
+        uploaded_by_email: user?.email || '',
+      });
+      invalidate();
+      setShowUpload(false);
+      setUploadForm({ name: '', file: null, folder: '', visibility: 'public' });
+    } catch (err) {
+      // File uploaded but the DB row failed — roll back the storage write (no orphan).
+      if (up) await removeFile(up.bucket, up.path);
+      // User cancelled — the aborted transfer rejects here; that's expected, no error toast.
+      if (uploadAbortRef.current) return;
+      console.error('Document upload failed:', err);
+      toast({ title: 'Upload failed', description: err?.message || 'Please check your connection and try again.', variant: 'destructive' });
+    } finally {
+      uploadControllerRef.current = null;
+      setUploading(false);
+    }
   };
 
   // Drag-and-drop onto the panel (file from desktop)
@@ -172,28 +233,62 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
   const handleNewVersion = async () => {
     if (!versionFile || !versioningDoc) return;
     setVersionUploading(true);
-    const { file_url: newFileUrl } = await uploadFile(versionFile, 'project-files');
-    const existingVersions = versioningDoc.versions || [];
-    await Document.update(versioningDoc.id, {
-      file_url: newFileUrl,
-      version_number: (versioningDoc.version_number || 1) + 1,
-      versions: [
-        ...existingVersions,
-        {
-          version_number: versioningDoc.version_number || 1,
-          file_url: versioningDoc.file_url,
-          uploaded_by_name: versioningDoc.uploaded_by_name,
-          uploaded_by_email: versioningDoc.uploaded_by_email,
-          uploaded_at: new Date().toISOString(),
-          notes: versionNotes || '',
-        },
-      ],
-    });
-    invalidate();
+    versionAbortRef.current = false;
+    const controller = new AbortController();
+    versionControllerRef.current = controller;
+    let up = null;
+    try {
+      up = await uploadFile(versionFile, 'project-files', null, controller.signal);
+      // Upload finished just before an abort landed — discard the new file, leave the doc untouched.
+      if (versionAbortRef.current) {
+        await removeFile(up.bucket, up.path);
+        return;
+      }
+      const existingVersions = versioningDoc.versions || [];
+      await Document.update(versioningDoc.id, {
+        file_url: up.file_url,
+        version_number: (versioningDoc.version_number || 1) + 1,
+        versions: [
+          ...existingVersions,
+          {
+            version_number: versioningDoc.version_number || 1,
+            file_url: versioningDoc.file_url,
+            uploaded_by_name: versioningDoc.uploaded_by_name,
+            uploaded_by_email: versioningDoc.uploaded_by_email,
+            uploaded_at: new Date().toISOString(),
+            notes: versionNotes || '',
+          },
+        ],
+      });
+      invalidate();
+      setVersioningDoc(null);
+      setVersionFile(null);
+      setVersionNotes('');
+    } catch (err) {
+      // Update failed — remove ONLY the newly uploaded file. The existing file_url and
+      // versions[] are never mutated on failure, so the prior version is always preserved.
+      if (up) await removeFile(up.bucket, up.path);
+      // User cancelled — the aborted transfer rejects here; that's expected, no error toast.
+      if (versionAbortRef.current) return;
+      console.error('New version upload failed:', err);
+      toast({ title: 'Version upload failed', description: err?.message || 'The document was not changed. Please try again.', variant: 'destructive' });
+    } finally {
+      versionControllerRef.current = null;
+      setVersionUploading(false);
+    }
+  };
+
+  // Closing a dialog while its upload is in flight flags an abort so the resolved upload
+  // is cleaned up instead of writing a row.
+  const closeUploadDialog = (open) => {
+    if (open) { setShowUpload(true); return; }
+    if (uploading) { uploadAbortRef.current = true; uploadControllerRef.current?.abort(); }
+    setShowUpload(false);
+  };
+  const closeVersionDialog = (open) => {
+    if (open) return;
+    if (versionUploading) { versionAbortRef.current = true; versionControllerRef.current?.abort(); }
     setVersioningDoc(null);
-    setVersionFile(null);
-    setVersionNotes('');
-    setVersionUploading(false);
   };
 
   const handleDragEnd = (result) => {
@@ -222,7 +317,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
   grouped[UNFILED] = [];
   visibleDocs.forEach(d => {
     const key = d.folder && allFolders.includes(d.folder) ? d.folder : UNFILED;
-    if (grouped[key] === undefined) return; // folder not visible to this role — skip
+    if (grouped[key] === undefined) { grouped[UNFILED].push(d); return; } // folder not visible to this role — show in unfiled
     grouped[key].push(d);
   });
 
@@ -404,19 +499,11 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
             value={newFolderName}
             onChange={e => setNewFolderName(e.target.value)}
             onKeyDown={e => {
-              if (e.key === 'Enter' && newFolderName.trim()) {
-                setExtraFolders(prev => [...new Set([...prev, newFolderName.trim()])]);
-                setShowNewFolder(false);
-                setNewFolderName('');
-              }
+              if (e.key === 'Enter' && newFolderName.trim()) createFolder();
               if (e.key === 'Escape') { setShowNewFolder(false); setNewFolderName(''); }
             }}
           />
-          <Button size="sm" className="h-7 text-xs" onClick={() => {
-            if (newFolderName.trim()) setExtraFolders(prev => [...new Set([...prev, newFolderName.trim()])]);
-            setShowNewFolder(false);
-            setNewFolderName('');
-          }}>Create</Button>
+          <Button size="sm" className="h-7 text-xs" onClick={createFolder}>Create</Button>
           <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => { setShowNewFolder(false); setNewFolderName(''); }}>Cancel</Button>
         </div>
       )}
@@ -432,9 +519,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
             {folders.map(f => renderDroppable(f, f, true))}
             {/* Unfiled: internal always; external when it holds shared docs they can see
                 (RLS already limits external to shared/assigned docs on their projects). */}
-            {isInternal
-              ? renderDroppable(UNFILED, 'Unfiled', false)
-              : (grouped[UNFILED]?.length > 0 && renderDroppable(UNFILED, 'Documents', false))}
+            {isInternal && renderDroppable(UNFILED, 'Unfiled', false)}
           </div>
         </DragDropContext>
       )}
@@ -472,7 +557,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
       </Dialog>
 
       {/* New Version Dialog */}
-      <Dialog open={!!versioningDoc} onOpenChange={open => !open && setVersioningDoc(null)}>
+      <Dialog open={!!versioningDoc} onOpenChange={closeVersionDialog}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader><DialogTitle>Upload New Version — {versioningDoc?.name}</DialogTitle></DialogHeader>
           <div className="space-y-3">
@@ -501,7 +586,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setVersioningDoc(null)}>Cancel</Button>
+            <Button variant="outline" onClick={() => closeVersionDialog(false)}>Cancel</Button>
             <Button onClick={handleNewVersion} disabled={!versionFile || versionUploading}>
               {versionUploading ? 'Uploading...' : 'Upload New Version'}
             </Button>
@@ -525,7 +610,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
       </AlertDialog>
 
       {/* Upload Dialog */}
-      <Dialog open={showUpload} onOpenChange={setShowUpload}>
+      <Dialog open={showUpload} onOpenChange={closeUploadDialog}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader><DialogTitle>Upload Document — {project.name}</DialogTitle></DialogHeader>
           <div className="space-y-4">

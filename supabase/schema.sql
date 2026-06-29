@@ -89,6 +89,7 @@ create table public.projects (
   end_date      date,
   status        text default 'Active' check (status in ('Active','On Hold','Complete','Archived')),
   team          jsonb default '[]',   -- array of team member objects
+  doc_folders   jsonb default '[]',   -- persisted document folder names (incl. empty ones)
   created_by_id uuid references public.users(id),
   created_at    timestamptz default now(),
   updated_at    timestamptz default now()

@@ -43,12 +43,16 @@ export function isStoredUrl(value) {
 
 // Drop-in replacement for base44.integrations.Core.UploadFile({ file })
 // onProgress(pct: 0–100) is optional — called during upload if the browser supports it
+// signal is an optional AbortSignal — passed through to the storage client for true
+// network-level cancellation where the installed supabase-js supports it. Callers that
+// need guaranteed cancel semantics should ALSO guard the post-upload DB write (and clean
+// up via removeFile) since older clients may ignore the signal.
 //
 // Returns { file_url, bucket, path }:
 //   • public bucket  → file_url is a permanent public URL
 //   • private bucket → file_url is the storage path (sign it at view time)
 // Callers that only need the stored value can continue to destructure { file_url }.
-export async function uploadFile(file, bucket = 'Documents', onProgress = null) {
+export async function uploadFile(file, bucket = 'Documents', onProgress = null, signal = null) {
   const ext = (file.name.split('.').pop() || '').toLowerCase();
   if (!ALLOWED_UPLOAD_EXTS.includes(ext)) {
     throw new Error(`File type .${ext} is not allowed. Accepted: ${ALLOWED_UPLOAD_EXTS.join(', ')}`);
@@ -56,11 +60,11 @@ export async function uploadFile(file, bucket = 'Documents', onProgress = null) 
   if (file.size > MAX_UPLOAD_BYTES) {
     throw new Error(`File exceeds 500 MB limit (${(file.size / 1024 / 1024).toFixed(1)} MB)`);
   }
-  const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-  const options = onProgress
-    ? { onUploadProgress: ({ loaded, total }) => onProgress(Math.round((loaded / total) * 100)) }
-    : undefined;
-  const { error } = await supabase.storage.from(bucket).upload(path, file, options);
+  const path = `${Date.now()}-${crypto.randomUUID()}.${ext}`;
+  const options = {};
+  if (onProgress) options.onUploadProgress = ({ loaded, total }) => onProgress(Math.round((loaded / total) * 100));
+  if (signal) options.signal = signal;
+  const { error } = await supabase.storage.from(bucket).upload(path, file, Object.keys(options).length ? options : undefined);
   if (error) {
     const msg = error.message || String(error);
     if (msg.includes('exceeded') || msg.includes('too large') || msg.includes('413')) {
@@ -74,6 +78,19 @@ export async function uploadFile(file, bucket = 'Documents', onProgress = null) 
   }
   const { data } = supabase.storage.from(bucket).getPublicUrl(path);
   return { file_url: data.publicUrl, bucket, path };
+}
+
+// Best-effort cleanup of a just-uploaded file. Use this to roll back the storage write
+// when the database row that should reference it fails to insert/update (prevents orphaned
+// files). `bucket` and `path` are the values returned by uploadFile(). This NEVER throws —
+// a failed cleanup must not mask the original error that triggered the rollback.
+export async function removeFile(bucket, path) {
+  if (!bucket || !path) return;
+  try {
+    await supabase.storage.from(bucket).remove([path]);
+  } catch (e) {
+    console.warn('[removeFile] cleanup failed', bucket, path, e?.message || e);
+  }
 }
 
 // Generate a short-lived signed URL for a single private-bucket file.
