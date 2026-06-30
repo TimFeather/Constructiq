@@ -1,6 +1,7 @@
 import { uploadFile, removeFile } from '@/api/supabaseClient';
 import React, { useState, useRef } from 'react';
 import { Document, Project } from '@/api/entities';
+import { logDocumentEvent } from '@/lib/auditLog';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/lib/AuthContext';
@@ -107,7 +108,7 @@ export default function Documents() {
         await removeFile(up.bucket, up.path);
         return;
       }
-      await Document.create({
+      const created = await Document.create({
         name: uploadForm.name,
         project_id: uploadForm.project_id,
         folder: folder || undefined,
@@ -117,6 +118,13 @@ export default function Documents() {
         visibility: 'public',
         uploaded_by_name: user?.full_name || 'Unknown',
         uploaded_by_email: user?.email || '',
+      });
+      logDocumentEvent({
+        action: 'document.uploaded',
+        document: created || { id: null, name: uploadForm.name },
+        projectId: uploadForm.project_id,
+        user,
+        description: `Uploaded “${uploadForm.name}”${folder ? ` to ${folder}` : ''}`,
       });
       queryClient.invalidateQueries({ queryKey: ['documents'] });
       setShowUpload(false);

@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { getSignedUrl, isStoredUrl } from '@/api/supabaseClient';
 
 const DEFAULT_BUCKET = 'project-files';
-const DEFAULT_EXPIRY = 3600; // 1 hour
+const DEFAULT_EXPIRY = 28800; // 8 hours — long enough that a preview left open does not expire
 
 // Resolve a stored file value to a usable URL.
 //   • If the value is already a full URL (a legacy public URL, or an existing
@@ -19,6 +19,10 @@ export function useSignedUrl(value, { bucket = DEFAULT_BUCKET, expiresIn = DEFAU
     : isStoredUrl(value) ? { url: value, loading: false, error: null }
     : { url: null, loading: true, error: null }
   );
+  // Bumping this re-runs the effect, re-signing on demand (e.g. a "Refresh" button
+  // after a signed URL has expired while a preview was left open).
+  const [refreshKey, setRefreshKey] = useState(0);
+  const refresh = useCallback(() => setRefreshKey(k => k + 1), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -29,9 +33,9 @@ export function useSignedUrl(value, { bucket = DEFAULT_BUCKET, expiresIn = DEFAU
       .then(url => { if (!cancelled) setState({ url, loading: false, error: null }); })
       .catch(error => { if (!cancelled) setState({ url: null, loading: false, error }); });
     return () => { cancelled = true; };
-  }, [value, bucket, expiresIn]);
+  }, [value, bucket, expiresIn, refreshKey]);
 
-  return state;
+  return { ...state, refresh };
 }
 
 // Click-to-open link for a stored file. On click it resolves the signed URL (or

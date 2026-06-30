@@ -1,8 +1,9 @@
 import { uploadFile, sendEmail, removeFile } from '@/api/supabaseClient';
+import { logDocumentEvent } from '@/lib/auditLog';
 import { useToast } from '@/components/ui/use-toast';
 import SecureFileLink, { useSignedUrl } from '@/components/shared/SecureFileLink';
 import React, { useState, useRef } from 'react';
-import { Document, DocumentFolderTemplate, Project } from '@/api/entities';
+import { Document, DocumentFolderTemplate, Project, AuditLog } from '@/api/entities';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
@@ -13,7 +14,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import StatusBadge from '@/components/shared/StatusBadge';
-import { Upload, ExternalLink, FileText, Folder, FolderOpen, GripVertical, ChevronDown, ChevronRight, FolderPlus, Trash2, Eye, Archive } from 'lucide-react';
+import { Upload, ExternalLink, FileText, Folder, FolderOpen, GripVertical, ChevronDown, ChevronRight, FolderPlus, Trash2, Eye, Archive, RefreshCw, Search, X, CheckSquare, History } from 'lucide-react';
 import { format } from 'date-fns';
 
 function getFileType(name) {
@@ -59,7 +60,11 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
   const [versionUploading, setVersionUploading] = useState(false);
   const [expandedHistory, setExpandedHistory] = useState(new Set());
   const [previewDoc, setPreviewDoc] = useState(null);
+  const [historyDoc, setHistoryDoc] = useState(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [search, setSearch] = useState('');
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [bulkMoveFolder, setBulkMoveFolder] = useState(null); // folder name pending bulk-move confirmation
   const dropZoneRef = useRef(null);
   // Controllers abort the in-flight network transfer when a dialog is closed mid-upload.
   // The *AbortRef flags are belt-and-braces: if the upload finished in the instant before
@@ -114,9 +119,17 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
     queryClient.invalidateQueries({ queryKey: ['documents'] });
   };
 
+  // Bound audit logger — fire-and-forget, never blocks the action.
+  const logEvent = (action, document, description) =>
+    logDocumentEvent({ action, document, projectId: project.id, user, description });
+  const docName = (id) => docs.find(d => d.id === id)?.name || '';
+
   const moveMutation = useMutation({
     mutationFn: ({ id, folder }) => Document.update(id, { folder: folder || null }),
-    onSuccess: invalidate,
+    onSuccess: (_data, vars) => {
+      invalidate();
+      logEvent('document.moved', { id: vars.id, name: docName(vars.id) }, `Moved to ${vars.folder || 'Unfiled'}`);
+    },
   });
 
   // Persist a new (possibly empty) folder name on the project so it survives a reload.
@@ -159,13 +172,68 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
       }
       return promise;
     },
-    onSuccess: invalidate,
+    onSuccess: (_data, vars) => {
+      invalidate();
+      logEvent('document.status_changed', { id: vars.id, name: docName(vars.id) }, `Status changed to ${vars.status}`);
+    },
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id) => Document.delete(id),
-    onSuccess: invalidate,
+    onSuccess: (_data, id) => {
+      invalidate();
+      logEvent('document.deleted', { id, name: docName(id) }, `Deleted “${docName(id)}”`);
+    },
   });
+
+  // ── Bulk selection + actions (internal only) ──────────────────────────────
+  const toggleSelect = (id) => setSelectedIds(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+  const clearSelection = () => setSelectedIds(new Set());
+
+  // Bulk ops act only on selections within the current active/archived scope (not the
+  // search filter), so narrowing the search box never silently drops a queued action.
+  const selectedScopedIds = () => {
+    const scopeIds = new Set(scopedDocs.map(d => d.id));
+    return [...selectedIds].filter(id => scopeIds.has(id));
+  };
+
+  const bulkStatusMutation = useMutation({
+    mutationFn: async (status) => {
+      for (const id of selectedScopedIds()) {
+        await Document.update(id, { status });
+        logEvent('document.status_changed', { id, name: docName(id) }, `Status changed to ${status} (bulk)`);
+      }
+    },
+    onSuccess: () => { invalidate(); clearSelection(); toast({ title: 'Status updated' }); },
+    onError: (e) => toast({ title: 'Bulk update failed', description: e?.message, variant: 'destructive' }),
+  });
+  const bulkMoveMutation = useMutation({
+    mutationFn: async (folder) => {
+      for (const id of selectedScopedIds()) {
+        await Document.update(id, { folder: folder || null });
+        logEvent('document.moved', { id, name: docName(id) }, `Moved to ${folder || 'Unfiled'} (bulk)`);
+      }
+    },
+    onSuccess: () => { invalidate(); clearSelection(); toast({ title: 'Documents moved' }); },
+    onError: (e) => toast({ title: 'Bulk move failed', description: e?.message, variant: 'destructive' }),
+  });
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async () => {
+      for (const id of selectedScopedIds()) {
+        const name = docName(id);
+        await Document.delete(id);
+        logEvent('document.deleted', { id, name }, `Deleted “${name}” (bulk)`);
+      }
+    },
+    onSuccess: () => { invalidate(); clearSelection(); toast({ title: 'Documents deleted' }); },
+    onError: (e) => toast({ title: 'Bulk delete failed', description: e?.message, variant: 'destructive' }),
+  });
+  const bulkBusy = bulkStatusMutation.isPending || bulkMoveMutation.isPending || bulkDeleteMutation.isPending;
+  const [showBulkDelete, setShowBulkDelete] = useState(false);
 
   const handleUpload = async (file, folder) => {
     const f = file || uploadForm.file;
@@ -187,7 +255,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
         await removeFile(up.bucket, up.path);
         return;
       }
-      await Document.create({
+      const created = await Document.create({
         name: docName,
         project_id: project.id,
         folder: folder || uploadForm.folder || undefined,
@@ -198,6 +266,8 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
         uploaded_by_name: user?.full_name || 'Unknown',
         uploaded_by_email: user?.email || '',
       });
+      logEvent('document.uploaded', created || { id: null, name: docName },
+        `Uploaded “${docName}”${(folder || uploadForm.folder) ? ` to ${folder || uploadForm.folder}` : ''}`);
       invalidate();
       setShowUpload(false);
       setUploadForm({ name: '', file: null, folder: '', visibility: 'public' });
@@ -260,6 +330,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
           },
         ],
       });
+      logEvent('document.version_added', versioningDoc, `New version v${(versioningDoc.version_number || 1) + 1} of “${versioningDoc.name}”`);
       invalidate();
       setVersioningDoc(null);
       setVersionFile(null);
@@ -309,7 +380,24 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
   // resolved before render — sign it up front (no-op for legacy public URLs).
   const preview = useSignedUrl(previewDoc?.file_url, { bucket: 'project-files' });
 
-  const visibleDocs = showArchived ? docs.filter(d => d.archived) : docs.filter(d => !d.archived);
+  // Per-document audit history (admin/internal only — matches audit_logs_select RLS).
+  const { data: historyLogs = [], isLoading: historyLoading } = useQuery({
+    queryKey: ['documentAudit', historyDoc?.id],
+    queryFn: () => AuditLog.filter({ entity_id: historyDoc.id }, '-created_at', 50),
+    enabled: !!historyDoc && isInternal,
+  });
+
+  // Active/archived scope, then a free-text filter over name / uploader / status / folder.
+  const matchesSearch = (d) => {
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return (d.name || '').toLowerCase().includes(q)
+      || (d.uploaded_by_name || '').toLowerCase().includes(q)
+      || (d.status || '').toLowerCase().includes(q)
+      || (d.folder || '').toLowerCase().includes(q);
+  };
+  const scopedDocs = showArchived ? docs.filter(d => d.archived) : docs.filter(d => !d.archived);
+  const visibleDocs = scopedDocs.filter(matchesSearch);
   const archivedCount = docs.filter(d => d.archived).length;
 
   const grouped = {};
@@ -327,8 +415,18 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
         <div
           ref={provided.innerRef}
           {...provided.draggableProps}
-          className={`flex items-center gap-2 px-3 py-2 text-sm border-b last:border-b-0 bg-card transition-colors ${snapshot.isDragging ? 'shadow-lg opacity-80' : 'hover:bg-muted/30'}`}
+          className={`flex items-center gap-2 px-3 py-2 text-sm border-b last:border-b-0 bg-card transition-colors ${snapshot.isDragging ? 'shadow-lg opacity-80' : selectedIds.has(doc.id) ? 'bg-primary/5' : 'hover:bg-muted/30'}`}
         >
+          {isInternal && (
+            <input
+              type="checkbox"
+              checked={selectedIds.has(doc.id)}
+              onChange={() => toggleSelect(doc.id)}
+              onClick={e => e.stopPropagation()}
+              className="w-3.5 h-3.5 accent-primary cursor-pointer flex-shrink-0"
+              title="Select for bulk action"
+            />
+          )}
           <span {...(isInternal ? provided.dragHandleProps : {})} className={`flex-shrink-0 ${isInternal ? 'text-muted-foreground/40 hover:text-muted-foreground cursor-grab active:cursor-grabbing' : 'invisible w-4'}`}>
             {isInternal && <GripVertical className="w-4 h-4" />}
           </span>
@@ -378,6 +476,15 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
               title="Upload new version"
             >
               v{doc.version_number || 1}
+            </button>
+          )}
+          {isInternal && (
+            <button
+              className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+              onClick={() => setHistoryDoc(doc)}
+              title="View history"
+            >
+              <History className="w-3.5 h-3.5" />
             </button>
           )}
           {isInternal && (
@@ -461,7 +568,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
           {isInternal && archivedCount > 0 && (
             <Button size="sm" variant={showArchived ? 'secondary' : 'outline'}
               className="gap-1.5 h-8 text-xs"
-              onClick={() => setShowArchived(v => !v)}>
+              onClick={() => { clearSelection(); setShowArchived(v => !v); }}>
               <Archive className="w-3 h-3" />
               {showArchived ? 'Hide Archived' : `Archived (${archivedCount})`}
             </Button>
@@ -488,6 +595,41 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
         </p>
       )}
 
+      {/* Bulk action bar — internal only, shown when documents are selected */}
+      {isInternal && selectedIds.size > 0 && (
+        <div className="flex flex-wrap items-center gap-2 p-2 border rounded-lg bg-primary/5 border-primary/30">
+          <span className="text-sm font-medium flex items-center gap-1.5 mr-1">
+            <CheckSquare className="w-4 h-4 text-primary" />
+            {selectedIds.size} selected
+          </span>
+          {/* Move to folder */}
+          <Select value="" onValueChange={(v) => bulkMoveMutation.mutate(v === '__unfiled__' ? null : v)} disabled={bulkBusy}>
+            <SelectTrigger className="h-8 w-[150px] text-xs"><SelectValue placeholder="Move to folder…" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__unfiled__">Unfiled</SelectItem>
+              {folders.map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          {/* Set status */}
+          <Select value="" onValueChange={(v) => bulkStatusMutation.mutate(v)} disabled={bulkBusy}>
+            <SelectTrigger className="h-8 w-[130px] text-xs"><SelectValue placeholder="Set status…" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="Draft">Draft</SelectItem>
+              <SelectItem value="In Review">In Review</SelectItem>
+              <SelectItem value="Approved">Approved</SelectItem>
+              <SelectItem value="Superseded">Superseded</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5 text-destructive hover:text-destructive"
+            onClick={() => setShowBulkDelete(true)} disabled={bulkBusy}>
+            <Trash2 className="w-3.5 h-3.5" /> Delete
+          </Button>
+          <Button size="sm" variant="ghost" className="h-8 text-xs ml-auto" onClick={clearSelection} disabled={bulkBusy}>
+            Clear
+          </Button>
+        </div>
+      )}
+
       {/* New Folder inline input */}
       {showNewFolder && (
         <div className="flex items-center gap-2 p-2 border rounded-lg bg-muted/20">
@@ -508,10 +650,37 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
         </div>
       )}
 
+      {/* Search / filter */}
+      {scopedDocs.length > 0 && (
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search documents by name, uploader, status or folder…"
+            className="pl-9 h-9 text-sm"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-muted text-muted-foreground"
+              title="Clear search"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      )}
+
       {docs.length === 0 && folders.length === 0 ? (
         <div className="text-center py-10 text-sm text-muted-foreground border rounded-lg flex flex-col items-center gap-2">
           <FileText className="w-8 h-8 text-muted-foreground/40" />
           No documents yet. Upload one or drag & drop files here.
+        </div>
+      ) : search.trim() && visibleDocs.length === 0 ? (
+        <div className="text-center py-10 text-sm text-muted-foreground border rounded-lg flex flex-col items-center gap-2">
+          <Search className="w-8 h-8 text-muted-foreground/40" />
+          No documents match “{search.trim()}”.
         </div>
       ) : (
         <DragDropContext onDragEnd={handleDragEnd}>
@@ -535,7 +704,12 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
               <div className="flex items-center justify-center h-full text-sm text-muted-foreground">Loading preview…</div>
             )}
             {previewDoc?.file_url && preview.error && (
-              <div className="flex items-center justify-center h-full text-sm text-destructive">Could not load preview. Try opening in a new tab.</div>
+              <div className="flex flex-col items-center justify-center h-full gap-3 text-sm text-destructive">
+                <span>Could not load preview. The link may have expired.</span>
+                <Button variant="outline" size="sm" className="gap-1.5" onClick={() => preview.refresh()}>
+                  <RefreshCw className="w-3.5 h-3.5" /> Refresh preview
+                </Button>
+              </div>
             )}
             {previewDoc?.file_url && preview.url && (
               /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(previewDoc.file_url) ? (
@@ -548,11 +722,46 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
             )}
           </div>
           <div className="px-4 py-3 border-t flex justify-between flex-shrink-0">
-            <Button variant="outline" size="sm" asChild>
-              <SecureFileLink value={previewDoc?.file_url}>Open in new tab</SecureFileLink>
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" asChild>
+                <SecureFileLink value={previewDoc?.file_url}>Open in new tab</SecureFileLink>
+              </Button>
+              <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => preview.refresh()} title="Re-load the preview">
+                <RefreshCw className="w-3.5 h-3.5" /> Refresh
+              </Button>
+            </div>
             <Button variant="ghost" size="sm" onClick={() => setPreviewDoc(null)}>Close</Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Document History */}
+      <Dialog open={!!historyDoc} onOpenChange={open => !open && setHistoryDoc(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader><DialogTitle className="text-sm font-medium truncate flex items-center gap-2"><History className="w-4 h-4" /> History — {historyDoc?.name}</DialogTitle></DialogHeader>
+          <div className="max-h-[60vh] overflow-y-auto -mx-2 px-2">
+            {historyLoading ? (
+              <p className="text-sm text-muted-foreground py-6 text-center">Loading history…</p>
+            ) : historyLogs.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-6 text-center">No recorded activity yet. New changes will appear here.</p>
+            ) : (
+              <ol className="relative border-l border-border ml-2 space-y-3 py-2">
+                {historyLogs.map(log => (
+                  <li key={log.id} className="ml-4">
+                    <span className="absolute -left-1.5 w-3 h-3 rounded-full bg-primary/60 border border-background" />
+                    <p className="text-sm text-foreground">{log.description || log.action}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {log.user_name || 'Unknown'}
+                      {log.created_at ? ` · ${format(new Date(log.created_at), 'MMM d, yyyy h:mm a')}` : ''}
+                    </p>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setHistoryDoc(null)}>Close</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -603,6 +812,21 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
           </AlertDialogHeader>
           <AlertDialogAction
             onClick={() => { deleteMutation.mutate(deleteDocId); setDeleteDocId(null); }}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          >Delete</AlertDialogAction>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Confirmation */}
+      <AlertDialog open={showBulkDelete} onOpenChange={open => !open && setShowBulkDelete(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selectedIds.size} document{selectedIds.size !== 1 ? 's' : ''}?</AlertDialogTitle>
+            <AlertDialogDescription>This will permanently delete the selected documents and cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogAction
+            onClick={() => { bulkDeleteMutation.mutate(); setShowBulkDelete(false); }}
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
           >Delete</AlertDialogAction>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
