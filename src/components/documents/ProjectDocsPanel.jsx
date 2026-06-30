@@ -14,7 +14,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import StatusBadge from '@/components/shared/StatusBadge';
-import { Upload, ExternalLink, FileText, Folder, FolderOpen, GripVertical, ChevronDown, ChevronRight, FolderPlus, Trash2, Eye, Archive, RefreshCw, Search, X, CheckSquare, History } from 'lucide-react';
+import { Upload, ExternalLink, FileText, Folder, FolderOpen, GripVertical, ChevronDown, ChevronRight, FolderPlus, Trash2, Eye, Archive, RefreshCw, Search, X, CheckSquare, History, Users, Lock } from 'lucide-react';
 import { format } from 'date-fns';
 
 function getFileType(name) {
@@ -184,6 +184,18 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
       invalidate();
       logEvent('document.deleted', { id, name: docName(id) }, `Deleted “${docName(id)}”`);
     },
+  });
+
+  // Per-file sharing toggle: 'public' = shared with external team members (subject to
+  // folder access + RLS), 'private' = internal roles only. Internal users only.
+  const visibilityMutation = useMutation({
+    mutationFn: ({ id, visibility }) => Document.update(id, { visibility }),
+    onSuccess: (_data, vars) => {
+      invalidate();
+      logEvent('document.visibility_changed', { id: vars.id, name: docName(vars.id) },
+        `Sharing set to ${vars.visibility === 'public' ? 'Shared' : 'Internal only'}`);
+    },
+    onError: (e) => toast({ title: 'Could not change sharing', description: e?.message, variant: 'destructive' }),
   });
 
   // ── Bulk selection + actions (internal only) ──────────────────────────────
@@ -457,6 +469,21 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
           ) : (
             <span className="flex-shrink-0"><StatusBadge status={doc.status} /></span>
           )}
+          {isInternal && (() => {
+            const shared = doc.visibility == null || doc.visibility === 'public';
+            return (
+              <button
+                onClick={() => visibilityMutation.mutate({ id: doc.id, visibility: shared ? 'private' : 'public' })}
+                title={shared
+                  ? 'Shared — external team members with folder access can see this. Click to make Internal only.'
+                  : 'Internal only — admin / internal / pricing. Click to Share with external team.'}
+                className={`flex-shrink-0 inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full border transition-colors ${shared ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' : 'bg-muted text-muted-foreground border-border hover:bg-muted/70'}`}
+              >
+                {shared ? <Users className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
+                <span className="hidden md:inline">{shared ? 'Shared' : 'Internal'}</span>
+              </button>
+            );
+          })()}
           {(/\.(pdf|png|jpg|jpeg|gif|webp|svg)$/i.test(doc.file_url || '')) && (
             <button
               onClick={(e) => { e.stopPropagation(); setPreviewDoc(doc); }}
