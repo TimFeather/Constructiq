@@ -223,18 +223,18 @@ create table public.documents (
   name                text not null,
   project_id          uuid references public.projects(id) on delete cascade,
   folder              text,
-  file_url            text,
+  file_url            text not null,
   file_type           text,
   status              text default 'Draft' check (status in ('Draft','In Review','Approved','Superseded')),
   uploaded_by_name    text,
-  uploaded_by_email   text,
+  uploaded_by_email   text not null default '',
   version_number      numeric default 1,
   versions            jsonb default '[]',
   created_by_id       uuid references public.users(id),
   created_at          timestamptz default now(),
   updated_at          timestamptz default now(),
   archived            boolean default false,
-  is_public           boolean default false,
+  archived_at         timestamptz,
   visibility          text default 'private' check (visibility in ('private','public','assigned')),
   assigned_to_email   text
 );
@@ -861,6 +861,7 @@ create index if not exists idx_tender_invitations_tender_id   on public.tender_i
 create index if not exists idx_tender_invitations_invitee_id  on public.tender_invitations(invitee_id);
 create index if not exists idx_tender_submissions_tender_id   on public.tender_submissions(tender_id);
 create index if not exists idx_documents_project_id           on public.documents(project_id);
+create index if not exists idx_documents_project_archived      on public.documents(project_id, archived) where archived = false;
 create index if not exists idx_rfis_project_id                on public.rfis(project_id);
 create index if not exists idx_tasks_project_id               on public.tasks(project_id);
 create index if not exists idx_pending_assignments_email      on public.pending_project_assignments(email, status);
@@ -871,7 +872,7 @@ create or replace function public.archive_project_children()
 returns trigger as $$
 begin
   if new.status = 'Archived' and old.status != 'Archived' then
-    update documents              set archived = true where project_id = new.id;
+    update documents              set archived = true, archived_at = now() where project_id = new.id;
     update rfis                   set archived = true where project_id = new.id;
     update tasks                  set archived = true where project_id = new.id;
     update contract_instructions  set archived = true where project_id = new.id;
