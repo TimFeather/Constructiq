@@ -63,7 +63,7 @@ export default class ErrorBoundary extends React.Component {
               <RotateCcw className="w-4 h-4 mr-2" />
               Try again
             </Button>
-            <Button onClick={() => { window.location.href = '/'; }}>
+            <Button onClick={() => { window.location.href = '/dashboard'; }}>
               <LayoutDashboard className="w-4 h-4 mr-2" />
               Go to Dashboard
             </Button>

@@ -114,7 +114,7 @@ export default function Tenders() {
     },
   });
 
-  if (!canAccess(user, 'tenders')) return <Navigate to="/" replace />;
+  if (!canAccess(user, 'tenders')) return <Navigate to="/dashboard" replace />;
 
   const viewStatuses = view === 'active' ? ACTIVE_STATUSES : view === 'submitted' ? SUBMITTED_STATUSES : ARCHIVED_STATUSES;
   const statusTabs   = ['All', ...viewStatuses];

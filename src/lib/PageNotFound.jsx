@@ -35,7 +35,7 @@ export default function PageNotFound() {
         {/* Actions */}
         <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
           <Button asChild>
-            <Link to="/">
+            <Link to="/dashboard">
               <LayoutDashboard className="w-4 h-4 mr-2" />
               Go to Dashboard
             </Link>

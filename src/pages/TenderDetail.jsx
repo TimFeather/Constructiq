@@ -342,7 +342,7 @@ export default function TenderDetail() {
     setCustomTrade('');
   };
 
-  if (!canAccess(user, 'tenders')) return <Navigate to="/" replace />;
+  if (!canAccess(user, 'tenders')) return <Navigate to="/dashboard" replace />;
 
   const isConverted = tender?.status === 'Converted' || tender?.status === 'Archived' || !!tender?.converted_project_id;
   const effectiveCanManage = canManage && !isConverted;

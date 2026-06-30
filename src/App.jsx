@@ -9,6 +9,7 @@ import ProtectedRoute from '@/components/ProtectedRoute';
 import { canAccess } from '@/lib/permissions';
 import ErrorBoundary from '@/components/shared/ErrorBoundary';
 
+import Landing from '@/pages/Landing';
 import Login from '@/pages/Login';
 import Register from '@/pages/Register';
 import ForgotPassword from '@/pages/ForgotPassword';
@@ -31,7 +32,7 @@ import AccountDeactivated from '@/pages/AccountDeactivated';
 
 const TendersRoute = ({ children }) => {
   const { user } = useAuth();
-  if (!canAccess(user, 'tenders')) return <Navigate to="/" replace />;
+  if (!canAccess(user, 'tenders')) return <Navigate to="/dashboard" replace />;
   return children;
 };
 
@@ -40,11 +41,12 @@ const AuthenticatedApp = () => {
   const location = useLocation();
 
   // Public routes — bypass all auth checks entirely
-  const isPublicRoute = location.pathname.startsWith('/tender-submit/');
+  const isPublicRoute = location.pathname.startsWith('/tender-submit/') || location.pathname === '/';
   if (isPublicRoute) {
     return (
       <Routes>
         <Route path="/tender-submit/:token" element={<TenderSubmit />} />
+        <Route path="/" element={<Landing />} />
       </Routes>
     );
   }
@@ -81,7 +83,7 @@ const AuthenticatedApp = () => {
 
       <Route element={<ProtectedRoute unauthenticatedElement={<Navigate to="/login" replace />} />}>
         <Route element={<AppLayout />}>
-          <Route path="/" element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
+          <Route path="/dashboard" element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
           <Route path="/projects" element={<ErrorBoundary><Projects /></ErrorBoundary>} />
           <Route path="/projects/:id" element={<ErrorBoundary><ProjectDetail /></ErrorBoundary>} />
           <Route path="/documents" element={<ErrorBoundary><Documents /></ErrorBoundary>} />

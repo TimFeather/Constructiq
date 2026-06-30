@@ -14,7 +14,7 @@ export default function Sidebar({ collapsed, onToggle }) {
   const companyLogoUrl = user?.company_logo_url;
 
   const navItems = [
-    { path: '/', icon: LayoutDashboard, label: 'Dashboard', show: true },
+    { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', show: true },
     { path: '/projects', icon: FolderKanban, label: 'Projects', show: true },
     { path: '/documents', icon: FileText, label: 'Documents', show: true },
     { path: '/rfis', icon: MessageSquareMore, label: 'RFIs', show: true },
@@ -50,8 +50,8 @@ export default function Sidebar({ collapsed, onToggle }) {
       {/* Nav */}
       <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto">
         {navItems.filter(item => item.show).map(({ path, icon: Icon, label }) => {
-          const isActive = path === '/' 
-            ? location.pathname === '/' 
+          const isActive = path === '/dashboard'
+            ? location.pathname === '/dashboard'
             : location.pathname.startsWith(path);
           return (
             <Link
