@@ -782,6 +782,10 @@ export default function TenderSubmit() {
                   <p className="text-xs text-muted-foreground text-center">
                     By submitting you confirm this is your pricing for {tender.title}
                     {tender.closing_date && `, closing ${fmtDate(tender.closing_date)}`}.
+                    {' '}By submitting, you agree to ConstructIQ's{' '}
+                    <a href="/terms" target="_blank" rel="noreferrer" className="underline hover:text-foreground">Terms of Use</a>
+                    {' '}and{' '}
+                    <a href="/privacy" target="_blank" rel="noreferrer" className="underline hover:text-foreground">Privacy Policy</a>.
                   </p>
                 </div>
               </div>

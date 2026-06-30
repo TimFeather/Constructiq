@@ -19,6 +19,7 @@ export default function Register() {
     password: "", confirmPassword: "",
     first_name: "", last_name: "", phone: "", business_name: prefillBusiness,
   });
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
@@ -38,6 +39,10 @@ export default function Register() {
     }
     if (form.password !== form.confirmPassword) {
       setError("Passwords do not match");
+      return;
+    }
+    if (!agreedToTerms) {
+      setError("Please read and agree to the Terms of Use and Privacy Policy to continue");
       return;
     }
     setLoading(true);
@@ -164,6 +169,21 @@ export default function Register() {
             <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input id="confirm" type="password" autoComplete="new-password" placeholder="••••••••" value={form.confirmPassword} onChange={e => setForm({...form, confirmPassword: e.target.value})} className="pl-10 h-12" required />
           </div>
+        </div>
+        <div className="flex items-start gap-3">
+          <input
+            id="terms-agree"
+            type="checkbox"
+            checked={agreedToTerms}
+            onChange={e => setAgreedToTerms(e.target.checked)}
+            className="mt-0.5 w-4 h-4 cursor-pointer accent-primary"
+          />
+          <label htmlFor="terms-agree" className="text-sm text-muted-foreground leading-snug cursor-pointer">
+            I have read and agree to the{' '}
+            <Link to="/terms" className="text-primary hover:underline" target="_blank" rel="noreferrer">Terms of Use</Link>
+            {' '}and{' '}
+            <Link to="/privacy" className="text-primary hover:underline" target="_blank" rel="noreferrer">Privacy Policy</Link>
+          </label>
         </div>
         <Button type="submit" className="w-full h-12 font-medium" disabled={loading}>
           {loading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Creating account...</> : "Create account"}
