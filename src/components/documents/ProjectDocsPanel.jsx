@@ -50,6 +50,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
   const [uploading, setUploading] = useState(false);
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
+  const [deleteFolderName, setDeleteFolderName] = useState(null);
   const [collapsedFolders, setCollapsedFolders] = useState({});
   const [extraFolders, setExtraFolders] = useState([]);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -89,10 +90,15 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
   const isInternal = userRole === 'admin' || userRole === 'internal';
   const isExternal = userRole === 'external';
 
+  // Folders deleted from THIS project (template/custom folders the user removed via the
+  // trash icon). Persisted separately from doc_folders so a template folder can be hidden
+  // here without affecting other projects using the same template.
+  const hiddenFolders = project.hidden_doc_folders || [];
+
   // Folders visible to this role based on template permissions
   const visibleTemplateFolders = templateFolders.filter(f => {
     const allowed = templatePerms[f] ?? ['admin', 'internal', 'pricing'];
-    return allowed.includes(userRole);
+    return allowed.includes(userRole) && !hiddenFolders.includes(f);
   });
 
   // Folders that can be uploaded to (external users limited to their visible folders)
@@ -110,6 +116,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
   // to them, like internal users.) Whether the DOCUMENTS inside are visible is a
   // separate gate enforced by RLS — external users only receive 'public'/shared docs.
   const folders = allFolders.filter(f => {
+    if (hiddenFolders.includes(f)) return false;
     const allowed = templatePerms[f] ?? ['admin', 'internal', 'pricing'];
     return allowed.includes(userRole);
   });
@@ -135,11 +142,16 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
   // Persist a new (possibly empty) folder name on the project so it survives a reload.
   // Internal-only — gated by the "New Folder" button visibility (isInternal) and matched
   // by projects_update RLS (admin / creator / internal-on-team).
+  // Re-creating a previously-deleted folder also clears it from hidden_doc_folders.
   const folderMutation = useMutation({
     mutationFn: (name) => {
       const existing = project.doc_folders || [];
-      if (existing.includes(name)) return Promise.resolve(project);
-      return Project.update(project.id, { doc_folders: [...existing, name] });
+      const hidden = project.hidden_doc_folders || [];
+      const data = {};
+      if (!existing.includes(name)) data.doc_folders = [...existing, name];
+      if (hidden.includes(name)) data.hidden_doc_folders = hidden.filter(f => f !== name);
+      if (Object.keys(data).length === 0) return Promise.resolve(project);
+      return Project.update(project.id, data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['project', project.id] });
@@ -159,6 +171,35 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
     setShowNewFolder(false);
     setNewFolderName('');
   };
+
+  // Delete a folder (custom or template-sourced) from this project: any documents filed
+  // in it move to Unfiled, the name is dropped from doc_folders and added to
+  // hidden_doc_folders so a template folder doesn't simply reappear.
+  const deleteFolderMutation = useMutation({
+    mutationFn: async (name) => {
+      const docsInFolder = docs.filter(d => d.folder === name);
+      for (const d of docsInFolder) {
+        await Document.update(d.id, { folder: null });
+        logEvent('document.moved', { id: d.id, name: d.name }, `Moved to Unfiled (folder "${name}" deleted)`);
+      }
+      const existingDocFolders = project.doc_folders || [];
+      const existingHidden = project.hidden_doc_folders || [];
+      await Project.update(project.id, {
+        doc_folders: existingDocFolders.filter(f => f !== name),
+        hidden_doc_folders: [...new Set([...existingHidden, name])],
+      });
+    },
+    onSuccess: (_data, name) => {
+      invalidate();
+      queryClient.invalidateQueries({ queryKey: ['project', project.id] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      toast({ title: `Folder "${name}" deleted` });
+      setDeleteFolderName(null);
+    },
+    onError: (err) => {
+      toast({ title: 'Could not delete folder', description: err?.message || 'Please try again.', variant: 'destructive' });
+    },
+  });
 
   const statusMutation = useMutation({
     mutationFn: ({ id, status, ownerEmail }) => {
@@ -545,6 +586,15 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
             : <FileText className="w-4 h-4 text-muted-foreground" />}
           <span>{label}</span>
           <span className="ml-auto text-xs text-muted-foreground font-normal">{items.length} file{items.length !== 1 ? 's' : ''}</span>
+          {isFolder && isInternal && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setDeleteFolderName(key); }}
+              title="Delete folder"
+              className="flex-shrink-0 p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
         {!isCollapsed && (
           <Droppable droppableId={key}>
@@ -860,6 +910,29 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Delete Folder Confirmation */}
+      <AlertDialog open={!!deleteFolderName} onOpenChange={open => !open && setDeleteFolderName(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete folder “{deleteFolderName}”?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {(() => {
+                const count = docs.filter(d => d.folder === deleteFolderName).length;
+                return count > 0
+                  ? `${count} document${count !== 1 ? 's' : ''} in this folder will be moved to Unfiled. The folder will be removed from this project.`
+                  : 'This folder will be removed from this project. This cannot be undone.';
+              })()}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogAction
+            onClick={() => deleteFolderMutation.mutate(deleteFolderName)}
+            disabled={deleteFolderMutation.isPending}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          >Delete Folder</AlertDialogAction>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Upload Dialog */}
       <Dialog open={showUpload} onOpenChange={closeUploadDialog}>
         <DialogContent className="sm:max-w-md">
@@ -875,7 +948,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
                 <SelectTrigger><SelectValue placeholder="No folder (Unfiled)" /></SelectTrigger>
                 <SelectContent>
                   {isInternal && <SelectItem value="__none__">No folder (Unfiled)</SelectItem>}
-                  {(allowedFolders || allFolders).map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+                  {(allowedFolders || allFolders.filter(f => !hiddenFolders.includes(f))).map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
