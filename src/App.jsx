@@ -10,6 +10,8 @@ import { canAccess } from '@/lib/permissions';
 import ErrorBoundary from '@/components/shared/ErrorBoundary';
 
 import Landing from '@/pages/Landing';
+import Privacy from '@/pages/Privacy';
+import Terms from '@/pages/Terms';
 import Login from '@/pages/Login';
 import Register from '@/pages/Register';
 import ForgotPassword from '@/pages/ForgotPassword';
@@ -41,12 +43,17 @@ const AuthenticatedApp = () => {
   const location = useLocation();
 
   // Public routes — bypass all auth checks entirely
-  const isPublicRoute = location.pathname.startsWith('/tender-submit/') || location.pathname === '/';
+  const isPublicRoute = location.pathname.startsWith('/tender-submit/')
+    || location.pathname === '/'
+    || location.pathname === '/privacy'
+    || location.pathname === '/terms';
   if (isPublicRoute) {
     return (
       <Routes>
         <Route path="/tender-submit/:token" element={<TenderSubmit />} />
         <Route path="/" element={<Landing />} />
+        <Route path="/privacy" element={<Privacy />} />
+        <Route path="/terms" element={<Terms />} />
       </Routes>
     );
   }

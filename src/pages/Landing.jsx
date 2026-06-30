@@ -136,7 +136,11 @@ export default function Landing() {
       {/* ── Footer ── */}
       <footer className="bg-background border-t border-border py-6 px-6">
         <p className="text-center text-xs text-muted-foreground/60">
-          &copy; {new Date().getFullYear()} ConstructIQ &nbsp;&bull;&nbsp; Powered by Total Home Solutions
+          &copy; {new Date().getFullYear()} ConstructIQ &nbsp;&bull;&nbsp; Total Home Solutions HB LTD
+          &nbsp;&bull;&nbsp;
+          <Link to="/privacy" className="hover:underline">Privacy Policy</Link>
+          &nbsp;&bull;&nbsp;
+          <Link to="/terms" className="hover:underline">Terms of Use</Link>
         </p>
       </footer>
 
