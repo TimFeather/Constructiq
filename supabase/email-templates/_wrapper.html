@@ -1,0 +1,20 @@
+<!--
+  CONSTRUCTIQ EMAIL WRAPPER — shared layout used by all 6 auth templates.
+  This file is for reference only — paste the individual template files into Supabase.
+
+  BEFORE USING:
+  Replace the CONSTRUCTIQ_LOGO_URL placeholder in each template file with your actual
+  logo URL from Supabase storage. You can find it in Settings → Email → Branding → logo URL,
+  or in Supabase Dashboard → Storage → Documents → your logo file → Copy URL.
+
+  Brand colours
+    Primary blue : #1183D4   (hsl 205 85% 45%)
+    Accent teal  : #2BAB92   (hsl 168 60% 42%)
+    Dark navy    : #161D2B   (sidebar background)
+
+  Supabase template variables (Go template syntax):
+    {{ .ConfirmationURL }}  — the full action URL (confirm/reset/invite link)
+    {{ .Token }}            — the 6-digit OTP code
+    {{ .SiteURL }}          — your app URL (e.g. https://constructiq.vercel.app)
+    {{ .Email }}            — the user's email address
+-->
