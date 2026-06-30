@@ -250,6 +250,119 @@ function StorageMigrationPanel() {
   );
 }
 
+// ── Storage janitor: find & remove orphaned files in the project-files bucket ──
+// Drives the garbageCollectFiles edge function. "Scan" is a dry run that only reports;
+// "Delete" removes the leftover files it found. The function never deletes anything
+// newer than a week and only targets files no database row references.
+function fmtBytes(b) {
+  if (!b) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let n = b, i = 0;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  return `${n.toFixed(1)} ${units[i]}`;
+}
+
+function StorageJanitorPanel() {
+  const { toast } = useToast();
+  const [busy, setBusy] = useState(null); // 'scan' | 'delete' | null
+  const [report, setReport] = useState(null);
+
+  const scan = async () => {
+    setBusy('scan');
+    setReport(null);
+    try {
+      const res = await invokeFunction('garbageCollectFiles', { mode: 'dry-run' });
+      setReport(res.data);
+      if (res.data?.error) toast({ title: 'Scan failed', description: res.data.error, variant: 'destructive' });
+    } catch (e) {
+      toast({ title: 'Scan failed', description: e.message, variant: 'destructive' });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const remove = async () => {
+    const n = report?.orphanCount ?? 0;
+    if (!window.confirm(
+      `Permanently delete ${n} leftover file${n !== 1 ? 's' : ''} that no document, RFI or contract instruction is using?\n\n` +
+      `This only removes the files listed in the scan, and never anything newer than a week. It cannot be undone.`
+    )) return;
+
+    setBusy('delete');
+    try {
+      const res = await invokeFunction('garbageCollectFiles', { mode: 'execute' });
+      setReport(res.data);
+      toast({ title: 'Cleanup complete', description: `Deleted ${res.data?.deleted ?? 0} file(s).` });
+    } catch (e) {
+      toast({ title: 'Cleanup failed', description: e.message, variant: 'destructive' });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const hasOrphans = (report?.orphanCount ?? 0) > 0;
+
+  return (
+    <div className="p-3 rounded-lg bg-white border border-teal-200">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium flex items-center gap-1.5">
+            <Trash2 className="w-4 h-4 text-teal-600" /> Storage Cleanup (Leftover Files)
+          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Finds files in private storage that no document, RFI or contract instruction uses anymore.
+            <strong> Scan</strong> only reports — it deletes nothing. Files newer than a week are always kept.
+            Review the scan before deleting.
+          </p>
+        </div>
+        <div className="flex flex-col gap-1.5 flex-shrink-0">
+          <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" disabled={!!busy} onClick={scan}>
+            {busy === 'scan' ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
+            {busy === 'scan' ? 'Scanning…' : 'Scan'}
+          </Button>
+          <Button size="sm" variant="destructive" className="h-8 gap-1.5 text-xs" disabled={!!busy || !hasOrphans} onClick={remove}>
+            {busy === 'delete' ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+            {busy === 'delete' ? 'Deleting…' : 'Delete leftover files'}
+          </Button>
+        </div>
+      </div>
+
+      {report && !report.error && (
+        <div className="mt-3 space-y-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {[
+              { label: 'Files in storage', value: report.totalObjects },
+              { label: 'Still in use', value: report.referencedCount },
+              { label: report.mode === 'execute' ? 'Deleted' : 'Leftover (removable)', value: report.mode === 'execute' ? report.deleted : report.orphanCount, warn: report.mode !== 'execute' && hasOrphans },
+              { label: 'Space reclaimable', value: fmtBytes(report.bytesReclaimable) },
+            ].map(({ label, value, warn }) => (
+              <div key={label} className={`rounded-md px-3 py-2 border text-xs flex flex-col gap-0.5 ${warn ? 'bg-amber-50 border-amber-200' : 'bg-muted/40 border-border'}`}>
+                <span className="text-muted-foreground">{label}</span>
+                <span className={`text-base font-semibold tabular-nums leading-tight ${warn ? 'text-amber-700' : 'text-foreground'}`}>{value}</span>
+              </div>
+            ))}
+          </div>
+          {report.mode !== 'execute' && !hasOrphans && (
+            <p className="text-xs text-green-700">✓ No leftover files found — your storage is clean.</p>
+          )}
+          {report.mode !== 'execute' && hasOrphans && report.sample?.length > 0 && (
+            <div className="text-[11px] font-mono text-muted-foreground bg-muted/40 border rounded-md p-2 max-h-32 overflow-auto">
+              <div className="text-foreground font-medium mb-1">Examples of leftover files:</div>
+              {report.sample.map((name, i) => <div key={i}>{name}</div>)}
+              {report.orphanCount > report.sample.length && <div>…and {report.orphanCount - report.sample.length} more</div>}
+            </div>
+          )}
+          {report.errors?.length > 0 && (
+            <div className="rounded-md p-2 bg-red-50 border border-red-200 text-[11px] font-mono text-red-700 max-h-32 overflow-auto">
+              {report.errors.map((e, i) => <div key={i}>{e}</div>)}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function TestUtilities() {
   const { toast } = useToast();
   const [running, setRunning] = useState(null);
@@ -309,6 +422,8 @@ export default function TestUtilities() {
         ))}
 
         <StorageMigrationPanel />
+
+        <StorageJanitorPanel />
 
         <SummaryPanel />
 
