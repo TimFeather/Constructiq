@@ -35,14 +35,6 @@ const FALLBACK_FOLDERS = [
   'Sub Contractor Uploads',
 ];
 
-const FALLBACK_PERMISSIONS = {
-  'Architectural Plans':  ['admin', 'internal', 'pricing'],
-  'Engineering Drawings': ['admin', 'internal', 'pricing'],
-  'Geotech Reports':      ['admin', 'internal', 'pricing'],
-  'Photos':               ['admin', 'internal', 'pricing'],
-  'Sub Contractor Uploads': ['admin', 'internal', 'pricing', 'external'],
-};
-
 export default function ProjectDocsPanel({ project, docs = [] }) {
   const { user } = useAuth();
   const [showUpload, setShowUpload] = useState(false);
@@ -84,7 +76,6 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
 
   const defaultTemplate = templates.find(t => t.is_default) ?? templates[0] ?? null;
   const templateFolders = defaultTemplate?.folder_structure ?? FALLBACK_FOLDERS;
-  const templatePerms  = defaultTemplate?.folder_permissions ?? FALLBACK_PERMISSIONS;
 
   const userRole = user?.role ?? 'external';
   const isInternal = userRole === 'admin' || userRole === 'internal';
@@ -95,31 +86,16 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
   // here without affecting other projects using the same template.
   const hiddenFolders = project.hidden_doc_folders || [];
 
-  // Folders visible to this role based on template permissions
-  const visibleTemplateFolders = templateFolders.filter(f => {
-    const allowed = templatePerms[f] ?? ['admin', 'internal', 'pricing'];
-    return allowed.includes(userRole) && !hiddenFolders.includes(f);
-  });
-
-  // Folders that can be uploaded to (external users limited to their visible folders)
-  const allowedFolders = isInternal ? null : visibleTemplateFolders;
-
+  // Folders are purely an organisational grouping — there is no per-folder access
+  // control. Sharing is controlled per-file only (the Shared/Internal toggle below,
+  // backed by documents.visibility + RLS), so any file can be shared regardless of
+  // which folder it sits in.
   const docFolders = docs.map(d => d.folder).filter(Boolean);
   // project.doc_folders persists user-created folders (including empty ones) across reloads.
   const persistedFolders = project.doc_folders || [];
   const allFolders = [...new Set([...templateFolders, ...docFolders, ...extraFolders, ...persistedFolders])];
 
-  // Role-based folder visibility: show a folder when the template grants this role
-  // access to it. (External users were previously ALSO restricted to folders that
-  // already contained a document, which hid empty folders they were permitted to
-  // see — e.g. an empty "Sub Contractor Uploads". They now see every folder granted
-  // to them, like internal users.) Whether the DOCUMENTS inside are visible is a
-  // separate gate enforced by RLS — external users only receive 'public'/shared docs.
-  const folders = allFolders.filter(f => {
-    if (hiddenFolders.includes(f)) return false;
-    const allowed = templatePerms[f] ?? ['admin', 'internal', 'pricing'];
-    return allowed.includes(userRole);
-  });
+  const folders = allFolders.filter(f => !hiddenFolders.includes(f));
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['documents', project.id] });
@@ -349,7 +325,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
     if (isExternal) return;
     const files = Array.from(e.dataTransfer.files);
     for (const file of files) {
-      await handleUpload(file, allowedFolders ? allowedFolders[0] : '');
+      await handleUpload(file, '');
     }
   };
 
@@ -947,8 +923,8 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
               <Select value={uploadForm.folder} onValueChange={v => setUploadForm({ ...uploadForm, folder: v === '__none__' ? '' : v })}>
                 <SelectTrigger><SelectValue placeholder="No folder (Unfiled)" /></SelectTrigger>
                 <SelectContent>
-                  {isInternal && <SelectItem value="__none__">No folder (Unfiled)</SelectItem>}
-                  {(allowedFolders || allFolders.filter(f => !hiddenFolders.includes(f))).map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+                  <SelectItem value="__none__">No folder (Unfiled)</SelectItem>
+                  {allFolders.filter(f => !hiddenFolders.includes(f)).map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
