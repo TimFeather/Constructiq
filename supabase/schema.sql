@@ -867,7 +867,8 @@ create index if not exists idx_tasks_project_id               on public.tasks(pr
 create index if not exists idx_pending_assignments_email      on public.pending_project_assignments(email, status);
 create index if not exists idx_invited_users_email            on public.invited_users(email);
 
--- ── Project-archive cascade: mark child records archived ──
+-- ── Project-archive cascade: mark child records archived, and restore them when
+-- the project is un-archived (status moves away from 'Archived') ──
 create or replace function public.archive_project_children()
 returns trigger as $$
 begin
@@ -876,6 +877,11 @@ begin
     update rfis                   set archived = true where project_id = new.id;
     update tasks                  set archived = true where project_id = new.id;
     update contract_instructions  set archived = true where project_id = new.id;
+  elsif old.status = 'Archived' and new.status != 'Archived' then
+    update documents              set archived = false, archived_at = null where project_id = new.id;
+    update rfis                   set archived = false where project_id = new.id;
+    update tasks                  set archived = false where project_id = new.id;
+    update contract_instructions  set archived = false where project_id = new.id;
   end if;
   return new;
 end;

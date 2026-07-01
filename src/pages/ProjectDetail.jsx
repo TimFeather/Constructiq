@@ -27,19 +27,26 @@ export default function ProjectDetail() {
   const activeTab = searchParams.get('tab') || 'team';
   const setActiveTab = (tab) => setSearchParams(prev => { const p = new URLSearchParams(prev); p.set('tab', tab); return p; }, { replace: true });
 
+  // refetchOnMount: 'always' — a project's status change cascades archived/active to its
+  // documents and RFIs via a DB trigger. That can happen from a different page (the
+  // Projects list), so this page must always pull live data on open rather than trust the
+  // 60s query cache, or a just-archived/restored project can show stale counts/contents.
   const { data: project, isLoading } = useQuery({
     queryKey: ['project', id],
     queryFn: () => Project.filter({ id }, '-created_at', 1).then(results => results[0] ?? null),
+    refetchOnMount: 'always',
   });
 
   const { data: projectDocs = [] } = useQuery({
     queryKey: ['documents', id],
     queryFn: () => Document.filter({ project_id: id }, '-created_at', 50),
+    refetchOnMount: 'always',
   });
 
   const { data: projectRfis = [] } = useQuery({
     queryKey: ['rfis', id],
     queryFn: () => RFI.filter({ project_id: id }, '-created_at', 50),
+    refetchOnMount: 'always',
   });
 
   const { data: projectTasks = [] } = useQuery({
@@ -140,10 +147,10 @@ export default function ProjectDetail() {
         <div className="overflow-x-auto -mx-1 px-1 pb-1"><TabsList className="inline-flex w-max">
           <TabsTrigger value="team">Team</TabsTrigger>
           <TabsTrigger value="documents" className="gap-1">
-            <FileText className="w-3.5 h-3.5" /> Docs ({projectDocs.length})
+            <FileText className="w-3.5 h-3.5" /> Docs ({projectDocs.filter(d => !d.archived).length})
           </TabsTrigger>
           <TabsTrigger value="rfis" className="gap-1">
-            <MessageSquareMore className="w-3.5 h-3.5" /> RFIs ({projectRfis.length})
+            <MessageSquareMore className="w-3.5 h-3.5" /> RFIs ({projectRfis.filter(r => !r.archived).length})
           </TabsTrigger>
           <TabsTrigger value="programme" className="gap-1">
             <BarChart2 className="w-3.5 h-3.5" /> Programme

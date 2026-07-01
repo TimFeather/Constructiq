@@ -25,6 +25,16 @@ export default function ProjectFormDialog({ open, onOpenChange, project }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
       queryClient.invalidateQueries({ queryKey: ['project'] });
+      // A status change (e.g. to/from Archived) cascades to documents/RFIs/tasks/CIs
+      // via a DB trigger. Invalidating the base key also catches the per-project
+      // ['documents', id] variant (react-query matches by key prefix), so this covers
+      // both the project detail tabs AND the sidebar Documents/RFIs pages.
+      if (project?.id) {
+        queryClient.invalidateQueries({ queryKey: ['documents'] });
+        queryClient.invalidateQueries({ queryKey: ['rfis'] });
+        queryClient.invalidateQueries({ queryKey: ['tasks'] });
+        queryClient.invalidateQueries({ queryKey: ['contractInstructions'] });
+      }
       onOpenChange(false);
       setForm(initialState);
     }

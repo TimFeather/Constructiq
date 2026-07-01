@@ -3,7 +3,7 @@ import { Project, Task } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
 import { Link } from 'react-router-dom';
-import { Plus, Search, Calendar, Archive, Trash2 } from 'lucide-react';
+import { Plus, Search, Calendar, Archive, ArchiveRestore, Trash2 } from 'lucide-react';
 import { canEdit, isAdmin } from '@/lib/permissions';
 import { normalizeEmail } from '@/lib/normalizeEmail';
 import { Button } from '@/components/ui/button';
@@ -43,11 +43,33 @@ export default function Projects() {
     queryFn: () => Task.list('-created_at', 1000),
   });
 
+  // Archiving/restoring a project cascades to its documents, RFIs, tasks, and CIs
+  // (DB trigger). Those are cached under both a per-project key (['documents', id],
+  // used by the project detail tabs) AND a global key (['documents'], used by the
+  // sidebar Documents/RFIs pages that list across all projects). Invalidating only
+  // the base key ['documents'] still catches ['documents', id] too — react-query
+  // matches by key prefix — so this one call covers every view.
+  const invalidateProjectChildren = () => {
+    queryClient.invalidateQueries({ queryKey: ['projects'] });
+    queryClient.invalidateQueries({ queryKey: ['project'] });
+    queryClient.invalidateQueries({ queryKey: ['documents'] });
+    queryClient.invalidateQueries({ queryKey: ['rfis'] });
+    queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    queryClient.invalidateQueries({ queryKey: ['contractInstructions'] });
+  };
+
   const archiveMutation = useMutation({
     mutationFn: (id) => Project.update(id, { status: 'Archived' }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      invalidateProjectChildren();
       setArchiveId(null);
+    },
+  });
+
+  const restoreMutation = useMutation({
+    mutationFn: (id) => Project.update(id, { status: 'Active' }),
+    onSuccess: () => {
+      invalidateProjectChildren();
     },
   });
 
@@ -205,14 +227,28 @@ export default function Projects() {
                   <Archive className="w-3.5 h-3.5 text-muted-foreground" />
                 </button>
               )}
-              {isAdminUser && viewMode === 'archived' && (
-                <button
-                  className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md bg-card border shadow-sm hover:bg-destructive/10"
-                  onClick={e => { e.preventDefault(); setDeleteId(project.id); }}
-                  title="Permanently delete project"
-                >
-                  <Trash2 className="w-3.5 h-3.5 text-destructive" />
-                </button>
+              {viewMode === 'archived' && (
+                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1.5">
+                  {isAllowed && (
+                    <button
+                      className="p-1.5 rounded-md bg-card border shadow-sm hover:bg-primary/10"
+                      onClick={e => { e.preventDefault(); restoreMutation.mutate(project.id); }}
+                      disabled={restoreMutation.isPending}
+                      title="Restore to Active"
+                    >
+                      <ArchiveRestore className="w-3.5 h-3.5 text-primary" />
+                    </button>
+                  )}
+                  {isAdminUser && (
+                    <button
+                      className="p-1.5 rounded-md bg-card border shadow-sm hover:bg-destructive/10"
+                      onClick={e => { e.preventDefault(); setDeleteId(project.id); }}
+                      title="Permanently delete project"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-destructive" />
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           ))}
