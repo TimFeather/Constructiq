@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Project, Task } from '@/api/entities';
+import { fetchProgrammeTasks, fetchProgramme } from '@/api/programmeData';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -102,10 +103,15 @@ export default function Programme() {
 
   const { data: allTasks = [] } = useQuery({
     queryKey: ['tasks', selectedProjectId],
-    queryFn: () => selectedProjectId === 'all'
-      ? Task.list('sort_order', 2000)
-      : Task.filter({ project_id: selectedProjectId }, 'sort_order', 2000),
+    queryFn: () => fetchProgrammeTasks(selectedProjectId),
     staleTime: 30000,
+  });
+
+  // Programme row: data date + working calendar for the selected project
+  const { data: programme = null } = useQuery({
+    queryKey: ['programme', selectedProjectId],
+    queryFn: () => fetchProgramme(selectedProjectId),
+    enabled: selectedProjectId !== 'all',
   });
 
   // Realtime task refresh every 30s (replaces Base44 subscribe)
