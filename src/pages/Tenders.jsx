@@ -3,12 +3,13 @@ import React, { useState } from 'react';
 import { Tender } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
-import { canAccess, canManage as canManagePerm } from '@/lib/permissions';
+import { canAccess, canManage as canManagePerm, isAdminOrPricing } from '@/lib/permissions';
 import { Link, useNavigate, Navigate } from 'react-router-dom';
-import { Plus, Search, FileSignature, Calendar, Users, MapPin, DollarSign, Clock } from 'lucide-react';
+import { Plus, Search, FileSignature, Calendar, Users, MapPin, DollarSign, Clock, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import PageHeader from '@/components/shared/PageHeader';
 import EmptyState from '@/components/shared/EmptyState';
 import { useToast } from '@/components/ui/use-toast';
@@ -66,8 +67,10 @@ export default function Tenders() {
   const [search, setSearch] = useState('');
   const [view, setView] = useState('active');   // 'active' | 'submitted' | 'archive'
   const [statusTab, setStatusTab] = useState('All');
+  const [deleteId, setDeleteId] = useState(null);
   const queryClient = useQueryClient();
   const canManage = canManagePerm(user, 'tenders');
+  const canDelete = isAdminOrPricing(user);
 
   const { data: tenders = [], isLoading } = useQuery({
     queryKey: ['tenders'],
@@ -108,6 +111,27 @@ export default function Tenders() {
       toast({
         title: 'Failed to create tender',
         description: err?.message || 'Permission denied. Make sure your account has the admin or pricing role.',
+        variant: 'destructive',
+        duration: 8000,
+      });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (tenderId) => {
+      const res = await invokeFunction('deleteTender', { tenderId });
+      if (res.data?.error) throw new Error(res.data.error);
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tenders'] });
+      setDeleteId(null);
+      toast({ title: 'Tender deleted' });
+    },
+    onError: (err) => {
+      toast({
+        title: 'Failed to delete tender',
+        description: err?.message,
         variant: 'destructive',
         duration: 8000,
       });
@@ -221,53 +245,86 @@ export default function Tenders() {
           {filtered.map(tender => {
             const counts = inviteeCounts[tender.id] || { total: 0, submitted: 0 };
             const isOverdue = tender.status === 'Issued' && tender.closing_date && isPast(parseISO(tender.closing_date));
+            const canDeleteThis = canDelete && view === 'archive' && tender.status === 'Archived';
             return (
-              <Link key={tender.id} to={`/tenders/${tender.id}`}>
-                <Card className={`hover:shadow-lg transition-all duration-300 hover:-translate-y-0.5 cursor-pointer h-full ${isOverdue ? 'border-l-4 border-l-red-500' : 'hover:border-primary/30'}`}>
-                  <CardContent className="p-5">
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <span className="text-xs font-mono font-semibold text-primary">{tender.tender_number}</span>
-                      <TenderStatusBadge status={tender.status} />
-                    </div>
-                    <h3 className="font-semibold text-sm mb-2 line-clamp-2">{tender.title}</h3>
-                    <div className="space-y-1.5 text-xs text-muted-foreground">
-                      {tender.client_name && (
-                        <div className="flex items-center gap-1.5">
-                          <Users className="w-3 h-3" /> {tender.client_name}
-                        </div>
-                      )}
-                      {tender.location && (
-                        <div className="flex items-center gap-1.5">
-                          <MapPin className="w-3 h-3" /> {tender.location}
-                        </div>
-                      )}
-                      {tender.closing_date && (
-                        <div className="flex items-center gap-1.5">
-                          <Calendar className="w-3 h-3" />
-                          <span className={isOverdue ? 'text-red-600 font-medium' : ''}>
-                            {format(parseISO(tender.closing_date), 'dd MMM yyyy')}
-                          </span>
-                          {closingDateLabel(tender)}
-                        </div>
-                      )}
-                      {tender.estimated_value && (
-                      <div className="flex items-center gap-1.5">
-                        <DollarSign className="w-3 h-3" />
-                        {new Intl.NumberFormat('en-NZ', { style: 'currency', currency: 'NZD' }).format(Number(tender.estimated_value))}
+              <div key={tender.id} className="relative group">
+                <Link to={`/tenders/${tender.id}`}>
+                  <Card className={`hover:shadow-lg transition-all duration-300 hover:-translate-y-0.5 cursor-pointer h-full ${isOverdue ? 'border-l-4 border-l-red-500' : 'hover:border-primary/30'}`}>
+                    <CardContent className="p-5">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <span className="text-xs font-mono font-semibold text-primary">{tender.tender_number}</span>
+                        <TenderStatusBadge status={tender.status} />
                       </div>
-                      )}
-                      <div className="flex items-center gap-1.5 pt-1">
-                        <Users className="w-3 h-3" />
-                        {counts.total} invited · {counts.submitted} submitted
+                      <h3 className="font-semibold text-sm mb-2 line-clamp-2">{tender.title}</h3>
+                      <div className="space-y-1.5 text-xs text-muted-foreground">
+                        {tender.client_name && (
+                          <div className="flex items-center gap-1.5">
+                            <Users className="w-3 h-3" /> {tender.client_name}
+                          </div>
+                        )}
+                        {tender.location && (
+                          <div className="flex items-center gap-1.5">
+                            <MapPin className="w-3 h-3" /> {tender.location}
+                          </div>
+                        )}
+                        {tender.closing_date && (
+                          <div className="flex items-center gap-1.5">
+                            <Calendar className="w-3 h-3" />
+                            <span className={isOverdue ? 'text-red-600 font-medium' : ''}>
+                              {format(parseISO(tender.closing_date), 'dd MMM yyyy')}
+                            </span>
+                            {closingDateLabel(tender)}
+                          </div>
+                        )}
+                        {tender.estimated_value && (
+                        <div className="flex items-center gap-1.5">
+                          <DollarSign className="w-3 h-3" />
+                          {new Intl.NumberFormat('en-NZ', { style: 'currency', currency: 'NZD' }).format(Number(tender.estimated_value))}
+                        </div>
+                        )}
+                        <div className="flex items-center gap-1.5 pt-1">
+                          <Users className="w-3 h-3" />
+                          {counts.total} invited · {counts.submitted} submitted
+                        </div>
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
+                    </CardContent>
+                  </Card>
+                </Link>
+                {canDeleteThis && (
+                  <button
+                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md bg-card border shadow-sm hover:bg-destructive/10"
+                    onClick={e => { e.preventDefault(); setDeleteId(tender.id); }}
+                    title="Permanently delete tender"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-destructive" />
+                  </button>
+                )}
+              </div>
             );
           })}
         </div>
       )}
+
+      <AlertDialog open={!!deleteId} onOpenChange={open => !open && setDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Permanently delete tender?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <strong>"{tenders.find(t => t.id === deleteId)?.title}"</strong> and all its invitees, invitations, submissions, notices, and documents will be permanently deleted. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive hover:bg-destructive/90"
+              onClick={() => deleteMutation.mutate(deleteId)}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? 'Deleting...' : 'Delete Permanently'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
