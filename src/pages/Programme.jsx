@@ -16,7 +16,7 @@ import {
 import {
   PanelLeftClose, PanelLeftOpen, Upload, Printer, ZoomIn, ZoomOut,
   Trash2, Target, Calendar, LayoutDashboard, CalendarDays,
-  ChevronsDownUp, ChevronsUpDown, Pencil, Download,
+  ChevronsDownUp, ChevronsUpDown, Download, Plus,
 } from 'lucide-react';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -24,7 +24,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import PageHeader from '@/components/shared/PageHeader';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import TaskList from '@/components/programme/TaskList';
 import GanttChart from '@/components/programme/GanttChart';
 import TaskProgressPanel from '@/components/programme/TaskProgressPanel';
@@ -36,7 +36,12 @@ import { computeImportDiff, isUpdateImport } from '@/lib/scheduleImportDiff';
 import { executeFreshImport, executeUpdateImport } from '@/lib/scheduleImportService';
 import { downloadMspdi, downloadProgrammeExcel } from '@/lib/scheduleExport';
 import ImportDiffDialog from '@/components/programme/ImportDiffDialog';
-import { runScheduleEngine, calendarForProgramme } from '@/lib/scheduling/scheduleEngine';
+import AddTaskDialog from '@/components/programme/AddTaskDialog';
+import ScheduleSettingsPopover from '@/components/programme/ScheduleSettingsPopover';
+import { runScheduleEngine, runScheduleEngineByProject, calendarForProgramme } from '@/lib/scheduling/scheduleEngine';
+import { updateTaskStartDate, updateTaskDuration, updateTaskDependency } from '@/lib/scheduleUpdateService';
+import { fetchProgrammesByProject } from '@/api/programmeData';
+import { canEdit } from '@/lib/permissions';
 import { getVisibleTasks } from '@/lib/programme/visibleTasks';
 import { bulkOperationState } from '@/lib/bulkOperationState';
 import { retry429 } from '@/lib/retry429';
@@ -76,7 +81,8 @@ export default function Programme() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteProgress, setDeleteProgress] = useState(null); // { pct, statusText, done, error }
 
-  const [showCriticalPath, setShowCriticalPath] = useState(true);
+  const [showCriticalPath, setShowCriticalPath] = useState(false); // critical-only filter
+  const [showAddTask, setShowAddTask] = useState(false);
 
   const queryClient = useQueryClient();
   const taskScrollRef = useRef(null);
@@ -123,6 +129,13 @@ export default function Programme() {
     enabled: selectedProjectId !== 'all',
   });
 
+  // All programmes (calendar/data date per project) for the cross-project view
+  const { data: programmesByProject } = useQuery({
+    queryKey: ['programmes'],
+    queryFn: fetchProgrammesByProject,
+    enabled: selectedProjectId === 'all',
+  });
+
   // Realtime task refresh every 30s (replaces Base44 subscribe)
   useEffect(() => {
     const interval = setInterval(() => {
@@ -157,14 +170,74 @@ export default function Programme() {
   const visibleTasks = useMemo(() => getVisibleTasks(tasks, expandedIds), [tasks, expandedIds]);
 
   // ─── Schedule engine ─────────────────────────────────────────────────────────
+  const projectStart = useMemo(() => tasks.reduce((min, t) => {
+    if (!t.start_date) return min;
+    return !min || t.start_date < min ? t.start_date : min;
+  }, null), [tasks]);
+
   const scheduledMap = useMemo(() => {
     if (!tasks.length) return new Map();
-    const pStart = tasks.reduce((min, t) => {
-      if (!t.start_date) return min;
-      return !min || t.start_date < min ? t.start_date : min;
-    }, null) || new Date().toISOString().split('T')[0];
-    return runScheduleEngine(tasks, pStart);
-  }, [tasks]);
+    if (selectedProjectId === 'all') {
+      return runScheduleEngineByProject(tasks, programmesByProject || new Map());
+    }
+    const calendar = calendarForProgramme(programme, tasks);
+    return runScheduleEngine(tasks, projectStart, calendar, { dataDate: programme?.data_date || null });
+  }, [tasks, projectStart, programme, programmesByProject, selectedProjectId]);
+
+  // Context every schedule mutation needs (audit user, calendar, data date)
+  const scheduleOptions = useMemo(() => ({
+    userId: user?.id || null,
+    projectStart,
+    calendar: selectedProjectId !== 'all' ? calendarForProgramme(programme, tasks) : undefined,
+    dataDate: selectedProjectId !== 'all' ? (programme?.data_date || null) : null,
+  }), [user?.id, projectStart, programme, tasks, selectedProjectId]);
+
+  const programmeEditable = canEdit(user, 'programme') && selectedProjectId !== 'all';
+
+  // ─── Authoring handlers (Gantt drag + editors → scheduling service) ──────────
+  const afterScheduleChange = useCallback((patchCount) => {
+    queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    if (patchCount > 1) {
+      toast({ title: 'Schedule updated', description: `${patchCount - 1} downstream task${patchCount === 2 ? '' : 's'} rescheduled.`, duration: 3500 });
+    }
+  }, [queryClient, toast]);
+
+  const handleMoveTask = useCallback(async (taskId, newStartDate) => {
+    try {
+      const { patches } = await updateTaskStartDate(taskId, newStartDate, tasks, scheduleOptions);
+      afterScheduleChange(patches.length);
+    } catch (e) {
+      toast({ title: 'Reschedule failed', description: e.message, variant: 'destructive' });
+    }
+  }, [tasks, scheduleOptions, afterScheduleChange, toast]);
+
+  const handleResizeTask = useCallback(async (taskId, newDuration) => {
+    try {
+      const { patches } = await updateTaskDuration(taskId, newDuration, tasks, scheduleOptions);
+      afterScheduleChange(patches.length);
+    } catch (e) {
+      toast({ title: 'Duration change failed', description: e.message, variant: 'destructive' });
+    }
+  }, [tasks, scheduleOptions, afterScheduleChange, toast]);
+
+  const handleCreateDependency = useCallback(async ({ predecessorId, successorId, type, lagDays }) => {
+    const successor = tasks.find(t => t.id === successorId);
+    if (!successor) return;
+    const existing = (successor.predecessors || []).filter(p => (p.predecessor_id || p.task_id) !== predecessorId);
+    const preds = [...existing, {
+      predecessor_id: predecessorId,
+      type,
+      lag_days: lagDays || 0,
+      lag_hours: (lagDays || 0) * 8,
+      is_elapsed: false,
+    }];
+    try {
+      const { patches } = await updateTaskDependency(successorId, preds, tasks, scheduleOptions);
+      afterScheduleChange(patches.length);
+    } catch (e) {
+      toast({ title: 'Link rejected', description: e.message, variant: 'destructive' });
+    }
+  }, [tasks, scheduleOptions, afterScheduleChange, toast]);
 
   const criticalTaskCount = useMemo(() => {
     let count = 0;
@@ -427,6 +500,24 @@ export default function Programme() {
               </Badge>
             )}
 
+            {programmeEditable && (
+              <Button variant="outline" size="sm" onClick={() => setShowAddTask(true)} className="gap-1.5 text-xs h-9">
+                <Plus className="w-3.5 h-3.5" /> Add Task
+              </Button>
+            )}
+            <Button
+              variant={showCriticalPath ? 'default' : 'outline'} size="sm"
+              onClick={() => setShowCriticalPath(v => !v)}
+              title="Show critical path only"
+              className="gap-1.5 text-xs h-9">
+              <Target className="w-3.5 h-3.5" /> Critical
+            </Button>
+            {programmeEditable && (
+              <ScheduleSettingsPopover
+                projectId={selectedProjectId}
+                programme={programme}
+              />
+            )}
             <Button variant="outline" size="sm" onClick={expandAll} title="Expand all" className="gap-1.5 text-xs h-9"><ChevronsUpDown className="w-3.5 h-3.5" />Expand All</Button>
             <Button variant="outline" size="sm" onClick={collapseAll} title="Collapse all" className="gap-1.5 text-xs h-9"><ChevronsDownUp className="w-3.5 h-3.5" />Collapse</Button>
             <Button variant="outline" size="icon" onClick={() => cycleZoom('out')} title={`Zoom out (${zoom})`}><ZoomOut className="w-4 h-4" /></Button>
@@ -528,6 +619,12 @@ export default function Programme() {
                 }}
                 baselineMap={null}
                 onTaskClick={setSelectedTask}
+                editable={programmeEditable && !isMobile}
+                dataDate={selectedProjectId !== 'all' ? (programme?.data_date || null) : null}
+                criticalOnly={showCriticalPath}
+                onMoveTask={handleMoveTask}
+                onResizeTask={handleResizeTask}
+                onCreateDependency={handleCreateDependency}
               />
             </>
           )}
@@ -545,6 +642,9 @@ export default function Programme() {
       {/* Inline task editor */}
       <TaskInlineEditor
         task={editingTask}
+        tasks={tasks}
+        scheduleOptions={scheduleOptions}
+        editable={programmeEditable}
         open={!!editingTask}
         onOpenChange={open => { if (!open) setEditingTask(null); }}
       />
@@ -554,8 +654,18 @@ export default function Programme() {
         task={selectedTask}
         tasks={tasks}
         scheduledMap={scheduledMap}
+        scheduleOptions={scheduleOptions}
         open={!!selectedTask}
         onOpenChange={open => { if (!open) setSelectedTask(null); }}
+      />
+
+      {/* Add task */}
+      <AddTaskDialog
+        open={showAddTask}
+        onOpenChange={setShowAddTask}
+        projectId={selectedProjectId}
+        tasks={tasks}
+        scheduleOptions={scheduleOptions}
       />
 
       {/* Update-import review (diff before commit) */}

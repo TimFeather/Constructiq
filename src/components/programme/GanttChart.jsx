@@ -3,9 +3,20 @@
  * Receives pre-computed visibleTasks (same list as TaskList) for perfect row alignment.
  * Performs ZERO scheduling calculations.
  */
-import React, { useMemo, useRef, useCallback, useEffect } from 'react';
+import React, { useMemo, useRef, useCallback, useEffect, useState } from 'react';
 import { differenceInDays, addDays, format, eachWeekOfInterval, eachDayOfInterval, isToday, isWeekend, eachMonthOfInterval } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+
+// Format a Date as 'yyyy-MM-dd' from LOCAL components (never toISOString — NZ tz shifts dates).
+function formatLocal(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+const DEP_TYPES = ['FS', 'SS', 'FF', 'SF'];
 
 export { ROW_HEIGHT } from './TaskList';
 import { ROW_HEIGHT } from './TaskList';
@@ -36,10 +47,27 @@ export default function GanttChart({
   onScroll,
   baselineMap,
   onTaskClick,
+  // ─── Interactive authoring (all optional, gated by `editable`) ───────────────
+  editable = false,
+  dataDate = null,          // 'yyyy-MM-dd' — render a marker line like the Today line
+  criticalOnly = false,     // dim non-critical work
+  onMoveTask,               // (taskId, newStartDateStr) => void
+  onResizeTask,             // (taskId, newDurationDays) => void
+  onCreateDependency,       // ({ predecessorId, successorId, type, lagDays }) => void
 }) {
   const dayWidth = ZOOM_DAY_WIDTHS[zoom] || 18;
   const scrolledToday = useRef(false);
   const dateHeaderRef = useRef(null);
+  const chartBodyRef = useRef(null);      // inner relative container (chart-relative coords)
+
+  // Active bar move/resize drag. { taskId, mode:'move'|'resize', startClientX, dx, snappedDays }
+  const [barDrag, setBarDrag] = useState(null);
+  // Active dependency-link drag. { sourceTaskId, sourceEnd:'start'|'finish', x, y, targetRowIdx }
+  const [linkDrag, setLinkDrag] = useState(null);
+  // Pending dependency awaiting confirmation.
+  // { predecessorId, successorId, type, lagDays, x, y }
+  const [pendingDep, setPendingDep] = useState(null);
+  const dragMovedRef = useRef(false);     // set when a bar drag moved > 3px; suppresses click
 
   // ─── Timeline bounds (based on full task set, not visible) ───────────────────
   const { minDate, totalDays, dateHeaders } = useMemo(() => {
@@ -153,15 +181,154 @@ export default function GanttChart({
           ? `M ${ox} ${oy} L ${tx} ${ty}`
           : `M ${ox} ${oy} L ${stubOx} ${oy} L ${stubOx} ${midY} L ${stubTx} ${midY} L ${stubTx} ${ty} L ${tx} ${ty}`;
 
-        result.push({ pathD, color, type, key: `${pid}-${task.id}-${type}` });
+        const bothCritical = (scheduledMap?.get(pid)?.isCritical || false)
+          && (scheduledMap?.get(task.id)?.isCritical || false);
+        result.push({ pathD, color, type, bothCritical, key: `${pid}-${task.id}-${type}` });
       }
     }
     return result;
-  }, [visibleTasks, getBar]);
+  }, [visibleTasks, getBar, scheduledMap]);
 
   const chartWidth = Math.max(totalDays * dayWidth, 400);
   const chartHeight = visibleTasks.length * ROW_H + 50;
   const todayX = Math.round(differenceInDays(new Date(), minDate) * dayWidth);
+  const dataDateX = dataDate
+    ? Math.round(differenceInDays(new Date(dataDate + 'T00:00:00'), minDate) * dayWidth)
+    : null;
+
+  // ─── Interaction helpers ─────────────────────────────────────────────────────
+
+  // Whether a task is a summary (has children) — summaries are never draggable.
+  const isSummaryTask = useCallback(
+    (task) => tasks.some(t => t.parent_id === task.id),
+    [tasks],
+  );
+
+  // Whether a leaf/milestone task may be edited (move/resize/link source & target).
+  const canEditTask = useCallback((task) => {
+    if (!editable) return false;
+    if (isSummaryTask(task)) return false;
+    return (task.percent_complete || 0) < 100;
+  }, [editable, isSummaryTask]);
+
+  // Chart-relative point from a pointer event (accounts for scroll offset).
+  const chartPoint = useCallback((e) => {
+    const el = chartBodyRef.current;
+    if (!el) return { x: 0, y: 0 };
+    const rect = el.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }, []);
+
+  // ── Bar move / resize ──
+  const beginBarDrag = useCallback((e, task, mode) => {
+    if (!canEditTask(task)) return;
+    if (mode === 'resize' && (task.is_milestone || task.duration === 0)) return;
+    e.stopPropagation();
+    e.preventDefault();
+    dragMovedRef.current = false;
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* noop */ }
+    setBarDrag({ taskId: task.id, mode, startClientX: e.clientX, dx: 0, snappedDays: 0 });
+  }, [canEditTask]);
+
+  const moveBarDrag = useCallback((e) => {
+    setBarDrag(prev => {
+      if (!prev) return prev;
+      const dx = e.clientX - prev.startClientX;
+      if (Math.abs(dx) > 3) dragMovedRef.current = true;
+      const snappedDays = Math.round(dx / dayWidth);
+      return { ...prev, dx, snappedDays };
+    });
+  }, [dayWidth]);
+
+  const endBarDrag = useCallback((e) => {
+    setBarDrag(prev => {
+      if (!prev) return null;
+      const days = Math.round((e.clientX - prev.startClientX) / dayWidth);
+      const task = visibleTasks.find(t => t.id === prev.taskId);
+      const resolved = scheduledMap?.get(prev.taskId);
+      if (task && days !== 0) {
+        if (prev.mode === 'move' && resolved?.start) {
+          const newStart = addDays(resolved.start, days);
+          onMoveTask?.(prev.taskId, formatLocal(newStart));
+        } else if (prev.mode === 'resize') {
+          const base = resolved?.durationDays || task.duration || 1;
+          const newDuration = Math.max(1, base + days);
+          if (newDuration !== base) onResizeTask?.(prev.taskId, newDuration);
+        }
+      }
+      return null;
+    });
+  }, [dayWidth, visibleTasks, scheduledMap, onMoveTask, onResizeTask]);
+
+  // ── Dependency link creation ──
+  const beginLinkDrag = useCallback((e, task, sourceEnd) => {
+    if (!canEditTask(task)) return;
+    e.stopPropagation();
+    e.preventDefault();
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* noop */ }
+    const p = chartPoint(e);
+    setLinkDrag({ sourceTaskId: task.id, sourceEnd, x: p.x, y: p.y, targetRowIdx: null });
+  }, [canEditTask, chartPoint]);
+
+  const moveLinkDrag = useCallback((e) => {
+    const p = chartPoint(e);
+    setLinkDrag(prev => {
+      if (!prev) return prev;
+      let targetRowIdx = Math.floor(p.y / ROW_H);
+      const target = visibleTasks[targetRowIdx];
+      let valid = false;
+      if (target && target.id !== prev.sourceTaskId && !isSummaryTask(target)) {
+        const bar = getBar(target);
+        if (bar) {
+          const w = bar.isMilestone ? 14 : bar.width;
+          const l = bar.isMilestone ? bar.left - 7 : bar.left;
+          if (p.x >= l - 6 && p.x <= l + w + 6) valid = true;
+        }
+      }
+      return { ...prev, x: p.x, y: p.y, targetRowIdx: valid ? targetRowIdx : null };
+    });
+  }, [chartPoint, visibleTasks, isSummaryTask, getBar]);
+
+  const endLinkDrag = useCallback((e) => {
+    const p = chartPoint(e);
+    setLinkDrag(prev => {
+      if (!prev) return null;
+      const rowIdx = Math.floor(p.y / ROW_H);
+      const target = visibleTasks[rowIdx];
+      if (!target || target.id === prev.sourceTaskId || isSummaryTask(target)) return null;
+      const bar = getBar(target);
+      if (!bar) return null;
+      const w = bar.isMilestone ? 14 : bar.width;
+      const l = bar.isMilestone ? bar.left - 7 : bar.left;
+      if (p.x < l - 6 || p.x > l + w + 6) return null;
+
+      // Target end: which half of the target bar the pointer is in.
+      const targetEnd = (p.x < l + w / 2) ? 'start' : 'finish';
+      // Type from (source end → target end).
+      const type =
+        prev.sourceEnd === 'finish' && targetEnd === 'start' ? 'FS'
+        : prev.sourceEnd === 'start' && targetEnd === 'start' ? 'SS'
+        : prev.sourceEnd === 'finish' && targetEnd === 'finish' ? 'FF'
+        : 'SF';
+      setPendingDep({
+        predecessorId: prev.sourceTaskId,
+        successorId: target.id,
+        type,
+        lagDays: 0,
+        x: p.x,
+        y: rowIdx * ROW_H + ROW_H,
+      });
+      return null;
+    });
+  }, [chartPoint, visibleTasks, isSummaryTask, getBar]);
+
+  // Escape closes the pending-dependency popover.
+  useEffect(() => {
+    if (!pendingDep) return undefined;
+    const onKey = (ev) => { if (ev.key === 'Escape') setPendingDep(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [pendingDep]);
 
   useEffect(() => {
     if (scrolledToday.current || !scrollRef?.current || tasks.length === 0) return;
@@ -210,7 +377,7 @@ export default function GanttChart({
         }}
       >
         <div style={{ minWidth: chartWidth }} className="relative">
-          <div className="relative" style={{ height: chartHeight }}>
+          <div className="relative" style={{ height: chartHeight }} ref={chartBodyRef}>
 
             {zoom === 'day' && dateHeaders.filter(h => h.isWeekend).map((h, i) => (
               <div key={i} className="absolute top-0 bottom-0 bg-muted/30 pointer-events-none"
@@ -225,6 +392,18 @@ export default function GanttChart({
             {todayX >= 0 && todayX <= chartWidth && (
               <div className="absolute top-0 bottom-0 border-r-2 border-primary/70 pointer-events-none z-10" style={{ left: todayX }}>
                 <div className="absolute top-0 left-0 -translate-x-1/2 text-[9px] bg-primary text-primary-foreground px-1 rounded-b z-20">Today</div>
+              </div>
+            )}
+
+            {/* Data date marker — dashed amber, distinct from Today */}
+            {dataDateX !== null && dataDateX >= 0 && dataDateX <= chartWidth && (
+              <div
+                className="absolute top-0 bottom-0 border-r-2 border-dashed border-amber-500 pointer-events-none z-10"
+                style={{ left: dataDateX }}
+              >
+                <div className="absolute top-0 left-0 -translate-x-1/2 text-[9px] bg-amber-500 text-white px-1 rounded-b whitespace-nowrap z-20">
+                  Data date
+                </div>
               </div>
             )}
 
@@ -243,13 +422,34 @@ export default function GanttChart({
                   </marker>
                 ))}
               </defs>
-              {arrows.map(({ pathD, color, type, key }) => (
-                <g key={key}>
+              {arrows.map(({ pathD, color, type, bothCritical, key }) => (
+                <g key={key} opacity={criticalOnly && !bothCritical ? 0.15 : 1}>
                   <path d={pathD} fill="none" stroke="transparent" strokeWidth="6" />
                   <path d={pathD} fill="none" stroke={color} strokeWidth="1.5" strokeDasharray="5 3" opacity="0.8" markerEnd={`url(#arrow-${type})`} />
                 </g>
               ))}
             </svg>
+
+            {/* Temporary dependency-link line while dragging a handle */}
+            {linkDrag && (() => {
+              const srcTask = visibleTasks.find(t => t.id === linkDrag.sourceTaskId);
+              const srcIdx = visibleTasks.findIndex(t => t.id === linkDrag.sourceTaskId);
+              const srcBar = srcTask ? getBar(srcTask) : null;
+              if (!srcBar) return null;
+              const sy = srcIdx * ROW_H + ROW_H / 2;
+              const sx = linkDrag.sourceEnd === 'finish'
+                ? (srcBar.isMilestone ? srcBar.left + 7 : srcBar.left + srcBar.width)
+                : (srcBar.isMilestone ? srcBar.left - 7 : srcBar.left);
+              return (
+                <svg className="absolute inset-0 pointer-events-none overflow-visible" width={chartWidth} height={chartHeight} style={{ zIndex: 30 }}>
+                  <path
+                    d={`M ${sx} ${sy} L ${linkDrag.x} ${linkDrag.y}`}
+                    fill="none" stroke="#3b82f6" strokeWidth="1.5" strokeDasharray="4 3"
+                  />
+                  <circle cx={linkDrag.x} cy={linkDrag.y} r="3" fill="#3b82f6" />
+                </svg>
+              );
+            })()}
 
             {/* Task bars — indexed against visibleTasks */}
             {visibleTasks.map((task, i) => {
@@ -278,21 +478,67 @@ export default function GanttChart({
 
               const top = i * ROW_H;
 
+              // Editing / criticalOnly flags for this task.
+              const editThis = canEditTask(task);
+              const activeDrag = barDrag?.taskId === task.id ? barDrag : null;
+              // criticalOnly dimming: leaf/milestone dim when non-critical; summary dims unless critical.
+              const dimNonCritical = criticalOnly && !isCritical;
+
               if (isMilestoneTask) {
                 const cx = bar.left, cy = top + ROW_H / 2, size = 7;
+                const ghostDx = activeDrag ? activeDrag.snappedDays * dayWidth : 0;
+                const dimmed = dimNonCritical ? 'opacity-25' : '';
                 return (
-                  <svg key={task.id} className="absolute pointer-events-auto cursor-pointer"
-                    style={{ left: cx - size - 2, top: cy - size - 2, overflow: 'visible', zIndex: 2 }}
-                    width={size * 2 + 4} height={size * 2 + 4} onClick={() => onTaskClick?.(task)}>
-                    <polygon
-                      points={`${size + 2},2 ${size * 2 + 2},${size + 2} ${size + 2},${size * 2 + 2} 2,${size + 2}`}
-                      fill={isCritical ? '#ef4444' : '#6366f1'} stroke={isCritical ? '#b91c1c' : '#4f46e5'} strokeWidth="1"
-                    />
-                  </svg>
+                  <React.Fragment key={task.id}>
+                    <svg
+                      className={cn('absolute cursor-pointer', dimmed, editThis && 'touch-none', activeDrag && 'opacity-40')}
+                      style={{
+                        left: cx - size - 2, top: cy - size - 2, overflow: 'visible', zIndex: 2,
+                        cursor: editThis ? (activeDrag ? 'grabbing' : 'grab') : 'pointer',
+                        userSelect: 'none',
+                      }}
+                      width={size * 2 + 4} height={size * 2 + 4}
+                      onClick={() => { if (dragMovedRef.current) return; onTaskClick?.(task); }}
+                      onPointerDown={editThis ? (e) => beginBarDrag(e, task, 'move') : undefined}
+                      onPointerMove={editThis ? moveBarDrag : undefined}
+                      onPointerUp={editThis ? endBarDrag : undefined}
+                    >
+                      <polygon
+                        points={`${size + 2},2 ${size * 2 + 2},${size + 2} ${size + 2},${size * 2 + 2} 2,${size + 2}`}
+                        fill={isCritical ? '#ef4444' : '#6366f1'} stroke={isCritical ? '#b91c1c' : '#4f46e5'} strokeWidth="1"
+                      />
+                    </svg>
+                    {/* Milestone drag ghost + date chip */}
+                    {activeDrag && activeDrag.mode === 'move' && (
+                      <>
+                        <svg className="absolute pointer-events-none" style={{ left: cx - size - 2 + ghostDx, top: cy - size - 2, overflow: 'visible', zIndex: 40 }}
+                          width={size * 2 + 4} height={size * 2 + 4}>
+                          <polygon points={`${size + 2},2 ${size * 2 + 2},${size + 2} ${size + 2},${size * 2 + 2} 2,${size + 2}`}
+                            fill={isCritical ? '#ef4444' : '#6366f1'} opacity="0.85" stroke="#fff" strokeWidth="1" />
+                        </svg>
+                        {resolved?.start && (
+                          <div className="absolute pointer-events-none text-[9px] bg-popover text-foreground border rounded px-1 shadow z-50 whitespace-nowrap"
+                            style={{ left: cx + ghostDx, top: top - 2 }}>
+                            {formatLocal(addDays(resolved.start, activeDrag.snappedDays))}
+                          </div>
+                        )}
+                      </>
+                    )}
+                    {/* Link handles (milestone: start = left point, finish = right point) */}
+                    {editThis && !activeDrag && (
+                      <>
+                        <LinkHandle x={cx - size - 5} y={cy} onPointerDown={(e) => beginLinkDrag(e, task, 'start')}
+                          onPointerMove={moveLinkDrag} onPointerUp={endLinkDrag} />
+                        <LinkHandle x={cx + size + 5} y={cy} onPointerDown={(e) => beginLinkDrag(e, task, 'finish')}
+                          onPointerMove={moveLinkDrag} onPointerUp={endLinkDrag} />
+                      </>
+                    )}
+                  </React.Fragment>
                 );
               }
 
               if (isSummary) {
+                const summaryDim = criticalOnly && !isCritical ? 'opacity-25' : '';
                 return (
                   <React.Fragment key={task.id}>
                     {baselineBar && (
@@ -301,7 +547,7 @@ export default function GanttChart({
                           background: 'repeating-linear-gradient(90deg,#94a3b8 0px,#94a3b8 4px,transparent 4px,transparent 8px)' }} />
                     )}
                     <div
-                      className={cn('absolute flex items-center cursor-pointer', isCritical ? 'bg-red-500' : 'bg-primary')}
+                      className={cn('absolute flex items-center cursor-pointer', isCritical ? 'bg-red-500' : 'bg-primary', summaryDim)}
                       style={{ left: bar.left, width: bar.width, top: top + 6, height: ROW_H - 12, borderRadius: 2 }}
                       title={`${task.name} (Summary)${isCritical ? ' — CRITICAL' : ''}`}
                       onClick={() => onTaskClick?.(task)}
@@ -318,6 +564,12 @@ export default function GanttChart({
               }
 
               const barColor = isCritical ? 'bg-red-500 hover:bg-red-400' : 'bg-accent hover:bg-accent/80';
+              const leafDim = dimNonCritical ? 'opacity-25' : '';
+              const ghostDx = activeDrag && activeDrag.mode === 'move' ? activeDrag.snappedDays * dayWidth : 0;
+              const ghostWidth = activeDrag && activeDrag.mode === 'resize'
+                ? Math.max(dayWidth, bar.width + activeDrag.snappedDays * dayWidth)
+                : bar.width;
+              const ghostDurationDays = Math.max(1, (resolved?.durationDays || task.duration || 1) + (activeDrag?.snappedDays || 0));
               return (
                 <React.Fragment key={task.id}>
                   {baselineBar && (
@@ -325,10 +577,17 @@ export default function GanttChart({
                       style={{ left: baselineBar.left, width: baselineBar.width, top: top + ROW_H - 5, height: 3, background: '#94a3b8', borderRadius: 1 }} />
                   )}
                   <div
-                    className={cn('absolute rounded transition-all hover:shadow-md cursor-pointer group', barColor)}
-                    style={{ left: bar.left, width: bar.width, top: top + 4, height: ROW_H - 8, zIndex: 2 }}
+                    className={cn('absolute rounded transition-all hover:shadow-md cursor-pointer group', barColor, leafDim, activeDrag && 'opacity-40')}
+                    style={{
+                      left: bar.left, width: bar.width, top: top + 4, height: ROW_H - 8, zIndex: 2,
+                      cursor: editThis ? (activeDrag?.mode === 'move' ? 'grabbing' : 'grab') : 'pointer',
+                      userSelect: activeDrag ? 'none' : undefined,
+                    }}
                     title={`${task.name}\n${task.start_date} → ${task.end_date}\n${task.duration || 0}d | ${percentComplete}%${isCritical ? '\n⚠ CRITICAL PATH' : ''}${totalFloat !== null ? `\nFloat: ${Math.round(totalFloat / 8)}d` : ''}`}
-                    onClick={() => onTaskClick?.(task)}
+                    onClick={() => { if (dragMovedRef.current) return; onTaskClick?.(task); }}
+                    onPointerDown={editThis ? (e) => beginBarDrag(e, task, 'move') : undefined}
+                    onPointerMove={editThis ? moveBarDrag : undefined}
+                    onPointerUp={editThis ? endBarDrag : undefined}
                   >
                     {isCritical && <div className="absolute left-0 top-0 bottom-0 w-1 bg-red-700 rounded-l" />}
                     {percentComplete > 0 && (
@@ -344,12 +603,147 @@ export default function GanttChart({
                       style={{ top: '50%', transform: 'translateY(-50%)' }}>
                       {percentComplete}%
                     </span>
+                    {/* Resize grab zone (right edge) */}
+                    {editThis && (
+                      <div
+                        className="absolute top-0 bottom-0 right-0 bg-white/40 opacity-0 group-hover:opacity-100 transition-opacity"
+                        style={{ width: 2, cursor: 'ew-resize' }}
+                        onClick={(e) => e.stopPropagation()}
+                        onPointerDown={(e) => beginBarDrag(e, task, 'resize')}
+                        onPointerMove={moveBarDrag}
+                        onPointerUp={endBarDrag}
+                      >
+                        <div className="absolute top-0 bottom-0 -right-1" style={{ width: 6 }} />
+                      </div>
+                    )}
                   </div>
+
+                  {/* Move/resize ghost + floating chip */}
+                  {activeDrag?.mode === 'move' && (
+                    <>
+                      <div className="absolute rounded pointer-events-none border-2 border-white/70"
+                        style={{ left: bar.left + ghostDx, width: bar.width, top: top + 4, height: ROW_H - 8, zIndex: 41,
+                          background: isCritical ? 'rgba(239,68,68,0.6)' : 'rgba(99,102,241,0.6)' }} />
+                      {resolved?.start && (
+                        <div className="absolute pointer-events-none text-[9px] bg-popover text-foreground border rounded px-1 shadow z-50 whitespace-nowrap"
+                          style={{ left: bar.left + ghostDx, top: top - 2 }}>
+                          {formatLocal(addDays(resolved.start, activeDrag.snappedDays))}
+                        </div>
+                      )}
+                    </>
+                  )}
+                  {activeDrag?.mode === 'resize' && (
+                    <>
+                      <div className="absolute rounded pointer-events-none border-2 border-white/70"
+                        style={{ left: bar.left, width: ghostWidth, top: top + 4, height: ROW_H - 8, zIndex: 41,
+                          background: isCritical ? 'rgba(239,68,68,0.6)' : 'rgba(99,102,241,0.6)' }} />
+                      <div className="absolute pointer-events-none text-[9px] bg-popover text-foreground border rounded px-1 shadow z-50 whitespace-nowrap"
+                        style={{ left: bar.left + ghostWidth + 2, top: top + 4 }}>
+                        {ghostDurationDays}d
+                      </div>
+                    </>
+                  )}
+
+                  {/* Link handles (leaf: start left edge, finish right edge) */}
+                  {editThis && !activeDrag && (
+                    <>
+                      <LinkHandle x={bar.left} y={top + ROW_H / 2} onPointerDown={(e) => beginLinkDrag(e, task, 'start')}
+                        onPointerMove={moveLinkDrag} onPointerUp={endLinkDrag} />
+                      <LinkHandle x={bar.left + bar.width} y={top + ROW_H / 2} onPointerDown={(e) => beginLinkDrag(e, task, 'finish')}
+                        onPointerMove={moveLinkDrag} onPointerUp={endLinkDrag} />
+                    </>
+                  )}
                 </React.Fragment>
               );
             })}
+
+            {/* Highlight the hovered target row during a link drag */}
+            {linkDrag && linkDrag.targetRowIdx !== null && (
+              <div className="absolute pointer-events-none bg-primary/10 border border-primary/40 rounded"
+                style={{ left: 0, right: 0, top: linkDrag.targetRowIdx * ROW_H, height: ROW_H, zIndex: 29 }} />
+            )}
+
+            {/* Click-away layer for the dependency popover */}
+            {pendingDep && (
+              <div className="absolute inset-0 z-[55]" onClick={() => setPendingDep(null)} />
+            )}
+
+            {/* Dependency confirmation popover */}
+            {pendingDep && (
+              <DepPopover
+                pending={pendingDep}
+                onCancel={() => setPendingDep(null)}
+                onConfirm={({ type, lagDays }) => {
+                  onCreateDependency?.({
+                    predecessorId: pendingDep.predecessorId,
+                    successorId: pendingDep.successorId,
+                    type,
+                    lagDays,
+                  });
+                  setPendingDep(null);
+                }}
+              />
+            )}
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Small circular link-creation handle. Positioned at (x, y) chart-relative coords.
+function LinkHandle({ x, y, onPointerDown, onPointerMove, onPointerUp }) {
+  return (
+    <div
+      className="absolute rounded-full border border-primary bg-background hover:bg-primary/30 transition-colors opacity-40 hover:opacity-100"
+      style={{
+        left: x - 5, top: y - 5, width: 10, height: 10, zIndex: 20,
+        cursor: 'crosshair', touchAction: 'none',
+      }}
+      title="Drag to another task to create a dependency"
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+    />
+  );
+}
+
+// Confirmation popover shown after dropping a dependency link. Plain absolutely-positioned
+// div (NOT Radix — it fights the scroll container).
+function DepPopover({ pending, onConfirm, onCancel }) {
+  const [type, setType] = useState(pending.type);
+  const [lagDays, setLagDays] = useState(0);
+
+  return (
+    <div
+      className="absolute z-[60] bg-popover text-foreground border rounded-md shadow-lg p-3 w-52 space-y-2"
+      style={{ left: Math.max(4, pending.x - 100), top: pending.y + 4 }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">New dependency</div>
+      <div className="space-y-1">
+        <label className="text-[10px] text-muted-foreground block">Type</label>
+        <select
+          className="flex h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          value={type}
+          onChange={(e) => setType(e.target.value)}
+        >
+          {DEP_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+      </div>
+      <div className="space-y-1">
+        <label className="text-[10px] text-muted-foreground block">Lag (days)</label>
+        <input
+          type="number"
+          className="flex h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          value={lagDays}
+          onChange={(e) => setLagDays(e.target.value === '' ? 0 : parseInt(e.target.value, 10) || 0)}
+        />
+      </div>
+      <div className="flex justify-end gap-2 pt-1">
+        <Button size="sm" variant="ghost" onClick={onCancel}>Cancel</Button>
+        <Button size="sm" onClick={() => onConfirm({ type, lagDays })}>Confirm</Button>
       </div>
     </div>
   );

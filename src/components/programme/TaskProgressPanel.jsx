@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Task } from '@/api/entities';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { TaskChangeLog } from '@/api/entities';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,11 +8,22 @@ import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
-import { format, differenceInDays } from 'date-fns';
+import { AlertTriangle } from 'lucide-react';
+import { format, differenceInDays, formatDistanceToNow } from 'date-fns';
+import { updateTaskFull } from '@/lib/scheduleUpdateService';
+import { useToast } from '@/components/ui/use-toast';
 
-export default function TaskProgressPanel({ task, tasks = [], scheduledMap, open, onOpenChange }) {
+const FIELD_LABELS = {
+  start_date: 'Start', end_date: 'Finish', duration: 'Duration',
+  percent_complete: '% complete', actual_start: 'Actual start',
+  actual_finish: 'Actual finish', constraint: 'Constraint',
+  predecessors: 'Dependencies', name: 'Name', assignee_email: 'Assignee',
+};
+
+export default function TaskProgressPanel({ task, tasks = [], scheduledMap, scheduleOptions, open, onOpenChange }) {
   const [form, setForm] = useState({});
   const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   useEffect(() => {
     if (task) {
@@ -26,12 +37,30 @@ export default function TaskProgressPanel({ task, tasks = [], scheduledMap, open
     }
   }, [task]);
 
+  // Audit trail: why did this task move?
+  const { data: changeLog = [] } = useQuery({
+    queryKey: ['taskChangeLog', task?.id],
+    queryFn: () => TaskChangeLog.filter({ task_id: task.id }, '-created_at', 8),
+    enabled: open && !!task?.id,
+  });
+
   const saveMutation = useMutation({
-    mutationFn: (data) => Task.update(task.id, data),
-    onSuccess: () => {
+    mutationFn: (data) => {
+      const payload = {
+        ...data,
+        actual_start: data.actual_start || null,
+        actual_finish: data.actual_finish || null,
+      };
+      return updateTaskFull(task.id, payload, tasks, scheduleOptions || {});
+    },
+    onSuccess: ({ patches }) => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      if (patches.length > 1) {
+        toast({ title: 'Progress saved', description: `${patches.length - 1} downstream task${patches.length === 2 ? '' : 's'} rescheduled.`, duration: 3500 });
+      }
       onOpenChange(false);
     },
+    onError: (e) => toast({ title: 'Save failed', description: e.message, variant: 'destructive' }),
   });
 
   if (!task) return null;
@@ -42,6 +71,8 @@ export default function TaskProgressPanel({ task, tasks = [], scheduledMap, open
   const isMilestone = task.is_milestone || task.duration === 0;
   const isSummary = tasks.some(t => t.parent_id === task.id);
   const isCritical = resolved?.isCritical || false;
+  const floatDays = resolved ? Math.round((resolved.totalFloat / 8) * 10) / 10 : null;
+  const conflict = resolved?.constraintConflict || null;
 
   // Variance calculation
   const today = new Date();
@@ -63,6 +94,8 @@ export default function TaskProgressPanel({ task, tasks = [], scheduledMap, open
     }
   }
 
+  const taskName = (id) => tasks.find(t => t.id === id)?.name || 'another task';
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="sm:max-w-md overflow-y-auto">
@@ -78,7 +111,7 @@ export default function TaskProgressPanel({ task, tasks = [], scheduledMap, open
           </SheetTitle>
         </SheetHeader>
 
-        {/* Planned dates (read-only info) */}
+        {/* Planned dates + schedule intel */}
         <div className="mt-4 p-3 rounded-lg bg-muted/40 border space-y-1">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Planned Schedule</p>
           <div className="grid grid-cols-3 gap-2 text-xs">
@@ -95,9 +128,27 @@ export default function TaskProgressPanel({ task, tasks = [], scheduledMap, open
               <span className="font-mono">{task.duration || 0}d</span>
             </div>
           </div>
+          {floatDays !== null && !isSummary && (
+            <div className="pt-2 border-t border-border/50 text-xs flex items-center justify-between">
+              <span className="text-muted-foreground">Float (slack)</span>
+              <span className={floatDays < 0 ? 'text-red-500 font-semibold' : isCritical ? 'text-red-500 font-semibold' : 'font-semibold'}>
+                {floatDays < 0 ? `${floatDays}d — behind schedule` : isCritical ? '0d — critical path' : `${floatDays}d before it delays the programme`}
+              </span>
+            </div>
+          )}
           {varianceEl && (
             <div className="pt-2 border-t border-border/50 text-xs">
               Variance: {varianceEl}
+            </div>
+          )}
+          {conflict && (
+            <div className="mt-2 p-2 rounded border border-amber-500/40 bg-amber-500/10 text-xs flex gap-2">
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0 mt-0.5" />
+              <span>
+                Constraint conflict: this task's <span className="font-mono">{conflict.type}</span> constraint
+                ({format(new Date(conflict.constraintDate), 'dd MMM yy')}) contradicts its dependencies,
+                which need {format(new Date(conflict.requiredDate), 'dd MMM yy')}.
+              </span>
             </div>
           )}
         </div>
@@ -162,6 +213,30 @@ export default function TaskProgressPanel({ task, tasks = [], scheduledMap, open
               className="mt-1 h-20 text-sm"
             />
           </div>
+
+          {/* Why did this move? — audit trail */}
+          {changeLog.length > 0 && (
+            <div>
+              <Label>Recent Schedule Changes</Label>
+              <div className="mt-2 space-y-1.5">
+                {changeLog.map(row => (
+                  <div key={row.id} className="text-[11px] p-2 rounded border bg-muted/30">
+                    <span className="font-medium">{FIELD_LABELS[row.field_changed] || row.field_changed}</span>
+                    {': '}
+                    <span className="line-through text-muted-foreground">{row.old_value ?? '—'}</span>
+                    {' → '}
+                    <span className="font-medium">{row.new_value ?? '—'}</span>
+                    <div className="text-muted-foreground mt-0.5">
+                      {row.trigger_task_id
+                        ? <>rescheduled automatically after “{taskName(row.trigger_task_id)}” moved</>
+                        : row.changed_by ? 'edited manually' : 'system change'}
+                      {row.created_at ? ` · ${formatDistanceToNow(new Date(row.created_at), { addSuffix: true })}` : ''}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <SheetFooter className="mt-6 flex gap-2 justify-end">
