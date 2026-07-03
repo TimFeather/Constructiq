@@ -9,7 +9,7 @@ import { Tender, TenderContact, TenderInvitation, TenderInvitee } from '@/api/en
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
-import { CheckCircle2, XCircle, Loader2, PlayCircle, Trash2, AlertTriangle, FlaskConical } from 'lucide-react';
+import { CheckCircle2, XCircle, Loader2, PlayCircle, AlertTriangle, FlaskConical } from 'lucide-react';
 
 const PASS  = 'pass';
 const FAIL  = 'fail';

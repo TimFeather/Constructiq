@@ -5,7 +5,6 @@ import { useAuth } from '@/lib/AuthContext';
 import { Link } from 'react-router-dom';
 import { Plus, Search, Calendar, Archive, ArchiveRestore, Trash2 } from 'lucide-react';
 import { canEdit, isAdmin } from '@/lib/permissions';
-import { normalizeEmail } from '@/lib/normalizeEmail';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';

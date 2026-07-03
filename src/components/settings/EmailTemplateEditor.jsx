@@ -1,9 +1,8 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
-import { Save, RotateCcw, ChevronDown, ChevronUp, Monitor, Smartphone } from 'lucide-react';
+import { Save, ChevronDown, ChevronUp, Monitor, Smartphone } from 'lucide-react';
 import { buildEmailHtml, DEFAULT_TEMPLATES, TEMPLATE_VARIABLES, stripHtml } from '@/lib/emailTemplates';
 
 const TOOLBAR_ACTIONS = [

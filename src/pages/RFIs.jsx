@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
 import { Link } from 'react-router-dom';
 import { isAdmin, canCreate } from '@/lib/permissions';
-import { Plus, Search, MessageSquareMore, Clock, UserIcon, ArrowLeft, Calendar, FolderKanban, Archive } from 'lucide-react';
+import { Plus, Search, MessageSquareMore, Clock, UserIcon, ArrowLeft, FolderKanban, Archive } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';

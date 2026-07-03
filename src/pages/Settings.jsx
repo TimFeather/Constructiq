@@ -7,15 +7,14 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Save, Shield, Bell, Mail, Palette, Tag, RefreshCw, Trash2, FolderOpen, FileSignature, Users, FlaskConical } from 'lucide-react';
+import { Save, Bell, Mail, Palette, Tag, Trash2, FolderOpen, FileSignature, Users, FlaskConical } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import PageHeader from '@/components/shared/PageHeader';
 import { DEFAULT_TEMPLATES } from '@/lib/emailTemplates';
-import { isAdmin as checkAdmin, canAccess } from '@/lib/permissions';
+import { isAdmin as checkAdmin } from '@/lib/permissions';
 import AppearanceSettings from '@/components/settings/AppearanceSettings';
 import RoleManager from '@/components/settings/RoleManager';
 import SubcontractorDirectory from '@/components/settings/SubcontractorDirectory';

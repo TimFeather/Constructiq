@@ -1,4 +1,3 @@
-import { supabase } from '@/api/supabaseClient';
 import React, { useState } from 'react';
 import { InvitedUser, User } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -8,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { UserPlus, Clock, Trash2, Pencil, Check, X, ShieldOff, ShieldCheck } from 'lucide-react';
+import { UserPlus, Clock, Pencil, ShieldOff, ShieldCheck } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Label } from '@/components/ui/label';

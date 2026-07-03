@@ -1,11 +1,11 @@
 import { supabase, uploadFile } from '@/api/supabaseClient';
 import React, { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Save, Upload, X, Image } from 'lucide-react';
+import { Save, Upload, X } from 'lucide-react';
 
 // Stored in user profile under company_logo_url
 export default function AppearanceSettings({ user }) {

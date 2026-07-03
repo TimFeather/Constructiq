@@ -1,6 +1,6 @@
 import { invokeFunction } from '@/api/supabaseClient';
 import React, { useState, useEffect } from 'react';
-import { Tender, User, TradeTemplate, TenderRFI, TenderRFIResponse } from '@/api/entities';
+import { Tender, User, TradeTemplate } from '@/api/entities';
 import { useParams, useNavigate, useSearchParams, Link, Navigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ArrowLeft, Save, X, Trash2, AlertCircle, RefreshCw, FolderOpen, Lock, User as UserIcon, MessageSquare, ChevronDown, Pencil } from 'lucide-react';
+import { ArrowLeft, Save, X, Trash2, AlertCircle, RefreshCw, FolderOpen, Lock, User as UserIcon, MessageSquare, Pencil } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { useToast } from '@/components/ui/use-toast';
 import TenderDocuments from '@/components/tenders/TenderDocuments';
