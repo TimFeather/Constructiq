@@ -38,7 +38,7 @@ export function isWorkingDay(date, calendar = DEFAULT_CALENDAR) {
   }
   // SEVEN_DAY: all days are working days
 
-  const dateStr = d.toISOString().split('T')[0];
+  const dateStr = toDateStr(d);
 
   // Check holidays
   if ((calendar.holidays || []).includes(dateStr)) return false;
@@ -130,10 +130,19 @@ export function countWorkingDays(startDate, endDate, calendar = DEFAULT_CALENDAR
   return count;
 }
 
-/** Format date to yyyy-MM-dd */
+/**
+ * Format date to yyyy-MM-dd using LOCAL date components.
+ * Never use toISOString here: parseDate() creates local-midnight dates,
+ * and in UTC+ timezones (NZ is UTC+12/13) toISOString rolls them back to
+ * the previous day — shifting every schedule date and holiday match.
+ */
 export function toDateStr(date) {
   if (!date) return null;
-  return new Date(date).toISOString().split('T')[0];
+  const d = new Date(date);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 /** Parse yyyy-MM-dd to Date at midnight */

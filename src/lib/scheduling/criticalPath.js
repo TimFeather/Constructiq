@@ -12,14 +12,33 @@ import { topoSort } from './dependencyGraph.js';
 import {
   parseDate,
   toDateStr,
+  addWorkingDays,
   addWorkingHours,
   addElapsedHours,
   nextWorkingDay,
+  countWorkingDays,
   WORK_HOURS_PER_DAY,
   DEFAULT_CALENDAR,
 } from './calendarEngine.js';
 
 const FLOAT_TOLERANCE_HOURS = 0; // Tasks with ≤ this float are critical
+
+/** Signed working days from a to b (positive when b is after a). */
+function signedWorkingDays(a, b, calendar) {
+  if (b >= a) return countWorkingDays(a, b, calendar);
+  return -countWorkingDays(b, a, calendar);
+}
+
+/** Normalize a date input ('yyyy-MM-dd' string or Date) to a local-midnight Date. */
+function asDate(value) {
+  if (!value) return null;
+  if (value instanceof Date) {
+    const d = new Date(value);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+  return parseDate(value);
+}
 
 /**
  * Apply a dependency constraint between predecessor and successor.
@@ -33,10 +52,16 @@ function applyDependencyBoundary(dep, predEF, predES, succDurationHours, calenda
   const addLag = (date, lag) =>
     isElapsed ? addElapsedHours(date, lag) : addWorkingHours(date, lag, calendar);
 
+  // Dates are day-granular with INCLUSIVE finishes (a Mon–Fri task finishes
+  // "Friday", meaning end of Friday). Crossing a finish→start boundary (FS)
+  // therefore advances one extra working day: the successor starts the NEXT
+  // working day after the predecessor's finish, exactly as MS Project
+  // displays it. SS and FF compare like-for-like date points (no shift);
+  // SF crosses start→finish the other way (one working day back).
   switch (type) {
     case 'FS': {
-      // Successor ES ≥ Predecessor EF + Lag
-      const boundary = addLag(predEF, lagHours);
+      // Successor starts the next working day after Predecessor EF + Lag
+      const boundary = addWorkingDays(addLag(predEF, lagHours), 1, calendar);
       return { boundaryStart: boundary, boundaryFinish: null };
     }
     case 'SS': {
@@ -51,8 +76,8 @@ function applyDependencyBoundary(dep, predEF, predES, succDurationHours, calenda
       return { boundaryStart, boundaryFinish };
     }
     case 'SF': {
-      // Successor EF ≥ Predecessor ES + Lag
-      const boundaryFinish = addLag(predES, lagHours);
+      // Successor finishes the working day before Predecessor ES + Lag
+      const boundaryFinish = addWorkingDays(addLag(predES, lagHours), -1, calendar);
       const boundaryStart = addWorkingHours(boundaryFinish, -succDurationHours + WORK_HOURS_PER_DAY, calendar);
       return { boundaryStart, boundaryFinish };
     }
@@ -73,10 +98,13 @@ function applyBackwardBoundary(dep, succLS, succLF, predDurationHours, calendar)
   const subtractLag = (date, lag) =>
     isElapsed ? addElapsedHours(date, -lag) : addWorkingHours(date, -lag, calendar);
 
+  // Mirrors the forward-pass day-granular conventions: FS backs off one
+  // extra working day (finish is the day BEFORE the successor's start),
+  // SF advances one; SS and FF compare like-for-like.
   switch (type) {
     case 'FS': {
-      // Predecessor LF ≤ Successor LS - Lag
-      const boundary = subtractLag(succLS, lagHours);
+      // Predecessor LF ≤ the working day before (Successor LS - Lag)
+      const boundary = addWorkingDays(subtractLag(succLS, lagHours), -1, calendar);
       return { boundaryLF: boundary };
     }
     case 'SS': {
@@ -91,8 +119,8 @@ function applyBackwardBoundary(dep, succLS, succLF, predDurationHours, calendar)
       return { boundaryLF: boundary };
     }
     case 'SF': {
-      // Predecessor LS ≤ Successor LF - Lag
-      const boundary = subtractLag(succLF, lagHours);
+      // Predecessor LS ≤ the working day after (Successor LF - Lag)
+      const boundary = addWorkingDays(subtractLag(succLF, lagHours), 1, calendar);
       const boundaryLF = addWorkingHours(boundary, predDurationHours - WORK_HOURS_PER_DAY, calendar);
       return { boundaryLS: boundary, boundaryLF };
     }
@@ -119,43 +147,72 @@ function applyBackwardBoundary(dep, succLS, succLF, predDurationHours, calendar)
  *   startStr: string, finishStr: string, durationDays: number
  * }
  */
-export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALENDAR) {
+export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALENDAR, options = {}) {
   if (!tasks.length) return new Map();
 
   const taskMap = new Map(tasks.map(t => [t.id, t]));
   const sorted = topoSort(tasks, graph);
   const fallbackStart = parseDate(projectStartDate) || nextWorkingDay(new Date(), calendar);
+  const dataDate = asDate(options.dataDate);
 
   // ─── Forward Pass ───────────────────────────────────────────────────────────
-  const esMap = new Map(); // id → Date (Early Start)
-  const efMap = new Map(); // id → Date (Early Finish)
+  const esMap = new Map();       // id → Date (Early Start)
+  const efMap = new Map();       // id → Date (Early Finish)
+  const pinnedComplete = new Set(); // tasks locked to actuals (100% complete)
+  const conflictMap = new Map(); // id → { type, constraintDate, requiredDate }
 
   for (const task of sorted) {
     const durationHours = (task.duration || 1) * WORK_HOURS_PER_DAY;
     const isMilestone = task.is_milestone || task.duration === 0;
-
-    // Determine initial early start from constraint or stored date
+    const pct = Number(task.percent_complete) || 0;
+    const preds = graph.predecessors.get(task.id) || [];
     const constraint = task.constraint || { type: 'ASAP' };
-    let es = parseDate(task.start_date) || fallbackStart;
 
-    // Apply forward-pass constraints
+    // ── Completed tasks: pinned to actual dates, immovable ────────────────────
+    if (pct >= 100) {
+      const es = parseDate(task.actual_start) || parseDate(task.start_date) || fallbackStart;
+      const ef = parseDate(task.actual_finish) || parseDate(task.end_date) || new Date(es);
+      esMap.set(task.id, es);
+      efMap.set(task.id, ef);
+      pinnedComplete.add(task.id);
+      continue;
+    }
+
+    // ── In-progress tasks: start pinned to actual; remaining work resumes at
+    //    the data date (retained logic) ─────────────────────────────────────────
+    if (pct > 0) {
+      const es = parseDate(task.actual_start) || parseDate(task.start_date) || fallbackStart;
+      let ef;
+      if (isMilestone) {
+        ef = new Date(es);
+      } else {
+        const totalDays = task.duration || 1;
+        const remainingDays = Math.max(1, Math.ceil(totalDays * (1 - pct / 100)));
+        const resumeAt = dataDate && dataDate > es
+          ? nextWorkingDay(dataDate, calendar)
+          : nextWorkingDay(es, calendar);
+        ef = remainingDays <= 1 ? new Date(resumeAt) : addWorkingDays(resumeAt, remainingDays - 1, calendar);
+        // Never finish before the classic ES+duration finish when there's no data date
+        const classicEF = addWorkingHours(nextWorkingDay(es, calendar), durationHours - WORK_HOURS_PER_DAY, calendar);
+        if (!dataDate && classicEF > ef) ef = classicEF;
+      }
+      esMap.set(task.id, es);
+      efMap.set(task.id, ef);
+      continue;
+    }
+
+    // ── Not-started tasks: true CPM ───────────────────────────────────────────
+    // Tasks WITH predecessors derive their dates purely from the network:
+    // they can be pulled earlier as well as pushed later. Tasks with no
+    // predecessors anchor to their stored start date.
+    let es = preds.length
+      ? new Date(fallbackStart)
+      : (parseDate(task.start_date) || new Date(fallbackStart));
+
+    // 1. Floor constraints (can only push later)
     if (constraint.type === 'SNET' && constraint.date) {
       const snetDate = parseDate(constraint.date);
       if (snetDate && snetDate > es) es = snetDate;
-    }
-    if (constraint.type === 'SNLT' && constraint.date) {
-      // Start No Later Than — caps the latest allowed start (enforced in forward pass)
-      const snltDate = parseDate(constraint.date);
-      if (snltDate && es > snltDate) es = snltDate;
-    }
-    if (constraint.type === 'MSO' && constraint.date) {
-      es = parseDate(constraint.date) || es;
-    }
-    if (constraint.type === 'MFO' && constraint.date) {
-      const mfoDate = parseDate(constraint.date);
-      if (mfoDate) {
-        es = addWorkingHours(mfoDate, -(durationHours - WORK_HOURS_PER_DAY), calendar);
-      }
     }
     if (constraint.type === 'FNET' && constraint.date) {
       const fnetDate = parseDate(constraint.date);
@@ -165,8 +222,7 @@ export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALEND
       }
     }
 
-    // Apply predecessor dependencies
-    const preds = graph.predecessors.get(task.id) || [];
+    // 2. Dependency boundaries (max across all predecessors)
     for (const dep of preds) {
       const predES = esMap.get(dep.id);
       const predEF = efMap.get(dep.id);
@@ -183,6 +239,47 @@ export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALEND
         const impliedStart = addWorkingHours(boundaryFinish, -(durationHours - WORK_HOURS_PER_DAY), calendar);
         if (impliedStart > es) es = impliedStart;
       }
+    }
+    const dependencyDrivenES = new Date(es);
+
+    // 3. Ceiling / pinning constraints — honoured, but a contradiction with
+    //    the dependency-driven date is flagged instead of silently resolved.
+    if (constraint.type === 'MSO' && constraint.date) {
+      const msoDate = parseDate(constraint.date);
+      if (msoDate) {
+        if (dependencyDrivenES > msoDate) {
+          conflictMap.set(task.id, {
+            type: 'MSO', constraintDate: toDateStr(msoDate), requiredDate: toDateStr(dependencyDrivenES),
+          });
+        }
+        es = msoDate;
+      }
+    }
+    if (constraint.type === 'MFO' && constraint.date) {
+      const mfoDate = parseDate(constraint.date);
+      if (mfoDate) {
+        const impliedStart = addWorkingHours(mfoDate, -(durationHours - WORK_HOURS_PER_DAY), calendar);
+        if (dependencyDrivenES > impliedStart) {
+          conflictMap.set(task.id, {
+            type: 'MFO', constraintDate: toDateStr(mfoDate), requiredDate: toDateStr(dependencyDrivenES),
+          });
+        }
+        es = impliedStart;
+      }
+    }
+    if (constraint.type === 'SNLT' && constraint.date) {
+      const snltDate = parseDate(constraint.date);
+      if (snltDate && es > snltDate) {
+        conflictMap.set(task.id, {
+          type: 'SNLT', constraintDate: toDateStr(snltDate), requiredDate: toDateStr(dependencyDrivenES),
+        });
+        es = snltDate;
+      }
+    }
+
+    // 4. Data date: remaining (unstarted) work cannot be scheduled in the past
+    if (dataDate && dataDate > es) {
+      es = new Date(dataDate);
     }
 
     // Snap to next working day
@@ -282,33 +379,66 @@ export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALEND
 
     if (!es || !ef) continue;
 
-    const totalFloatHours = ls && es ? Math.round((ls.getTime() - es.getTime()) / 3600000) : 0;
+    const isComplete = pinnedComplete.has(task.id);
 
-    // Free float: how much this task can be delayed without delaying its immediate successors
+    // Total float in WORKING hours (LS − ES counted in working days × 8),
+    // so a one-day float over a weekend reads as 8h, not 72h.
+    // Negative float is meaningful: it signals a constraint conflict or a
+    // slip past a deadline-type constraint. Do NOT clamp it.
+    let totalFloatHours = ls && es
+      ? signedWorkingDays(es, ls, calendar) * WORK_HOURS_PER_DAY
+      : 0;
+
+    // Free float: how many working days this task can slip before it delays
+    // any immediate successor. Computed per link type: the gap between the
+    // boundary this task currently imposes and where the successor actually
+    // sits (successors may be held later by other predecessors).
     let freeFloatHours = totalFloatHours;
     const succs = graph.successors.get(task.id) || [];
     for (const succ of succs) {
       const succES = esMap.get(succ.id);
+      const succEF = efMap.get(succ.id);
       if (!succES) continue;
-      const gap = Math.round((succES.getTime() - ef.getTime()) / 3600000);
-      if (gap < freeFloatHours) freeFloatHours = gap;
+      const succTask = taskMap.get(succ.id);
+      const succDurH = ((succTask && succTask.duration) || 1) * WORK_HOURS_PER_DAY;
+      const { boundaryStart, boundaryFinish } = applyDependencyBoundary(succ, ef, es, succDurH, calendar);
+
+      let gapDays = null;
+      if (boundaryStart) gapDays = signedWorkingDays(boundaryStart, succES, calendar);
+      if (boundaryFinish && succEF) {
+        const finishGap = signedWorkingDays(boundaryFinish, succEF, calendar);
+        gapDays = gapDays === null ? finishGap : Math.min(gapDays, finishGap);
+      }
+      if (gapDays !== null && gapDays * WORK_HOURS_PER_DAY < freeFloatHours) {
+        freeFloatHours = gapDays * WORK_HOURS_PER_DAY;
+      }
     }
-    freeFloatHours = Math.max(0, freeFloatHours);
 
-    const isCritical = totalFloatHours <= FLOAT_TOLERANCE_HOURS;
+    // Completed tasks are history — no float, never on the (remaining) critical path
+    if (isComplete) {
+      totalFloatHours = 0;
+      freeFloatHours = 0;
+    }
 
-    const durationDays = task.duration === 0 ? 0 : Math.max(1, Math.round(
-      (ef.getTime() - es.getTime()) / 86400000
-    ) + 1);
+    const isCritical = !isComplete && totalFloatHours <= FLOAT_TOLERANCE_HOURS;
+
+    // durationDays must stay in WORKING days (the unit the duration column
+    // uses) — never the calendar-day span, which would silently inflate
+    // durations across weekends when patches are persisted.
+    const isMilestone = task.is_milestone || task.duration === 0;
+    const durationDays = isMilestone ? 0 : (task.duration ?? 1);
 
     result.set(task.id, {
       earlyStart: es,
       earlyFinish: ef,
       lateStart: ls,
       lateFinish: lf,
-      totalFloat: Math.max(0, totalFloatHours),
+      totalFloat: totalFloatHours,
       freeFloat: freeFloatHours,
       isCritical,
+      hasNegativeFloat: totalFloatHours < 0,
+      constraintConflict: conflictMap.get(task.id) || null,
+      isComplete,
       // Convenience output fields
       start: es,
       finish: ef,
