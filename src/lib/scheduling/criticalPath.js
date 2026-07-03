@@ -23,6 +23,15 @@ import {
 
 const FLOAT_TOLERANCE_HOURS = 0; // Tasks with ≤ this float are critical
 
+// A task's ES-to-EF span, in hours, net of the first working day (which the
+// FS/day-granular boundary math already accounts for via its own +1 day
+// shift). Durations under one working day (real-world half-day inspections,
+// sign-offs, etc.) must floor at 0, not go negative — a negative span here
+// walks EF backward past ES, producing a finish date before the start date.
+function daySpanHours(durationHours) {
+  return Math.max(0, durationHours - WORK_HOURS_PER_DAY);
+}
+
 /** Signed working days from a to b (positive when b is after a). */
 function signedWorkingDays(a, b, calendar) {
   if (b >= a) return countWorkingDays(a, b, calendar);
@@ -72,13 +81,13 @@ function applyDependencyBoundary(dep, predEF, predES, succDurationHours, calenda
     case 'FF': {
       // Successor EF ≥ Predecessor EF + Lag
       const boundaryFinish = addLag(predEF, lagHours);
-      const boundaryStart = addWorkingHours(boundaryFinish, -succDurationHours + WORK_HOURS_PER_DAY, calendar);
+      const boundaryStart = addWorkingHours(boundaryFinish, -daySpanHours(succDurationHours), calendar);
       return { boundaryStart, boundaryFinish };
     }
     case 'SF': {
       // Successor finishes the working day before Predecessor ES + Lag
       const boundaryFinish = addWorkingDays(addLag(predES, lagHours), -1, calendar);
-      const boundaryStart = addWorkingHours(boundaryFinish, -succDurationHours + WORK_HOURS_PER_DAY, calendar);
+      const boundaryStart = addWorkingHours(boundaryFinish, -daySpanHours(succDurationHours), calendar);
       return { boundaryStart, boundaryFinish };
     }
     default:
@@ -110,7 +119,7 @@ function applyBackwardBoundary(dep, succLS, succLF, predDurationHours, calendar)
     case 'SS': {
       // Predecessor LS ≤ Successor LS - Lag
       const boundary = subtractLag(succLS, lagHours);
-      const boundaryLF = addWorkingHours(boundary, predDurationHours - WORK_HOURS_PER_DAY, calendar);
+      const boundaryLF = addWorkingHours(boundary, daySpanHours(predDurationHours), calendar);
       return { boundaryLS: boundary, boundaryLF };
     }
     case 'FF': {
@@ -121,7 +130,7 @@ function applyBackwardBoundary(dep, succLS, succLF, predDurationHours, calendar)
     case 'SF': {
       // Predecessor LS ≤ the working day after (Successor LF - Lag)
       const boundary = addWorkingDays(subtractLag(succLF, lagHours), 1, calendar);
-      const boundaryLF = addWorkingHours(boundary, predDurationHours - WORK_HOURS_PER_DAY, calendar);
+      const boundaryLF = addWorkingHours(boundary, daySpanHours(predDurationHours), calendar);
       return { boundaryLS: boundary, boundaryLF };
     }
     default:
@@ -193,7 +202,7 @@ export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALEND
           : nextWorkingDay(es, calendar);
         ef = remainingDays <= 1 ? new Date(resumeAt) : addWorkingDays(resumeAt, remainingDays - 1, calendar);
         // Never finish before the classic ES+duration finish when there's no data date
-        const classicEF = addWorkingHours(nextWorkingDay(es, calendar), durationHours - WORK_HOURS_PER_DAY, calendar);
+        const classicEF = addWorkingHours(nextWorkingDay(es, calendar), daySpanHours(durationHours), calendar);
         if (!dataDate && classicEF > ef) ef = classicEF;
       }
       esMap.set(task.id, es);
@@ -217,7 +226,7 @@ export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALEND
     if (constraint.type === 'FNET' && constraint.date) {
       const fnetDate = parseDate(constraint.date);
       if (fnetDate) {
-        const neededStart = addWorkingHours(fnetDate, -(durationHours - WORK_HOURS_PER_DAY), calendar);
+        const neededStart = addWorkingHours(fnetDate, -daySpanHours(durationHours), calendar);
         if (neededStart > es) es = neededStart;
       }
     }
@@ -236,7 +245,7 @@ export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALEND
         es = boundaryStart;
       }
       if (boundaryFinish) {
-        const impliedStart = addWorkingHours(boundaryFinish, -(durationHours - WORK_HOURS_PER_DAY), calendar);
+        const impliedStart = addWorkingHours(boundaryFinish, -daySpanHours(durationHours), calendar);
         if (impliedStart > es) es = impliedStart;
       }
     }
@@ -258,7 +267,7 @@ export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALEND
     if (constraint.type === 'MFO' && constraint.date) {
       const mfoDate = parseDate(constraint.date);
       if (mfoDate) {
-        const impliedStart = addWorkingHours(mfoDate, -(durationHours - WORK_HOURS_PER_DAY), calendar);
+        const impliedStart = addWorkingHours(mfoDate, -daySpanHours(durationHours), calendar);
         if (dependencyDrivenES > impliedStart) {
           conflictMap.set(task.id, {
             type: 'MFO', constraintDate: toDateStr(mfoDate), requiredDate: toDateStr(dependencyDrivenES),
@@ -287,7 +296,7 @@ export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALEND
 
     const ef = isMilestone
       ? new Date(es)
-      : addWorkingHours(es, durationHours - WORK_HOURS_PER_DAY, calendar);
+      : addWorkingHours(es, daySpanHours(durationHours), calendar);
 
     esMap.set(task.id, es);
     efMap.set(task.id, ef);
@@ -308,7 +317,7 @@ export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALEND
     const newEF = new Date(projectEnd);
     const newES = isMilestone
       ? new Date(newEF)
-      : addWorkingHours(newEF, -(durationHours - WORK_HOURS_PER_DAY), calendar);
+      : addWorkingHours(newEF, -daySpanHours(durationHours), calendar);
     esMap.set(task.id, newES);
     efMap.set(task.id, newEF);
   }
@@ -343,7 +352,7 @@ export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALEND
 
     const ls = isMilestone
       ? new Date(lf)
-      : addWorkingHours(lf, -(durationHours - WORK_HOURS_PER_DAY), calendar);
+      : addWorkingHours(lf, -daySpanHours(durationHours), calendar);
 
     lsMap.set(task.id, ls);
     lfMap.set(task.id, lf);
