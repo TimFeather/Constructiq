@@ -1,10 +1,31 @@
 import React, { useMemo } from 'react';
 import { format, differenceInDays, addDays } from 'date-fns';
-import { CheckCircle2, Clock, AlertTriangle, Target, Flag, TrendingUp, Circle } from 'lucide-react';
+import { CheckCircle2, Clock, AlertTriangle, TrendingUp, Circle, GitCompareArrows } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { calculateVariance } from '@/lib/scheduling/baselineEngine';
 
-export default function ProgrammeHealth({ tasks, scheduledMap }) {
+export default function ProgrammeHealth({ tasks, scheduledMap, baselineMap, baselineName }) {
   const today = new Date();
+
+  const baselineStats = useMemo(() => {
+    if (!baselineMap || !baselineMap.size) return null;
+    let onTrack = 0, ahead = 0, slipped = 0, totalSlipDays = 0, worst = null;
+    for (const t of tasks) {
+      if (tasks.some(o => o.parent_id === t.id)) continue; // leaf only
+      const record = baselineMap.get(t.id);
+      if (!record) continue;
+      const resolved = scheduledMap?.get(t.id);
+      const v = calculateVariance(record, resolved);
+      if (!v) continue;
+      if (v.finishVariance > 0) {
+        slipped++;
+        totalSlipDays += v.finishVariance;
+        if (!worst || v.finishVariance > worst.variance) worst = { task: t, variance: v.finishVariance };
+      } else if (v.finishVariance < 0) ahead++;
+      else onTrack++;
+    }
+    return { onTrack, ahead, slipped, totalSlipDays, worst };
+  }, [tasks, scheduledMap, baselineMap]);
 
   const stats = useMemo(() => {
     const leafTasks = tasks.filter(t => !tasks.some(o => o.parent_id === t.id));
@@ -107,6 +128,40 @@ export default function ProgrammeHealth({ tasks, scheduledMap }) {
           <p className="text-[10px] text-muted-foreground">on critical path</p>
         </div>
       </div>
+
+      {/* Baseline comparison */}
+      {baselineStats && (
+        <div className="rounded-xl border bg-card p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <GitCompareArrows className="w-4 h-4 text-muted-foreground" />
+            <p className="text-xs font-semibold">vs Baseline{baselineName ? `: ${baselineName}` : ''}</p>
+          </div>
+          <div className="grid grid-cols-4 gap-3 text-center">
+            <div>
+              <p className="text-2xl font-bold text-emerald-600">{baselineStats.ahead}</p>
+              <p className="text-[10px] text-muted-foreground">ahead</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold">{baselineStats.onTrack}</p>
+              <p className="text-[10px] text-muted-foreground">on track</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-red-600">{baselineStats.slipped}</p>
+              <p className="text-[10px] text-muted-foreground">slipped</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-red-600">{baselineStats.totalSlipDays}d</p>
+              <p className="text-[10px] text-muted-foreground">total days lost</p>
+            </div>
+          </div>
+          {baselineStats.worst && (
+            <p className="text-[11px] text-muted-foreground mt-3 pt-3 border-t">
+              Worst slip: <span className="font-medium text-foreground">{baselineStats.worst.task.name}</span>
+              {' '}(+{baselineStats.worst.variance}d)
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Second row */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">

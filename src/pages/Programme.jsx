@@ -38,6 +38,9 @@ import { downloadMspdi, downloadProgrammeExcel } from '@/lib/scheduleExport';
 import ImportDiffDialog from '@/components/programme/ImportDiffDialog';
 import AddTaskDialog from '@/components/programme/AddTaskDialog';
 import ScheduleSettingsPopover from '@/components/programme/ScheduleSettingsPopover';
+import BaselineManager from '@/components/programme/BaselineManager';
+import { buildBaselineMap } from '@/lib/scheduling/baselineEngine';
+import { TaskBaselineItem } from '@/api/entities';
 import { runScheduleEngine, runScheduleEngineByProject, calendarForProgramme } from '@/lib/scheduling/scheduleEngine';
 import { updateTaskStartDate, updateTaskDuration, updateTaskDependency } from '@/lib/scheduleUpdateService';
 import { fetchProgrammesByProject } from '@/api/programmeData';
@@ -83,6 +86,7 @@ export default function Programme() {
 
   const [showCriticalPath, setShowCriticalPath] = useState(false); // critical-only filter
   const [showAddTask, setShowAddTask] = useState(false);
+  const [selectedBaselineId, setSelectedBaselineId] = useState(null); // baseline overlay
 
   const queryClient = useQueryClient();
   const taskScrollRef = useRef(null);
@@ -135,6 +139,20 @@ export default function Programme() {
     queryFn: fetchProgrammesByProject,
     enabled: selectedProjectId === 'all',
   });
+
+  // Baseline overlay: items for the selected baseline
+  const { data: baselineItems = [] } = useQuery({
+    queryKey: ['baselineItems', selectedBaselineId],
+    queryFn: () => TaskBaselineItem.filter({ baseline_id: selectedBaselineId }),
+    enabled: !!selectedBaselineId,
+  });
+  const baselineMap = useMemo(
+    () => (selectedBaselineId && baselineItems.length ? buildBaselineMap(baselineItems) : null),
+    [selectedBaselineId, baselineItems]
+  );
+
+  // Baseline selection is per-project — clear it when switching
+  useEffect(() => { setSelectedBaselineId(null); }, [selectedProjectId]);
 
   // Realtime task refresh every 30s (replaces Base44 subscribe)
   useEffect(() => {
@@ -518,6 +536,16 @@ export default function Programme() {
                 programme={programme}
               />
             )}
+            {programmeEditable && (
+              <BaselineManager
+                projectId={selectedProjectId}
+                tasks={tasks}
+                scheduledMap={scheduledMap}
+                selectedBaselineId={selectedBaselineId}
+                onSelectBaseline={setSelectedBaselineId}
+                canDelete={['admin', 'pricing'].includes(user?.role)}
+              />
+            )}
             <Button variant="outline" size="sm" onClick={expandAll} title="Expand all" className="gap-1.5 text-xs h-9"><ChevronsUpDown className="w-3.5 h-3.5" />Expand All</Button>
             <Button variant="outline" size="sm" onClick={collapseAll} title="Collapse all" className="gap-1.5 text-xs h-9"><ChevronsDownUp className="w-3.5 h-3.5" />Collapse</Button>
             <Button variant="outline" size="icon" onClick={() => cycleZoom('out')} title={`Zoom out (${zoom})`}><ZoomOut className="w-4 h-4" /></Button>
@@ -596,6 +624,7 @@ export default function Programme() {
                     onToggleExpand={onToggleExpand}
                     onTaskClick={setSelectedTask}
                     onEditTask={setEditingTask}
+                    baselineMap={baselineMap}
                     scrollRef={taskScrollRef}
                     onScroll={() => {
                       if (taskScrollRef.current && ganttScrollRef.current) {
@@ -617,7 +646,7 @@ export default function Programme() {
                     syncScroll(ganttScrollRef.current, taskScrollRef.current);
                   }
                 }}
-                baselineMap={null}
+                baselineMap={baselineMap}
                 onTaskClick={setSelectedTask}
                 editable={programmeEditable && !isMobile}
                 dataDate={selectedProjectId !== 'all' ? (programme?.data_date || null) : null}
@@ -635,7 +664,7 @@ export default function Programme() {
         </TabsContent>
 
         <TabsContent value="health" className="flex-1 overflow-hidden border rounded-lg bg-card">
-          <ProgrammeHealth tasks={tasks} scheduledMap={scheduledMap} />
+          <ProgrammeHealth tasks={tasks} scheduledMap={scheduledMap} baselineMap={baselineMap} />
         </TabsContent>
       </Tabs>
 
