@@ -16,8 +16,11 @@ import {
 import {
   PanelLeftClose, PanelLeftOpen, Upload, Printer, ZoomIn, ZoomOut,
   Trash2, Target, Calendar, LayoutDashboard, CalendarDays,
-  ChevronsDownUp, ChevronsUpDown, Pencil,
+  ChevronsDownUp, ChevronsUpDown, Pencil, Download,
 } from 'lucide-react';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import PageHeader from '@/components/shared/PageHeader';
@@ -29,7 +32,11 @@ import ProgrammeHealth from '@/components/programme/ProgrammeHealth';
 import LookAhead from '@/components/programme/LookAhead';
 import ProgressModal from '@/components/programme/ProgressModal';
 import { parseXML, parseMPX, parseExcelCSV } from '@/lib/scheduleImportParsers';
-import { runScheduleEngine } from '@/lib/scheduling/scheduleEngine';
+import { computeImportDiff, isUpdateImport } from '@/lib/scheduleImportDiff';
+import { executeFreshImport, executeUpdateImport } from '@/lib/scheduleImportService';
+import { downloadMspdi, downloadProgrammeExcel } from '@/lib/scheduleExport';
+import ImportDiffDialog from '@/components/programme/ImportDiffDialog';
+import { runScheduleEngine, calendarForProgramme } from '@/lib/scheduling/scheduleEngine';
 import { getVisibleTasks } from '@/lib/programme/visibleTasks';
 import { bulkOperationState } from '@/lib/bulkOperationState';
 import { retry429 } from '@/lib/retry429';
@@ -62,6 +69,8 @@ export default function Programme() {
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [mppFile, setMppFile] = useState(null);
   const [importProgress, setImportProgress] = useState(null); // { stage, pct, statusText, error }
+  // Update-import review: { diff, fileName } — shown before committing a re-import
+  const [pendingImport, setPendingImport] = useState(null);
 
   // Delete state
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -203,74 +212,25 @@ export default function Programme() {
         return;
       }
 
-      // Stage 3: chunked create with exponential backoff
-      setStage(2, 30, `Creating ${parsedTasks.length} tasks`);
-      const tasksToCreate = parsedTasks.map(({ _mspUid, _predecessorLinks, _parentUid, _outlineLevel, is_summary, ...t }) => t);
-
-      const CREATE_BATCH = 100;
-      const created = [];
-      for (let i = 0; i < tasksToCreate.length; i += CREATE_BATCH) {
-        const chunk = tasksToCreate.slice(i, i + CREATE_BATCH);
-        const result = await retry429(() => Task.bulkCreate(chunk));
-        created.push(...result);
-        const pct = 30 + Math.round(((i + chunk.length) / tasksToCreate.length) * 25);
-        setStage(2, pct, `${created.length} / ${tasksToCreate.length} tasks created`);
-      }
-      setStage(2, 55, `${created.length} tasks created`);
-
-
-      const uidToDbId = new Map();
-      parsedTasks.forEach((pt, i) => {
-        if (pt._mspUid != null && created[i]?.id) uidToDbId.set(pt._mspUid, created[i].id);
-      });
-
-      // Stage 4: link dependencies sequentially
-      setStage(3, 60);
-      const updates = [];
-      parsedTasks.forEach((pt, i) => {
-        const dbId = created[i]?.id;
-        if (!dbId) return;
-        const payload = {};
-        if (pt._predecessorLinks?.length) {
-          const predecessors = pt._predecessorLinks
-            .map(link => {
-              const predDbId = uidToDbId.get(link._predUid);
-              if (!predDbId) return null;
-              return { predecessor_id: predDbId, task_id: predDbId, type: link.type, lag_hours: link.lag_hours, lag_days: Math.round(link.lag_hours / 8), is_elapsed: link.is_elapsed };
-            }).filter(Boolean);
-          if (predecessors.length) payload.predecessors = predecessors;
-        }
-        if (pt._parentUid != null) {
-          const parentDbId = uidToDbId.get(pt._parentUid);
-          if (parentDbId) payload.parent_id = parentDbId;
-        }
-        if (Object.keys(payload).length) updates.push({ id: dbId, ...payload });
-      });
-
-      const DEP_BATCH = 15;
-      let done = 0;
-      for (let i = 0; i < updates.length; i += DEP_BATCH) {
-        const batch = updates.slice(i, i + DEP_BATCH);
-        await Promise.all(batch.map(({ id, ...payload }) =>
-          retry429(() => Task.update(id, payload)).then(() => {
-            done++;
-            setStage(3, 60 + Math.round((done / updates.length) * 25), `${done} / ${updates.length} dependencies`);
-          })
-        ));
+      // Update-vs-append: an XML re-import into a programme that already has
+      // MS Project UIDs goes through a diff + confirmation screen instead of
+      // blindly appending duplicates.
+      if (ext === 'xml' && isUpdateImport(tasks)) {
+        const diff = computeImportDiff(parsedTasks, tasks);
+        setImportProgress(null);
+        setPendingImport({ diff, fileName: mppFile.name });
+        return;
       }
 
-      // Stage 5/6: finalise
-      setStage(4, 88, 'Building WBS structure');
-      setStage(5, 95, 'Finalising');
+      const createdCount = await executeFreshImport(parsedTasks, selectedProjectId, setStage);
 
       setImportProgress(p => ({ ...p, pct: 100, statusText: 'Import complete!' }));
-
 
       setTimeout(async () => {
         setImportProgress(null);
         setMppFile(null);
         await queryClient.refetchQueries({ queryKey: ['tasks'] });
-        toast({ title: `Schedule imported`, description: `${parsedTasks.length} tasks loaded successfully.`, duration: 4000 });
+        toast({ title: `Schedule imported`, description: `${createdCount} tasks loaded successfully.`, duration: 4000 });
       }, 1200);
 
     } catch (error) {
@@ -278,6 +238,62 @@ export default function Programme() {
     } finally {
       bulkOperationState.active = false;
     }
+  };
+
+  // Commit a reviewed update-import (from the diff dialog)
+  const handleConfirmUpdateImport = async () => {
+    const pending = pendingImport;
+    setPendingImport(null);
+    if (!pending) return;
+
+    const setStage = (stageIdx, pct, detail = '') => {
+      setImportProgress({
+        stage: stageIdx + 1,
+        stageOf: IMPORT_STAGES.length,
+        pct,
+        statusText: `${IMPORT_STAGES[stageIdx]}${detail ? ` — ${detail}` : ''}`,
+        error: null,
+      });
+    };
+
+    bulkOperationState.active = true;
+    try {
+      const { createdCount, updatedCount } = await executeUpdateImport(
+        pending.diff, selectedProjectId, tasks, user?.id, setStage
+      );
+      setImportProgress(p => ({ ...p, pct: 100, statusText: 'Update complete!' }));
+      setTimeout(async () => {
+        setImportProgress(null);
+        setMppFile(null);
+        await queryClient.refetchQueries({ queryKey: ['tasks'] });
+        toast({
+          title: 'Programme updated',
+          description: `${createdCount} tasks added, ${updatedCount} updated. ${pending.diff.missing.length ? `${pending.diff.missing.length} tasks missing from the file were kept.` : ''}`,
+          duration: 5000,
+        });
+      }, 800);
+    } catch (error) {
+      setImportProgress(p => ({ ...(p || {}), error: error.message || 'Update import failed.' }));
+    } finally {
+      bulkOperationState.active = false;
+    }
+  };
+
+  // ─── Export ──────────────────────────────────────────────────────────────────
+  const selectedProjectName = projects.find(p => p.id === selectedProjectId)?.name || 'programme';
+
+  const handleExportMspdi = () => {
+    const calendar = calendarForProgramme(programme, tasks);
+    downloadMspdi(tasks, programme, {
+      projectName: selectedProjectName,
+      holidays: calendar.holidays,
+    });
+    toast({ title: 'Exported', description: 'MS Project XML downloaded — opens via File → Open in Microsoft Project.', duration: 4000 });
+  };
+
+  const handleExportExcel = () => {
+    downloadProgrammeExcel(tasks, scheduledMap, selectedProjectName);
+    toast({ title: 'Exported', description: 'Excel programme downloaded.', duration: 3000 });
   };
 
   // ─── Sequential delete with exponential backoff ──────────────────────────────
@@ -416,6 +432,19 @@ export default function Programme() {
             <Button variant="outline" size="icon" onClick={() => cycleZoom('out')} title={`Zoom out (${zoom})`}><ZoomOut className="w-4 h-4" /></Button>
             <Button variant="outline" size="icon" onClick={() => cycleZoom('in')} title={`Zoom in (${zoom})`}><ZoomIn className="w-4 h-4" /></Button>
             <Button variant="outline" size="icon" onClick={() => window.print()} title="Print"><Printer className="w-4 h-4" /></Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-1.5 text-xs h-9"
+                  disabled={selectedProjectId === 'all' || tasks.length === 0}
+                  title={selectedProjectId === 'all' ? 'Select a project to export' : 'Export programme'}>
+                  <Download className="w-3.5 h-3.5" /> Export
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={handleExportMspdi}>MS Project XML (.xml)</DropdownMenuItem>
+                <DropdownMenuItem onClick={handleExportExcel}>Excel (.xlsx)</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button onClick={() => { if (selectedProjectId === 'all' && projects[0]?.id) setSelectedProjectId(projects[0].id); setShowImportDialog(true); }} disabled={!!deleteProgress} className="gap-2"><Upload className="w-4 h-4" /> Import</Button>
             <Button variant="destructive" size="icon"
               onClick={() => setShowDeleteConfirm(true)}
@@ -529,6 +558,16 @@ export default function Programme() {
         onOpenChange={open => { if (!open) setSelectedTask(null); }}
       />
 
+      {/* Update-import review (diff before commit) */}
+      <ImportDiffDialog
+        open={!!pendingImport}
+        onOpenChange={open => { if (!open) setPendingImport(null); }}
+        diff={pendingImport?.diff || null}
+        fileName={pendingImport?.fileName || ''}
+        onConfirm={handleConfirmUpdateImport}
+        onCancel={() => { setPendingImport(null); setMppFile(null); }}
+      />
+
       {/* Import progress modal */}
       <ProgressModal
         open={!!importProgress}
@@ -574,7 +613,9 @@ export default function Programme() {
           <DialogHeader><DialogTitle>Import Schedule</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Import from MS Project or Excel. The imported schedule becomes the master plan — dates are read-only in ConstructIQ.
+              Import from MS Project or Excel. Re-importing an updated XML file into an existing
+              programme shows a review screen — existing tasks are updated by their MS Project ID,
+              new ones added, and nothing is deleted.
             </p>
             <div className="grid grid-cols-3 gap-2 text-xs">
               <div className="rounded-md border p-2.5 space-y-1"><p className="font-semibold">XML (recommended)</p><p className="text-muted-foreground">File → Save As → XML Format</p></div>

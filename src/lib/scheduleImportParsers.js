@@ -13,18 +13,26 @@ const formatDate = (str) => {
 };
 
 const parseDuration = (durationStr) => {
+  if (durationStr === 0 || durationStr === '0') return 0;
   if (!durationStr) return 1;
-  if (typeof durationStr === 'number') return Math.max(1, Math.round(durationStr));
-  // ISO 8601: P5DT0H or PT40H
+  if (typeof durationStr === 'number') return Math.max(0, Math.round(durationStr));
+  // ISO 8601: P5DT0H or PT40H0M0S (0 is valid — milestones)
   const dayMatch = durationStr.match(/P(\d+)D/);
-  if (dayMatch) return parseInt(dayMatch[1]);
-  const hourMatch = durationStr.match(/PT(\d+)H/);
-  if (hourMatch) return Math.max(1, Math.round(parseInt(hourMatch[1]) / 8));
+  const hourMatch = durationStr.match(/PT(\d+(?:\.\d+)?)H/);
+  if (dayMatch || hourMatch) {
+    const days = (dayMatch ? parseInt(dayMatch[1]) : 0)
+      + (hourMatch ? parseFloat(hourMatch[1]) / 8 : 0);
+    return Math.round(days * 100) / 100;
+  }
   // Plain number string
   const num = parseFloat(durationStr);
-  if (!isNaN(num)) return Math.max(1, Math.round(num));
+  if (!isNaN(num)) return Math.max(0, Math.round(num * 100) / 100);
   return 1;
 };
+
+// MSPDI PredecessorLink Type codes (MS Project XML spec): 0=FF, 1=FS, 2=SF, 3=SS
+export const MSPDI_TYPE_TO_DEP = { 0: 'FF', 1: 'FS', 2: 'SF', 3: 'SS' };
+export const DEP_TO_MSPDI_TYPE = { FF: 0, FS: 1, SF: 2, SS: 3 };
 
 // ─── MS Project XML ────────────────────────────────────────────────────────────
 // Returns tasks with _mspUid (integer) and _predecessorLinks (raw UID-based deps).
@@ -44,14 +52,13 @@ export const parseXML = (text, projectId) => {
     const predLinks = Array.from(node.querySelectorAll('PredecessorLink')).map(pl => {
       const predUid = pl.querySelector('PredecessorUID')?.textContent?.trim();
       if (!predUid || predUid === '0') return null;
-      const typeMap = { '0': 'SS', '1': 'FS', '2': 'SF', '3': 'FF' }; // MS Project: 0=SS,1=FS,2=SF,3=FF
       const rawType = pl.querySelector('Type')?.textContent?.trim();
       const lagText = pl.querySelector('LinkLag')?.textContent?.trim();
-      // MS Project stores lag in 1/10 minutes; convert to hours
-      const lagHours = lagText ? Math.round(parseInt(lagText) / 600) : 0;
+      // MS Project stores lag in 1/10 minutes; convert to hours (can be fractional/negative)
+      const lagHours = lagText ? Math.round((parseInt(lagText) / 600) * 100) / 100 : 0;
       return {
         _predUid: parseInt(predUid),
-        type: typeMap[rawType] || 'FS',
+        type: MSPDI_TYPE_TO_DEP[parseInt(rawType)] || 'FS',
         lag_hours: lagHours,
         is_elapsed: false,
       };
@@ -61,15 +68,20 @@ export const parseXML = (text, projectId) => {
     const constraintDate = get('ConstraintDate');
     const constraintTypeMap = { '0':'ASAP','1':'ALAP','2':'MSO','3':'MFO','4':'SNET','5':'SNLT','6':'FNET','7':'FNLT' };
 
+    const isMilestone = get('Milestone') === '1';
+    const duration = parseDuration(get('Duration'));
+
     const task = {
       _mspUid: parseInt(uid),
       _outlineLevel: parseInt(get('OutlineLevel')) || 0,
+      mspdi_uid: parseInt(uid),   // persisted for round-trip / re-import matching
       name,
       wbs: get('WBS'),
       level: Math.min(parseInt(get('OutlineLevel')) || 0, 3),
       start_date: formatDate(get('Start')),
       end_date: formatDate(get('Finish')),
-      duration: parseDuration(get('Duration')),
+      duration: isMilestone ? 0 : duration,
+      is_milestone: isMilestone || duration === 0,
       percent_complete: parseInt(get('PercentComplete')) || 0,
       is_summary: get('Summary') === '1',
       sort_order: parseInt(get('ID')) || 0,
