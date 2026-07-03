@@ -16,7 +16,7 @@ import {
 import {
   PanelLeftClose, PanelLeftOpen, Upload, Printer, ZoomIn, ZoomOut,
   Trash2, Target, Calendar, LayoutDashboard, CalendarDays,
-  ChevronsDownUp, ChevronsUpDown, Download, Plus,
+  ChevronsDownUp, ChevronsUpDown, Download, Plus, ClipboardCheck,
 } from 'lucide-react';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -578,6 +578,11 @@ export default function Programme() {
       <Tabs defaultValue="gantt" className="flex-1 flex flex-col overflow-hidden">
         {isMobile && (
           <div className="flex items-center gap-2 py-2 border-b bg-muted/20 overflow-x-auto flex-shrink-0">
+            {canEdit(user, 'programme') && (
+              <Button size="sm" asChild className="flex-shrink-0 h-8 text-xs gap-1">
+                <Link to="/field"><ClipboardCheck className="w-3 h-3" /> Field view</Link>
+              </Button>
+            )}
             <Button size="sm" variant="outline" onClick={expandAll} className="flex-shrink-0 h-8 text-xs gap-1"><ChevronsUpDown className="w-3 h-3" /> Expand All</Button>
             <Button size="sm" variant="outline" onClick={collapseAll} className="flex-shrink-0 h-8 text-xs gap-1"><ChevronsDownUp className="w-3 h-3" /> Collapse</Button>
             <Button size="sm" variant="outline" onClick={() => cycleZoom('out')} className="flex-shrink-0 h-8"><ZoomOut className="w-3.5 h-3.5" /></Button>
