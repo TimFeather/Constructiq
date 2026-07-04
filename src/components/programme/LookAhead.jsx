@@ -3,6 +3,10 @@ import { format, addDays, differenceInDays } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { AlertTriangle, Clock, CheckCircle2, Flag } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useAuth } from '@/lib/AuthContext';
+import QuickProgressSheet from '@/components/programme/QuickProgressSheet';
+import useQuickProgress from '@/components/programme/useQuickProgress';
 
 const WINDOWS = [
   { label: '2 Week', days: 14 },
@@ -10,10 +14,33 @@ const WINDOWS = [
   { label: '6 Week', days: 42 },
 ];
 
-export default function LookAhead({ tasks, scheduledMap }) {
+const ASSIGNEE_ALL = '__all__';
+const ASSIGNEE_MINE = '__mine__';
+
+export default function LookAhead({ tasks, scheduledMap, allTasks, programmesByProject, canUpdateProgress = false }) {
+  const { user } = useAuth();
   const [windowDays, setWindowDays] = useState(14);
+  const [assigneeFilter, setAssigneeFilter] = useState(ASSIGNEE_ALL);
   const today = new Date();
   const windowEnd = addDays(today, windowDays);
+
+  // Quick-progress mutation — shared with the old Field page. Falls back to
+  // `tasks` if the parent hasn't wired allTasks/programmesByProject, so the
+  // reschedule cascade still has something to work with.
+  const { activeTask, setActiveTask, saving, handleSave } = useQuickProgress({
+    allTasks: allTasks || tasks,
+    programmesByProject,
+  });
+
+  const myEmail = (user?.email || '').toLowerCase();
+
+  const assigneeOptions = useMemo(() => {
+    const set = new Set();
+    for (const t of tasks) {
+      if (t.assignee_email) set.add(t.assignee_email);
+    }
+    return [...set].sort();
+  }, [tasks]);
 
   const { activeTasks, milestones, critical, overdue } = useMemo(() => {
     const active = [], miles = [], crit = [], late = [];
@@ -23,7 +50,11 @@ export default function LookAhead({ tasks, scheduledMap }) {
     for (const t of tasks) {
       // Exclude parent/summary tasks — only leaf tasks and milestones
       const isMilestone = t.is_milestone || t.duration === 0;
+      const isLeaf = !parentIds.has(t.id);
       if (parentIds.has(t.id) && !isMilestone) continue;
+
+      if (assigneeFilter === ASSIGNEE_MINE && (t.assignee_email || '').toLowerCase() !== myEmail) continue;
+      if (assigneeFilter !== ASSIGNEE_ALL && assigneeFilter !== ASSIGNEE_MINE && t.assignee_email !== assigneeFilter) continue;
 
       const resolved = scheduledMap?.get(t.id);
       const start = resolved?.startStr || t.start_date;
@@ -41,7 +72,7 @@ export default function LookAhead({ tasks, scheduledMap }) {
       else if (isCritical && pct < 100) crit.push({ task: t, resolved, end: e });
       else if (isOverdue) late.push({ task: t, resolved, end: e });
 
-      active.push({ task: t, resolved, end: e, start: s, isMilestone, isCritical, pct, isOverdue });
+      active.push({ task: t, resolved, end: e, start: s, isMilestone, isLeaf, isCritical, pct, isOverdue });
     }
 
     active.sort((a, b) => a.start - b.start);
@@ -50,7 +81,7 @@ export default function LookAhead({ tasks, scheduledMap }) {
     late.sort((a, b) => a.end - b.end);
 
     return { activeTasks: active, milestones: miles, critical: crit, overdue: late };
-  }, [tasks, scheduledMap, windowDays]);
+  }, [tasks, scheduledMap, windowDays, assigneeFilter, myEmail]);
 
   const getStatus = (task, isOverdue, pct) => {
     if (pct === 100) return { label: 'Complete', cls: 'bg-emerald-100 text-emerald-700 border-emerald-200' };
@@ -59,16 +90,34 @@ export default function LookAhead({ tasks, scheduledMap }) {
     return { label: 'Not Started', cls: 'bg-muted text-muted-foreground border-border' };
   };
 
+  // Planned dates in the shape QuickProgressSheet expects.
+  const plannedFor = (t) => {
+    const r = scheduledMap?.get(t.id);
+    return {
+      startStr: r?.startStr || t.start_date || null,
+      finishStr: r?.finishStr || t.end_date || null,
+      isCritical: r?.isCritical || false,
+    };
+  };
+
   const TaskRow = ({ item }) => {
-    const { task, resolved, end, start, isMilestone, isCritical, pct, isOverdue } = item;
+    const { task, end, start, isMilestone, isLeaf, isCritical, pct, isOverdue } = item;
     const status = getStatus(task, isOverdue, pct);
     const daysLeft = differenceInDays(end, today);
+    const clickable = canUpdateProgress && isLeaf && !isMilestone;
 
     return (
-      <div className={cn(
-        'flex items-center gap-2 px-3 py-2 border-b border-border/20 hover:bg-muted/30 transition-colors',
-        isCritical && 'bg-red-50/40 dark:bg-red-950/10',
-      )}>
+      <div
+        role={clickable ? 'button' : undefined}
+        tabIndex={clickable ? 0 : undefined}
+        onClick={clickable ? () => setActiveTask(task) : undefined}
+        onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveTask(task); } } : undefined}
+        className={cn(
+          'flex items-center gap-2 px-3 py-2 border-b border-border/20 transition-colors',
+          isCritical && 'bg-red-50/40 dark:bg-red-950/10',
+          clickable ? 'hover:bg-muted/50 active:bg-muted/70 cursor-pointer' : 'hover:bg-muted/30',
+        )}
+      >
         <span className="text-[10px] font-mono text-muted-foreground w-8 flex-shrink-0">{task.wbs || '—'}</span>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1 flex-wrap">
@@ -100,21 +149,35 @@ export default function LookAhead({ tasks, scheduledMap }) {
   return (
     <div className="h-full flex flex-col overflow-hidden">
       {/* Header bar */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b bg-muted/30 flex-shrink-0">
-        <div>
+      <div className="flex flex-col gap-2 px-4 py-2.5 border-b bg-muted/30 flex-shrink-0 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <span className="text-sm font-semibold">Look Ahead</span>
           <span className="ml-2 text-xs text-muted-foreground">
             {format(today, 'dd MMM')} → {format(windowEnd, 'dd MMM yyyy')} · {activeTasks.length} tasks
           </span>
         </div>
-        <div className="flex gap-0.5 rounded-md border p-0.5 bg-background">
-          {WINDOWS.map(w => (
-            <button key={w.days} onClick={() => setWindowDays(w.days)}
-              className={cn('px-2.5 py-1 text-xs font-medium rounded transition-colors',
-                windowDays === w.days ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted')}>
-              {w.label}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-2">
+          {assigneeOptions.length > 0 && (
+            <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
+              <SelectTrigger className="h-7 w-36 text-xs"><SelectValue placeholder="All assignees" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ASSIGNEE_ALL}>All assignees</SelectItem>
+                <SelectItem value={ASSIGNEE_MINE}>My tasks</SelectItem>
+                {assigneeOptions.map(email => (
+                  <SelectItem key={email} value={email}>{email}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <div className="flex gap-0.5 rounded-md border p-0.5 bg-background">
+            {WINDOWS.map(w => (
+              <button key={w.days} onClick={() => setWindowDays(w.days)}
+                className={cn('px-2.5 py-1 text-xs font-medium rounded transition-colors',
+                  windowDays === w.days ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted')}>
+                {w.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -123,7 +186,7 @@ export default function LookAhead({ tasks, scheduledMap }) {
       ) : (
         <div className="flex-1 overflow-hidden grid grid-cols-1 md:grid-cols-4 divide-x divide-border/50">
           {/* Summary panels */}
-          <div className="flex flex-col divide-y divide-border/30 bg-muted/10 overflow-hidden">
+          <div className="hidden md:flex flex-col divide-y divide-border/30 bg-muted/10 overflow-hidden">
             <div className="p-3 flex-shrink-0">
               <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Summary</p>
               <div className="space-y-2">
@@ -169,7 +232,7 @@ export default function LookAhead({ tasks, scheduledMap }) {
             )}
           </div>
 
-          {/* Main task list — 3 columns wide */}
+          {/* Main task list — 3 columns wide on desktop, full width on mobile */}
           <div className="md:col-span-3 flex flex-col overflow-hidden">
             {/* Column headers */}
             <div className="flex items-center gap-2 px-3 py-1.5 border-b bg-muted/20 text-[10px] font-medium text-muted-foreground uppercase tracking-wider flex-shrink-0">
@@ -184,6 +247,18 @@ export default function LookAhead({ tasks, scheduledMap }) {
             </div>
           </div>
         </div>
+      )}
+
+      {canUpdateProgress && (
+        <QuickProgressSheet
+          task={activeTask}
+          planned={activeTask ? plannedFor(activeTask) : null}
+          projectName={null}
+          open={!!activeTask}
+          onOpenChange={open => { if (!open && !saving) setActiveTask(null); }}
+          saving={saving}
+          onSave={handleSave}
+        />
       )}
     </div>
   );

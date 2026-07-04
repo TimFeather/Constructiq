@@ -16,7 +16,7 @@ import {
 import {
   PanelLeftClose, PanelLeftOpen, Upload, Printer, ZoomIn, ZoomOut,
   Trash2, Target, Calendar, LayoutDashboard, CalendarDays,
-  ChevronsDownUp, ChevronsUpDown, Download, Plus, ClipboardCheck,
+  ChevronsDownUp, ChevronsUpDown, Download, Plus,
 } from 'lucide-react';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -65,6 +65,7 @@ export default function Programme() {
   const projectFromUrl = urlParams.get('project') || 'all';
 
   const [selectedProjectId, setSelectedProjectId] = useState(projectFromUrl);
+  const [activeTab, setActiveTab] = useState('gantt');
   const [taskListCollapsed, setTaskListCollapsed] = useState(false);
   const [zoom, setZoom] = useState('week');
   const [selectedTask, setSelectedTask] = useState(null);
@@ -133,11 +134,12 @@ export default function Programme() {
     enabled: selectedProjectId !== 'all',
   });
 
-  // All programmes (calendar/data date per project) for the cross-project view
+  // All programmes (calendar/data date per project) — used for the cross-project
+  // view and by Look Ahead's quick-progress cascade (which needs each task's
+  // own-project calendar regardless of the current project filter).
   const { data: programmesByProject } = useQuery({
     queryKey: ['programmes'],
     queryFn: fetchProgrammesByProject,
-    enabled: selectedProjectId === 'all',
   });
 
   // Baseline overlay: items for the selected baseline
@@ -211,6 +213,7 @@ export default function Programme() {
   }), [user?.id, projectStart, programme, tasks, selectedProjectId]);
 
   const programmeEditable = canEdit(user, 'programme') && selectedProjectId !== 'all';
+  const canDeleteTasks = ['admin', 'pricing', 'internal'].includes(user?.role);
 
   // ─── Authoring handlers (Gantt drag + editors → scheduling service) ──────────
   const afterScheduleChange = useCallback((patchCount) => {
@@ -565,24 +568,21 @@ export default function Programme() {
               </DropdownMenuContent>
             </DropdownMenu>
             <Button onClick={() => { if (selectedProjectId === 'all' && projects[0]?.id) setSelectedProjectId(projects[0].id); setShowImportDialog(true); }} disabled={!!deleteProgress} className="gap-2"><Upload className="w-4 h-4" /> Import</Button>
-            <Button variant="destructive" size="icon"
-              onClick={() => setShowDeleteConfirm(true)}
-              disabled={!selectedProjectId || selectedProjectId === 'all' || tasks.length === 0 || !!importProgress}
-              title="Delete all tasks">
-              <Trash2 className="w-4 h-4" />
-            </Button>
+            {canDeleteTasks && (
+              <Button variant="destructive" size="icon"
+                onClick={() => setShowDeleteConfirm(true)}
+                disabled={!selectedProjectId || selectedProjectId === 'all' || tasks.length === 0 || !!importProgress}
+                title="Delete all tasks">
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            )}
           </div>
         }
       />
 
-      <Tabs defaultValue="gantt" className="flex-1 flex flex-col overflow-hidden">
-        {isMobile && (
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
+        {isMobile && activeTab === 'gantt' && (
           <div className="flex items-center gap-2 py-2 border-b bg-muted/20 overflow-x-auto flex-shrink-0">
-            {canEdit(user, 'programme') && (
-              <Button size="sm" asChild className="flex-shrink-0 h-8 text-xs gap-1">
-                <Link to="/field"><ClipboardCheck className="w-3 h-3" /> Field view</Link>
-              </Button>
-            )}
             <Button size="sm" variant="outline" onClick={expandAll} className="flex-shrink-0 h-8 text-xs gap-1"><ChevronsUpDown className="w-3 h-3" /> Expand All</Button>
             <Button size="sm" variant="outline" onClick={collapseAll} className="flex-shrink-0 h-8 text-xs gap-1"><ChevronsDownUp className="w-3 h-3" /> Collapse</Button>
             <Button size="sm" variant="outline" onClick={() => cycleZoom('out')} className="flex-shrink-0 h-8"><ZoomOut className="w-3.5 h-3.5" /></Button>
@@ -607,6 +607,7 @@ export default function Programme() {
                 onToggleExpand={onToggleExpand}
                 onTaskClick={setSelectedTask}
                 onEditTask={setEditingTask}
+                canDeleteTasks={canDeleteTasks}
                 scrollRef={taskScrollRef}
                 onScroll={() => {}}
               />
@@ -629,6 +630,7 @@ export default function Programme() {
                     onToggleExpand={onToggleExpand}
                     onTaskClick={setSelectedTask}
                     onEditTask={setEditingTask}
+                    canDeleteTasks={canDeleteTasks}
                     baselineMap={baselineMap}
                     scrollRef={taskScrollRef}
                     onScroll={() => {
@@ -665,7 +667,13 @@ export default function Programme() {
         </TabsContent>
 
         <TabsContent value="lookahead" className="flex-1 overflow-hidden border rounded-lg bg-card">
-          <LookAhead tasks={tasks} scheduledMap={scheduledMap} />
+          <LookAhead
+            tasks={tasks}
+            scheduledMap={scheduledMap}
+            allTasks={allTasks}
+            programmesByProject={programmesByProject}
+            canUpdateProgress={canEdit(user, 'programme')}
+          />
         </TabsContent>
 
         <TabsContent value="health" className="flex-1 overflow-hidden border rounded-lg bg-card">

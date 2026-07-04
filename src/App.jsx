@@ -6,7 +6,7 @@ import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import ProtectedRoute from '@/components/ProtectedRoute';
-import { canAccess, canEdit } from '@/lib/permissions';
+import { canAccess } from '@/lib/permissions';
 import ErrorBoundary from '@/components/shared/ErrorBoundary';
 
 import Landing from '@/pages/Landing';
@@ -25,7 +25,6 @@ import Documents from '@/pages/Documents';
 import RFIs from '@/pages/RFIs';
 import RFIDetail from '@/pages/RFIDetail.jsx';
 import Programme from '@/pages/Programme';
-import FieldProgress from '@/pages/FieldProgress';
 import Settings from '@/pages/Settings.jsx';
 import Tenders from '@/pages/Tenders';
 import TenderDetail from '@/pages/TenderDetail';
@@ -36,14 +35,6 @@ import AccountDeactivated from '@/pages/AccountDeactivated';
 const TendersRoute = ({ children }) => {
   const { user } = useAuth();
   if (!canAccess(user, 'tenders')) return <Navigate to="/dashboard" replace />;
-  return children;
-};
-
-// Field progress capture is for site crews (admin/pricing/internal) —
-// external users are strictly read-only and never see /field.
-const FieldRoute = ({ children }) => {
-  const { user } = useAuth();
-  if (!canEdit(user, 'programme')) return <Navigate to="/dashboard" replace />;
   return children;
 };
 
@@ -106,7 +97,6 @@ const AuthenticatedApp = () => {
           <Route path="/rfis" element={<ErrorBoundary><RFIs /></ErrorBoundary>} />
           <Route path="/rfis/:id" element={<ErrorBoundary><RFIDetail /></ErrorBoundary>} />
           <Route path="/programme" element={<ErrorBoundary><Programme /></ErrorBoundary>} />
-          <Route path="/field" element={<FieldRoute><ErrorBoundary><FieldProgress /></ErrorBoundary></FieldRoute>} />
           <Route path="/tenders" element={<TendersRoute><ErrorBoundary><Tenders /></ErrorBoundary></TendersRoute>} />
           <Route path="/tenders/:id" element={<TendersRoute><ErrorBoundary><TenderDetail /></ErrorBoundary></TendersRoute>} />
           <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />

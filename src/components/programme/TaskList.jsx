@@ -1,8 +1,11 @@
-import React from 'react';
-import { ChevronRight, ChevronDown, Pencil } from 'lucide-react';
+import React, { useState } from 'react';
+import { ChevronRight, ChevronDown, Pencil, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format, differenceInDays } from 'date-fns';
 import { calculateVariance } from '@/lib/scheduling/baselineEngine';
+import { Task } from '@/api/entities';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useToast } from '@/components/ui/use-toast';
 
 export const ROW_HEIGHT = 32;
 
@@ -26,12 +29,33 @@ export default function TaskList({
   onToggleExpand,
   onTaskClick,
   onEditTask,
+  canDeleteTasks = false,
   scrollRef,
   onScroll,
   baselineMap,    // optional Map<task_id, { baseline_start, baseline_finish, baseline_duration }>
 }) {
   const COLS = baselineMap ? '44px 20px 1fr 52px 64px 64px 72px 72px' : '44px 20px 1fr 52px 64px 64px 72px';
   const today = new Date();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+
+  const deleteMutation = useMutation({
+    mutationFn: (taskId) => Task.delete(taskId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      toast({ title: 'Task deleted', duration: 2500 });
+      setConfirmDeleteId(null);
+    },
+    onError: (e) => {
+      toast({
+        title: 'Delete failed',
+        description: e.message?.includes('foreign key') ? 'Move or delete its subtasks first.' : e.message,
+        variant: 'destructive',
+      });
+      setConfirmDeleteId(null);
+    },
+  });
 
   const getVariance = (task) => {
     const resolved = scheduledMap?.get(task.id);
@@ -150,14 +174,35 @@ export default function TaskList({
               <div className="text-center">{varianceEl}</div>
               {baselineMap && <div className="text-center">{baselineEl}</div>}
 
-              {onEditTask && (
-                <button
-                  className="absolute right-1 opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center hover:bg-primary/10 rounded transition-opacity"
-                  onClick={e => { e.stopPropagation(); onEditTask(task); }}
-                  title="Edit task"
-                >
-                  <Pencil className="w-3 h-3 text-primary" />
-                </button>
+              {(onEditTask || canDeleteTasks) && (
+                <div className="absolute right-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                  {onEditTask && (
+                    <button
+                      className="w-5 h-5 flex items-center justify-center hover:bg-primary/10 rounded"
+                      onClick={e => { e.stopPropagation(); onEditTask(task); }}
+                      title="Edit task"
+                    >
+                      <Pencil className="w-3 h-3 text-primary" />
+                    </button>
+                  )}
+                  {canDeleteTasks && !isSummary && (
+                    <button
+                      className={cn(
+                        'w-5 h-5 flex items-center justify-center rounded',
+                        confirmDeleteId === task.id ? 'bg-destructive/10' : 'hover:bg-destructive/10'
+                      )}
+                      onClick={e => {
+                        e.stopPropagation();
+                        if (confirmDeleteId === task.id) deleteMutation.mutate(task.id);
+                        else setConfirmDeleteId(task.id);
+                      }}
+                      title={confirmDeleteId === task.id ? 'Click again to confirm delete' : 'Delete task'}
+                      disabled={deleteMutation.isPending && confirmDeleteId === task.id}
+                    >
+                      <Trash2 className="w-3 h-3 text-destructive" />
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           );
