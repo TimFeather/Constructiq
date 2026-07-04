@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Document, Project, Tender, TenderSubmission } from '@/api/entities';
+import { Document, Project, TenderSubmission, TenderActivity } from '@/api/entities';
 import { invokeFunction, uploadFile, isStoredUrl } from '@/api/supabaseClient';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -11,11 +11,13 @@ import { CheckCircle2, ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useToast } from '@/components/ui/use-toast';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
+import { useAuth } from '@/lib/AuthContext';
 
 export default function ConvertToProjectModal({ tender, open, onOpenChange }) {
   const navigate = useNavigate();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [converting, setConverting] = useState(false);
 
   const alreadyConverted = !!tender?.converted_project_id;
@@ -97,29 +99,60 @@ export default function ConvertToProjectModal({ tender, open, onOpenChange }) {
         projectData.description = tender.description;
       }
 
+      // TODO(WS5): log project_created into project_activity once ActivityFeed ships
       const newProject = await Project.create(projectData);
 
-      // Copy selected docs — re-host each into the private project-files bucket so
-      // the converted project's documents are not publicly accessible.
-      const selectedDocs = (tender.documents || []).filter((_, idx) => includedDocs[idx]);
-      for (const doc of selectedDocs) {
-        const privateUrl = await rehostToPrivate(doc);
-        await Document.create({
-          name: doc.name,
-          project_id: newProject.id,
-          folder: 'Tender',
-          file_url: privateUrl,
-          file_type: doc.file_type,
-          status: 'Draft',
-          uploaded_by_name: 'Imported from Tender',
+      // Update tender status — Archived moves it to the Archive tab. Done immediately
+      // after project creation (before the document-copy loop) so a document failure
+      // can never prevent the tender from being archived. This must go through the
+      // updateTender edge function — the tenders table has no RLS update policy, so a
+      // direct Tender.update() would silently update 0 rows.
+      let archiveFailed = false;
+      try {
+        await invokeFunction('updateTender', {
+          tenderId: tender.id,
+          data: {
+            status: 'Archived',
+            converted_project_id: newProject.id,
+          },
         });
+
+        // Fire-and-forget activity log — never blocks the conversion flow.
+        TenderActivity.create({
+          tender_id: tender.id,
+          event_type: 'tender_converted',
+          actor_name: user?.full_name || user?.email || 'Unknown',
+          actor_email: user?.email || '',
+          description: `Converted to project "${projectName}"`,
+          occurred_at: new Date().toISOString(),
+        }).catch(() => {});
+      } catch (archiveErr) {
+        archiveFailed = true;
+        console.error('[ConvertToProject] Failed to archive tender:', archiveErr);
       }
 
-      // Update tender status — Archived moves it to the Archive tab
-      await Tender.update(tender.id, {
-        status: 'Archived',
-        converted_project_id: newProject.id,
-      });
+      // Copy selected docs — re-host each into the private project-files bucket so
+      // the converted project's documents are not publicly accessible. Each doc is
+      // isolated in its own try/catch so one failure doesn't stop the rest.
+      const selectedDocs = (tender.documents || []).filter((_, idx) => includedDocs[idx]);
+      const failedDocs = [];
+      for (const doc of selectedDocs) {
+        try {
+          const privateUrl = await rehostToPrivate(doc);
+          await Document.create({
+            name: doc.name,
+            project_id: newProject.id,
+            folder: 'Tender',
+            file_url: privateUrl,
+            file_type: doc.file_type,
+            status: 'Draft',
+            uploaded_by_name: 'Imported from Tender',
+          });
+        } catch (docErr) {
+          console.error(`[ConvertToProject] Failed to copy document "${doc.name}":`, docErr);
+          failedDocs.push(doc.name);
+        }
+      }
 
       // Invite / notify all team members (non-blocking)
       if (team.length > 0) {
@@ -133,11 +166,22 @@ export default function ConvertToProjectModal({ tender, open, onOpenChange }) {
 
       queryClient.invalidateQueries({ queryKey: ['tenders'] });
       queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['tenderActivity', tender.id] });
 
-      toast({
-        title: 'Project created successfully',
-        description: `"${projectName}" has been created from this tender.`,
-      });
+      if (archiveFailed) {
+        toast({
+          title: 'Project created, but the tender could not be archived',
+          description: 'Open the tender and try again.',
+          variant: 'destructive',
+        });
+      } else {
+        toast({
+          title: 'Project created successfully',
+          description: failedDocs.length > 0
+            ? `"${projectName}" has been created. ${failedDocs.length} document(s) could not be copied: ${failedDocs.join(', ')}`
+            : `"${projectName}" has been created from this tender.`,
+        });
+      }
 
       onOpenChange(false);
       navigate(`/projects/${newProject.id}`);
