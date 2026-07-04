@@ -12,6 +12,7 @@ import { Link } from 'react-router-dom';
 import { useToast } from '@/components/ui/use-toast';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
+import { logProjectActivity } from '@/lib/activityLog';
 
 export default function ConvertToProjectModal({ tender, open, onOpenChange }) {
   const navigate = useNavigate();
@@ -99,8 +100,17 @@ export default function ConvertToProjectModal({ tender, open, onOpenChange }) {
         projectData.description = tender.description;
       }
 
-      // TODO(WS5): log project_created into project_activity once ActivityFeed ships
       const newProject = await Project.create(projectData);
+
+      // Fire-and-forget activity log — never blocks the conversion flow.
+      logProjectActivity({
+        projectId: newProject.id,
+        entityType: 'project',
+        eventType: 'project_created',
+        user,
+        description: `Created from tender "${tender.title}"`,
+        metadata: { from_tender_id: tender.id },
+      }).catch(() => {});
 
       // Update tender status — Archived moves it to the Archive tab. Done immediately
       // after project creation (before the document-copy loop) so a document failure

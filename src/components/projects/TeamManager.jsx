@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/components/ui/use-toast';
 import { isUserDeactivated, filterActiveUsers } from '@/lib/userStatus';
 import { normalizeEmail } from '@/lib/normalizeEmail';
+import { logProjectActivity } from '@/lib/activityLog';
 
 // Fallback roles if ProjectRole entity is empty
 const FALLBACK_ROLES = [
@@ -203,10 +204,19 @@ export default function TeamManager({ project }) {
 
         if (res?.data?.alreadyMember) {
           toast({ title: `${member.full_name} is already on this project` });
-        } else if (res?.data?.emailSent) {
-          toast({ title: `${member.full_name} added to project`, description: 'They were notified by email.' });
         } else {
-          toast({ title: `${member.full_name} added to project`, description: 'The notification email failed to send.', variant: 'destructive' });
+          logProjectActivity({
+            projectId: project.id,
+            entityType: 'project',
+            eventType: 'team_member_added',
+            user,
+            description: `${member.full_name} added to team as ${member.role}`,
+          }).catch(() => {});
+          if (res?.data?.emailSent) {
+            toast({ title: `${member.full_name} added to project`, description: 'They were notified by email.' });
+          } else {
+            toast({ title: `${member.full_name} added to project`, description: 'The notification email failed to send.', variant: 'destructive' });
+          }
         }
 
       } else if (member.user_email) {
@@ -229,6 +239,13 @@ export default function TeamManager({ project }) {
         });
 
         const data = res?.data;
+        logProjectActivity({
+          projectId: project.id,
+          entityType: 'project',
+          eventType: 'team_member_added',
+          user,
+          description: `${member.full_name} added to team as ${member.role}`,
+        }).catch(() => {});
         if (data?.duplicateAssignment) {
           toast({ title: `${member.full_name} added to project`, description: 'Existing invitation reused — no duplicate sent.' });
         } else if (data?.isNewInvite) {
@@ -240,6 +257,13 @@ export default function TeamManager({ project }) {
         // No email — just add to team
         const team = [...(project.team || []), member];
         await updateMutation.mutateAsync(team);
+        logProjectActivity({
+          projectId: project.id,
+          entityType: 'project',
+          eventType: 'team_member_added',
+          user,
+          description: `${member.full_name} added to team as ${member.role}`,
+        }).catch(() => {});
         toast({ title: `${member.full_name} added to project` });
       }
 
@@ -265,6 +289,13 @@ export default function TeamManager({ project }) {
     const member = (project.team || [])[index];
     const team = (project.team || []).filter((_, i) => i !== index);
     updateMutation.mutate(team);
+    logProjectActivity({
+      projectId: project.id,
+      entityType: 'project',
+      eventType: 'team_member_removed',
+      user,
+      description: `${member?.full_name || 'Team member'} removed from team`,
+    }).catch(() => {});
     // Clean up any pending invite for this member + project
     if (member?.user_email) {
       invokeFunction('invitationService', {

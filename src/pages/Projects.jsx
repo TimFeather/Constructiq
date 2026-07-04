@@ -5,6 +5,7 @@ import { useAuth } from '@/lib/AuthContext';
 import { Link } from 'react-router-dom';
 import { Plus, Search, Calendar, Archive, ArchiveRestore, Trash2 } from 'lucide-react';
 import { canEdit, isAdmin } from '@/lib/permissions';
+import { logProjectActivity } from '@/lib/activityLog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -59,16 +60,30 @@ export default function Projects() {
 
   const archiveMutation = useMutation({
     mutationFn: (id) => Project.update(id, { status: 'Archived' }),
-    onSuccess: () => {
+    onSuccess: (_data, id) => {
       invalidateProjectChildren();
+      logProjectActivity({
+        projectId: id,
+        entityType: 'project',
+        eventType: 'status_changed',
+        user,
+        description: 'Project archived',
+      }).catch(() => {});
       setArchiveId(null);
     },
   });
 
   const restoreMutation = useMutation({
     mutationFn: (id) => Project.update(id, { status: 'Active' }),
-    onSuccess: () => {
+    onSuccess: (_data, id) => {
       invalidateProjectChildren();
+      logProjectActivity({
+        projectId: id,
+        entityType: 'project',
+        eventType: 'status_changed',
+        user,
+        description: 'Project restored to Active',
+      }).catch(() => {});
     },
   });
 

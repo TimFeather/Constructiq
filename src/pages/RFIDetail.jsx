@@ -17,6 +17,8 @@ import StatusBadge from '@/components/shared/StatusBadge';
 import { format } from 'date-fns';
 import { resolveTemplate, applyTemplate, buildEmailHtml } from '@/lib/emailTemplates';
 import { canEdit } from '@/lib/permissions';
+import { logProjectActivity } from '@/lib/activityLog';
+import ActivityFeed from '@/components/shared/ActivityFeed';
 
 export default function RFIDetail() {
   const { id } = useParams();
@@ -65,7 +67,18 @@ export default function RFIDetail() {
 
   const statusMutation = useMutation({
     mutationFn: (status) => RFI.update(id, { status }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['rfi', id] }),
+    onSuccess: (_data, newStatus) => {
+      queryClient.invalidateQueries({ queryKey: ['rfi', id] });
+      logProjectActivity({
+        projectId: rfi.project_id,
+        entityType: 'rfi',
+        entityId: id,
+        eventType: 'rfi_status_changed',
+        user,
+        description: `RFI-${String(rfi.number).padStart(3, '0')} status changed from ${rfi.status} to ${newStatus}`,
+        metadata: { from: rfi.status, to: newStatus },
+      }).catch(() => {});
+    },
   });
 
   const deleteMutation = useMutation({
@@ -122,6 +135,14 @@ export default function RFIDetail() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['rfi', id] });
+      logProjectActivity({
+        projectId: rfi.project_id,
+        entityType: 'rfi',
+        entityId: id,
+        eventType: 'rfi_response',
+        user,
+        description: `Response added to RFI-${String(rfi.number).padStart(3, '0')}`,
+      }).catch(() => {});
       setResponse('');
       setResponseFile(null);
     }
@@ -326,6 +347,15 @@ export default function RFIDetail() {
           )}
         </CardContent>
       </Card>
+
+      {isAdminOrInternal && (
+        <Card className="mt-6">
+          <CardHeader><CardTitle className="text-base">Activity</CardTitle></CardHeader>
+          <CardContent>
+            <ActivityFeed projectId={rfi.project_id} entityType="rfi" entityId={rfi.id} compact />
+          </CardContent>
+        </Card>
+      )}
 
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <AlertDialogContent>

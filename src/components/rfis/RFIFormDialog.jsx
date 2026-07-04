@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { X } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { filterActiveUsers } from '@/lib/userStatus';
+import { logProjectActivity } from '@/lib/activityLog';
 
 export default function RFIFormDialog({ open, onOpenChange, projects = [], defaultProjectId = '' }) {
   const { user } = useAuth();
@@ -112,7 +113,26 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
       });
       return rfi;
     },
-    onSuccess: () => {
+    onSuccess: (rfi) => {
+      logProjectActivity({
+        projectId: rfi.project_id,
+        entityType: 'rfi',
+        entityId: rfi.id,
+        eventType: 'rfi_created',
+        user,
+        description: `RFI-${String(rfi.number).padStart(3, '0')} "${rfi.title}" created`,
+      }).catch(() => {});
+      if (selectedEmails.length > 0) {
+        logProjectActivity({
+          projectId: rfi.project_id,
+          entityType: 'rfi',
+          entityId: rfi.id,
+          eventType: 'rfi_assigned',
+          user,
+          description: `RFI-${String(rfi.number).padStart(3, '0')} assigned to ${selectedEmails.map(a => a.name || a.email).join(', ')}`,
+          metadata: { assignees: selectedEmails.map(a => a.email) },
+        }).catch(() => {});
+      }
       queryClient.invalidateQueries({ queryKey: ['rfis'] });
       onOpenChange(false);
       if (!selectedEmails || selectedEmails.length === 0) {

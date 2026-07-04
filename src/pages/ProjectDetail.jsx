@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ArrowLeft, Pencil, FileText, MessageSquareMore, BarChart2, ExternalLink, FileSignature, HardHat } from 'lucide-react';
+import { ArrowLeft, Pencil, FileText, MessageSquareMore, BarChart2, ExternalLink, FileSignature, HardHat, Clock } from 'lucide-react';
 import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
 import TeamManager from '@/components/projects/TeamManager';
@@ -14,6 +14,7 @@ import ProjectSubcontractors from '@/components/projects/ProjectSubcontractors';
 import ProjectRFIPanel from '@/components/rfis/ProjectRFIPanel';
 import ProjectDocsPanel from '@/components/documents/ProjectDocsPanel';
 import ProjectCIPanel from '@/components/projects/ProjectCIPanel';
+import ActivityFeed from '@/components/shared/ActivityFeed';
 import { useAuth } from '@/lib/AuthContext';
 import { canEdit } from '@/lib/permissions';
 import { format } from 'date-fns';
@@ -22,6 +23,7 @@ export default function ProjectDetail() {
   const { id } = useParams();
   const { user } = useAuth();
   const canManageProject = canEdit(user, 'projects');
+  const isInternalRole = ['admin', 'pricing', 'internal'].includes(user?.role);
   const [showEdit, setShowEdit] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get('tab') || 'team';
@@ -161,6 +163,11 @@ export default function ProjectDetail() {
           <TabsTrigger value="subcontractors" className="gap-1">
             <HardHat className="w-3.5 h-3.5" /> Subcontractors
           </TabsTrigger>
+          {isInternalRole && (
+            <TabsTrigger value="activity" className="gap-1">
+              <Clock className="w-3.5 h-3.5" /> Activity
+            </TabsTrigger>
+          )}
         </TabsList></div>
 
         <TabsContent value="team">
@@ -245,6 +252,12 @@ export default function ProjectDetail() {
         <TabsContent value="subcontractors">
           <ProjectSubcontractors project={project} linkedTenderId={linkedTender?.id} />
         </TabsContent>
+
+        {isInternalRole && (
+          <TabsContent value="activity">
+            <ActivityFeed projectId={id} />
+          </TabsContent>
+        )}
       </Tabs>
 
       <ProjectFormDialog open={showEdit} onOpenChange={setShowEdit} project={project} />

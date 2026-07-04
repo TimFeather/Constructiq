@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Project } from '@/api/entities';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '@/lib/AuthContext';
+import { logProjectActivity } from '@/lib/activityLog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,6 +15,7 @@ const initialState = {
 };
 
 export default function ProjectFormDialog({ open, onOpenChange, project }) {
+  const { user } = useAuth();
   const [form, setForm] = useState(project || initialState);
   const queryClient = useQueryClient();
 
@@ -22,7 +25,24 @@ export default function ProjectFormDialog({ open, onOpenChange, project }) {
       const created = await Project.create(data);
       return created;
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
+      if (project?.id) {
+        logProjectActivity({
+          projectId: project.id,
+          entityType: 'project',
+          eventType: 'project_updated',
+          user,
+          description: 'Project details updated',
+        }).catch(() => {});
+      } else if (result?.id) {
+        logProjectActivity({
+          projectId: result.id,
+          entityType: 'project',
+          eventType: 'project_created',
+          user,
+          description: `Project "${result.name}" created`,
+        }).catch(() => {});
+      }
       queryClient.invalidateQueries({ queryKey: ['projects'] });
       queryClient.invalidateQueries({ queryKey: ['project'] });
       // A status change (e.g. to/from Archived) cascades to documents/RFIs/tasks/CIs

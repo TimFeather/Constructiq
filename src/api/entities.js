@@ -84,6 +84,7 @@ export const TenderInvitee             = entity('tender_invitees');
 export const TenderInvitation          = entity('tender_invitations');
 export const TenderSubmission          = entity('tender_submissions');
 export const TenderActivity            = entity('tender_activity');
+export const ProjectActivity           = entity('project_activity');
 export const TenderContact             = entity('tender_contacts');
 export const TenderCounter             = entity('tender_counter');
 export const TenderSettings            = entity('tender_settings');

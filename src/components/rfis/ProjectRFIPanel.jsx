@@ -15,6 +15,7 @@ import StatusBadge from '@/components/shared/StatusBadge';
 import { Plus, MessageSquare, ChevronDown, ChevronUp, Calendar, Send, Paperclip, ExternalLink, X, Loader2, Trash2, FolderInput, Archive } from 'lucide-react';
 import { format } from 'date-fns';
 import { resolveTemplate, applyTemplate } from '@/lib/emailTemplates';
+import { logProjectActivity } from '@/lib/activityLog';
 
 const PRIORITY_COLORS = {
   Low: 'bg-blue-100 text-blue-700',
@@ -55,12 +56,33 @@ function RFICard({ rfi, project, emailTemplates = [], registeredUsers = [] }) {
 
   const statusMutation = useMutation({
     mutationFn: (status) => RFI.update(rfi.id, { status }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['rfis', project.id] }),
+    onSuccess: (_data, newStatus) => {
+      queryClient.invalidateQueries({ queryKey: ['rfis', project.id] });
+      logProjectActivity({
+        projectId: project.id,
+        entityType: 'rfi',
+        entityId: rfi.id,
+        eventType: 'rfi_status_changed',
+        user,
+        description: `RFI-${String(rfi.number).padStart(3, '0')} status changed from ${rfi.status} to ${newStatus}`,
+        metadata: { from: rfi.status, to: newStatus },
+      }).catch(() => {});
+    },
   });
 
   const deleteMutation = useMutation({
     mutationFn: () => RFI.delete(rfi.id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['rfis', project.id] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['rfis', project.id] });
+      logProjectActivity({
+        projectId: project.id,
+        entityType: 'rfi',
+        entityId: rfi.id,
+        eventType: 'rfi_deleted',
+        user,
+        description: `RFI-${String(rfi.number).padStart(3, '0')} "${rfi.title}" deleted`,
+      }).catch(() => {});
+    },
   });
 
   const handleFileSelect = (e) => {

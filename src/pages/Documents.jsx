@@ -2,6 +2,7 @@ import { uploadFile, removeFile } from '@/api/supabaseClient';
 import React, { useState, useRef } from 'react';
 import { Document, Project } from '@/api/entities';
 import { logDocumentEvent } from '@/lib/auditLog';
+import { logProjectActivity } from '@/lib/activityLog';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/lib/AuthContext';
@@ -126,6 +127,14 @@ export default function Documents() {
         user,
         description: `Uploaded “${uploadForm.name}”${folder ? ` to ${folder}` : ''}`,
       });
+      logProjectActivity({
+        projectId: uploadForm.project_id,
+        entityType: 'document',
+        entityId: created?.id ?? null,
+        eventType: 'document_uploaded',
+        user,
+        description: `Uploaded “${uploadForm.name}”${folder ? ` to ${folder}` : ''}`,
+      }).catch(() => {});
       queryClient.invalidateQueries({ queryKey: ['documents'] });
       setShowUpload(false);
       setUploadForm({ name: '', project_id: '', file: null, folder: '' });

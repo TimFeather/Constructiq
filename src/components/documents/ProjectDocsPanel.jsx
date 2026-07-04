@@ -1,5 +1,6 @@
 import { uploadFile, sendEmail, removeFile } from '@/api/supabaseClient';
 import { logDocumentEvent } from '@/lib/auditLog';
+import { logProjectActivity } from '@/lib/activityLog';
 import { useToast } from '@/components/ui/use-toast';
 import SecureFileLink, { useSignedUrl } from '@/components/shared/SecureFileLink';
 import React, { useState, useRef } from 'react';
@@ -192,6 +193,14 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
     onSuccess: (_data, vars) => {
       invalidate();
       logEvent('document.status_changed', { id: vars.id, name: docName(vars.id) }, `Status changed to ${vars.status}`);
+      logProjectActivity({
+        projectId: project.id,
+        entityType: 'document',
+        entityId: vars.id,
+        eventType: 'document_status_changed',
+        user,
+        description: `“${docName(vars.id)}” status changed to ${vars.status}`,
+      }).catch(() => {});
     },
   });
 
@@ -199,7 +208,16 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
     mutationFn: (id) => Document.delete(id),
     onSuccess: (_data, id) => {
       invalidate();
-      logEvent('document.deleted', { id, name: docName(id) }, `Deleted “${docName(id)}”`);
+      const name = docName(id);
+      logEvent('document.deleted', { id, name }, `Deleted “${name}”`);
+      logProjectActivity({
+        projectId: project.id,
+        entityType: 'document',
+        entityId: id,
+        eventType: 'document_deleted',
+        user,
+        description: `Deleted “${name}”`,
+      }).catch(() => {});
     },
   });
 
@@ -234,7 +252,16 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
     mutationFn: async (status) => {
       for (const id of selectedScopedIds()) {
         await Document.update(id, { status });
-        logEvent('document.status_changed', { id, name: docName(id) }, `Status changed to ${status} (bulk)`);
+        const name = docName(id);
+        logEvent('document.status_changed', { id, name }, `Status changed to ${status} (bulk)`);
+        logProjectActivity({
+          projectId: project.id,
+          entityType: 'document',
+          entityId: id,
+          eventType: 'document_status_changed',
+          user,
+          description: `“${name}” status changed to ${status} (bulk)`,
+        }).catch(() => {});
       }
     },
     onSuccess: () => { invalidate(); clearSelection(); toast({ title: 'Status updated' }); },
@@ -256,6 +283,14 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
         const name = docName(id);
         await Document.delete(id);
         logEvent('document.deleted', { id, name }, `Deleted “${name}” (bulk)`);
+        logProjectActivity({
+          projectId: project.id,
+          entityType: 'document',
+          entityId: id,
+          eventType: 'document_deleted',
+          user,
+          description: `Deleted “${name}” (bulk)`,
+        }).catch(() => {});
       }
     },
     onSuccess: () => { invalidate(); clearSelection(); toast({ title: 'Documents deleted' }); },
@@ -297,6 +332,14 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
       });
       logEvent('document.uploaded', created || { id: null, name: docName },
         `Uploaded “${docName}”${(folder || uploadForm.folder) ? ` to ${folder || uploadForm.folder}` : ''}`);
+      logProjectActivity({
+        projectId: project.id,
+        entityType: 'document',
+        entityId: created?.id ?? null,
+        eventType: 'document_uploaded',
+        user,
+        description: `Uploaded “${docName}”${(folder || uploadForm.folder) ? ` to ${folder || uploadForm.folder}` : ''}`,
+      }).catch(() => {});
       invalidate();
       setShowUpload(false);
       setUploadForm({ name: '', file: null, folder: '', visibility: 'public' });
