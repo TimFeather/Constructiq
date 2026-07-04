@@ -154,16 +154,18 @@ create policy "tasks_select" on public.tasks for select using (
         and p.team @> jsonb_build_array(jsonb_build_object('user_email', (select email from public.users where id = auth.uid())))
      ))
 );
+-- Migration 008: pricing added to all three write policies (UI permission
+-- matrix already allowed pricing to edit the programme).
 create policy "tasks_insert" on public.tasks for insert with check (
-  get_my_role() in ('admin','internal')
+  get_my_role() in ('admin','internal','pricing')
 );
 create policy "tasks_update" on public.tasks for update using (
-  get_my_role() in ('admin','internal')
+  get_my_role() in ('admin','internal','pricing')
   or created_by_id = auth.uid()
   or assignee_email = (select email from public.users where id = auth.uid())
 );
 create policy "tasks_delete" on public.tasks for delete using (
-  get_my_role() in ('admin','internal')
+  get_my_role() in ('admin','internal','pricing')
 );
 
 -- ── 4. rfis ──────────────────────────────────────────────
@@ -193,16 +195,28 @@ create table public.rfis (
   edited_at          timestamptz
 );
 alter table public.rfis enable row level security;
--- Live policy: privileged see all; external see non-archived RFIs on their team projects.
+-- Migration 008: privileged see all; external users need team membership PLUS
+-- (is_public, or they created / are assigned to the RFI). Fixes the leak where
+-- externals saw every RFI on their team projects.
 create policy "rfis_select" on public.rfis for select using (
   get_my_role() in ('admin','internal','pricing')
-  or (get_my_role() = 'external'
-      and (archived = false or archived is null)
-      and exists (
-        select 1 from public.projects p
-        where p.id = rfis.project_id
-        and p.team @> jsonb_build_array(jsonb_build_object('user_email', (select email from public.users where id = auth.uid())))
-      ))
+  or (
+    (archived = false or archived is null)
+    and exists (
+      select 1 from public.projects p
+      where p.id = rfis.project_id
+        and p.team @> jsonb_build_array(jsonb_build_object('user_email',
+              (select email from public.users where id = auth.uid())))
+    )
+    and (
+      is_public = true
+      or created_by_id = auth.uid()
+      or created_by_email  = (select email from public.users where id = auth.uid())
+      or assigned_to_email = (select email from public.users where id = auth.uid())
+      or assignees @> jsonb_build_array(jsonb_build_object('email',
+            (select email from public.users where id = auth.uid())))
+    )
+  )
 );
 create policy "rfis_insert" on public.rfis for insert with check (
   get_my_role() in ('admin','internal','pricing')
@@ -890,6 +904,39 @@ drop trigger if exists archive_project_children_trigger on public.projects;
 create trigger archive_project_children_trigger
   after update of status on public.projects
   for each row execute function public.archive_project_children();
+
+-- ── 30. project_activity (migration 008) ─────────────────
+-- Shared activity feed for projects / documents / RFIs.
+-- entity_id has no FK on purpose: activity outlives the entity.
+create table if not exists public.project_activity (
+  id          uuid primary key default gen_random_uuid(),
+  project_id  uuid not null references public.projects(id) on delete cascade,
+  entity_type text not null check (entity_type in ('project','document','rfi')),
+  entity_id   uuid,
+  event_type  text not null,
+  actor_name  text,
+  actor_email text,
+  description text,
+  metadata    jsonb default '{}'::jsonb,
+  occurred_at timestamptz default now(),
+  created_at  timestamptz default now()
+);
+create index if not exists idx_project_activity_project
+  on public.project_activity (project_id, occurred_at desc);
+create index if not exists idx_project_activity_entity
+  on public.project_activity (entity_type, entity_id);
+alter table public.project_activity enable row level security;
+-- Internal-only, mirroring tender_activity.
+create policy "project_activity_select" on public.project_activity for select using (
+  get_my_role() in ('admin','pricing','internal')
+);
+create policy "project_activity_insert" on public.project_activity for insert with check (
+  get_my_role() in ('admin','pricing','internal')
+);
+create policy "project_activity_delete" on public.project_activity for delete using (
+  get_my_role() = 'admin'
+);
+grant select, insert, delete on public.project_activity to authenticated;
 
 -- ── Seeds ────────────────────────────────────────────────
 insert into public.tender_counter (current_value) values (0);
