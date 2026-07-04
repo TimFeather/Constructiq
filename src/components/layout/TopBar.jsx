@@ -1,4 +1,3 @@
-import { supabase } from '@/api/supabaseClient';
 import React from 'react';
 import { useAuth } from '@/lib/AuthContext';
 import { Menu, LogOut, User as UserIcon } from 'lucide-react';

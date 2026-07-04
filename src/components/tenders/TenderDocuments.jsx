@@ -285,8 +285,7 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
       <input
         ref={folderInputRef}
         type="file"
-        webkitdirectory=""
-        directory=""
+        {...{ webkitdirectory: '', directory: '' }}
         multiple
         className="hidden"
         onChange={handleFolderSelect}

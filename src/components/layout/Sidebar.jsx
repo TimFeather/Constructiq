@@ -1,12 +1,13 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { 
-  LayoutDashboard, FolderKanban, FileText, MessageSquareMore, 
-  GanttChart, Settings, ChevronLeft, ChevronRight, HardHat, FileSignature
+import {
+  LayoutDashboard, FolderKanban, FileText, MessageSquareMore,
+  GanttChart, Settings, ChevronLeft, ChevronRight, HardHat, FileSignature,
+  ClipboardCheck
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/AuthContext';
-import { canAccess, isAdmin } from '@/lib/permissions';
+import { canAccess, canEdit, isAdmin } from '@/lib/permissions';
 
 export default function Sidebar({ collapsed, onToggle }) {
   const location = useLocation();
@@ -19,6 +20,7 @@ export default function Sidebar({ collapsed, onToggle }) {
     { path: '/documents', icon: FileText, label: 'Documents', show: true },
     { path: '/rfis', icon: MessageSquareMore, label: 'RFIs', show: true },
     { path: '/programme', icon: GanttChart, label: 'Programme', show: true },
+    { path: '/field', icon: ClipboardCheck, label: 'Field', show: canEdit(user, 'programme') },
     { path: '/tenders', icon: FileSignature, label: 'Tenders', show: canAccess(user, 'tenders') },
     { path: '/settings', icon: Settings, label: 'Settings', show: isAdmin(user) },
   ];

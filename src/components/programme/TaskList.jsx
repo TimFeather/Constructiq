@@ -1,7 +1,8 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import { ChevronRight, ChevronDown, Pencil } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format, differenceInDays } from 'date-fns';
+import { calculateVariance } from '@/lib/scheduling/baselineEngine';
 
 export const ROW_HEIGHT = 32;
 
@@ -11,8 +12,6 @@ const levelColors = [
   'border-l-amber-500',
   'border-l-purple-500',
 ];
-
-const COLS = '44px 20px 1fr 52px 64px 64px 72px';
 
 /**
  * TaskList — read-only view.
@@ -29,7 +28,9 @@ export default function TaskList({
   onEditTask,
   scrollRef,
   onScroll,
+  baselineMap,    // optional Map<task_id, { baseline_start, baseline_finish, baseline_duration }>
 }) {
+  const COLS = baselineMap ? '44px 20px 1fr 52px 64px 64px 72px 72px' : '44px 20px 1fr 52px 64px 64px 72px';
   const today = new Date();
 
   const getVariance = (task) => {
@@ -61,6 +62,7 @@ export default function TaskList({
         <span className="text-center">Pln Start</span>
         <span className="text-center">Pln End</span>
         <span className="text-center">Variance</span>
+        {baselineMap && <span className="text-center">Baseline</span>}
       </div>
 
       {/* Rows — flat list from pre-computed visibleTasks */}
@@ -85,6 +87,16 @@ export default function TaskList({
             : variance > 0 ? <span className="text-emerald-600 font-mono text-[10px]">+{variance}d</span>
             : variance < 0 ? <span className="text-red-500 font-mono text-[10px]">{variance}d</span>
             : <span className="text-muted-foreground font-mono text-[10px]">0d</span>;
+
+          const baselineRecord = baselineMap?.get(task.id);
+          const baselineVariance = baselineRecord ? calculateVariance(baselineRecord, resolved) : null;
+          const baselineEl = !baselineMap ? null
+            : !baselineVariance ? <span className="text-muted-foreground font-mono text-[10px]">—</span>
+            : baselineVariance.finishVariance > 0
+              ? <span className="text-red-500 font-mono text-[10px]" title="Slipped vs baseline">+{baselineVariance.finishVariance}d</span>
+              : baselineVariance.finishVariance < 0
+                ? <span className="text-emerald-600 font-mono text-[10px]" title="Ahead of baseline">{baselineVariance.finishVariance}d</span>
+                : <span className="text-muted-foreground font-mono text-[10px]">0d</span>;
 
           return (
             <div
@@ -136,6 +148,7 @@ export default function TaskList({
                 {plannedEnd ? format(new Date(plannedEnd), 'dd/MM/yy') : '—'}
               </span>
               <div className="text-center">{varianceEl}</div>
+              {baselineMap && <div className="text-center">{baselineEl}</div>}
 
               {onEditTask && (
                 <button

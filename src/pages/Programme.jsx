@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Project, Task } from '@/api/entities';
+import { fetchProgrammeTasks, fetchProgramme } from '@/api/programmeData';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -15,12 +16,15 @@ import {
 import {
   PanelLeftClose, PanelLeftOpen, Upload, Printer, ZoomIn, ZoomOut,
   Trash2, Target, Calendar, LayoutDashboard, CalendarDays,
-  ChevronsDownUp, ChevronsUpDown, Pencil,
+  ChevronsDownUp, ChevronsUpDown, Download, Plus, ClipboardCheck,
 } from 'lucide-react';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import PageHeader from '@/components/shared/PageHeader';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import TaskList from '@/components/programme/TaskList';
 import GanttChart from '@/components/programme/GanttChart';
 import TaskProgressPanel from '@/components/programme/TaskProgressPanel';
@@ -28,7 +32,19 @@ import ProgrammeHealth from '@/components/programme/ProgrammeHealth';
 import LookAhead from '@/components/programme/LookAhead';
 import ProgressModal from '@/components/programme/ProgressModal';
 import { parseXML, parseMPX, parseExcelCSV } from '@/lib/scheduleImportParsers';
-import { runScheduleEngine } from '@/lib/scheduling/scheduleEngine';
+import { computeImportDiff, isUpdateImport } from '@/lib/scheduleImportDiff';
+import { executeFreshImport, executeUpdateImport } from '@/lib/scheduleImportService';
+import { downloadMspdi, downloadProgrammeExcel } from '@/lib/scheduleExport';
+import ImportDiffDialog from '@/components/programme/ImportDiffDialog';
+import AddTaskDialog from '@/components/programme/AddTaskDialog';
+import ScheduleSettingsPopover from '@/components/programme/ScheduleSettingsPopover';
+import BaselineManager from '@/components/programme/BaselineManager';
+import { buildBaselineMap } from '@/lib/scheduling/baselineEngine';
+import { TaskBaselineItem } from '@/api/entities';
+import { runScheduleEngine, runScheduleEngineByProject, calendarForProgramme } from '@/lib/scheduling/scheduleEngine';
+import { updateTaskStartDate, updateTaskDuration, updateTaskDependency } from '@/lib/scheduleUpdateService';
+import { fetchProgrammesByProject } from '@/api/programmeData';
+import { canEdit } from '@/lib/permissions';
 import { getVisibleTasks } from '@/lib/programme/visibleTasks';
 import { bulkOperationState } from '@/lib/bulkOperationState';
 import { retry429 } from '@/lib/retry429';
@@ -61,12 +77,16 @@ export default function Programme() {
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [mppFile, setMppFile] = useState(null);
   const [importProgress, setImportProgress] = useState(null); // { stage, pct, statusText, error }
+  // Update-import review: { diff, fileName } — shown before committing a re-import
+  const [pendingImport, setPendingImport] = useState(null);
 
   // Delete state
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteProgress, setDeleteProgress] = useState(null); // { pct, statusText, done, error }
 
-  const [showCriticalPath, setShowCriticalPath] = useState(true);
+  const [showCriticalPath, setShowCriticalPath] = useState(false); // critical-only filter
+  const [showAddTask, setShowAddTask] = useState(false);
+  const [selectedBaselineId, setSelectedBaselineId] = useState(null); // baseline overlay
 
   const queryClient = useQueryClient();
   const taskScrollRef = useRef(null);
@@ -102,11 +122,37 @@ export default function Programme() {
 
   const { data: allTasks = [] } = useQuery({
     queryKey: ['tasks', selectedProjectId],
-    queryFn: () => selectedProjectId === 'all'
-      ? Task.list('sort_order', 2000)
-      : Task.filter({ project_id: selectedProjectId }, 'sort_order', 2000),
+    queryFn: () => fetchProgrammeTasks(selectedProjectId),
     staleTime: 30000,
   });
+
+  // Programme row: data date + working calendar for the selected project
+  const { data: programme = null } = useQuery({
+    queryKey: ['programme', selectedProjectId],
+    queryFn: () => fetchProgramme(selectedProjectId),
+    enabled: selectedProjectId !== 'all',
+  });
+
+  // All programmes (calendar/data date per project) for the cross-project view
+  const { data: programmesByProject } = useQuery({
+    queryKey: ['programmes'],
+    queryFn: fetchProgrammesByProject,
+    enabled: selectedProjectId === 'all',
+  });
+
+  // Baseline overlay: items for the selected baseline
+  const { data: baselineItems = [] } = useQuery({
+    queryKey: ['baselineItems', selectedBaselineId],
+    queryFn: () => TaskBaselineItem.filter({ baseline_id: selectedBaselineId }),
+    enabled: !!selectedBaselineId,
+  });
+  const baselineMap = useMemo(
+    () => (selectedBaselineId && baselineItems.length ? buildBaselineMap(baselineItems) : null),
+    [selectedBaselineId, baselineItems]
+  );
+
+  // Baseline selection is per-project — clear it when switching
+  useEffect(() => { setSelectedBaselineId(null); }, [selectedProjectId]);
 
   // Realtime task refresh every 30s (replaces Base44 subscribe)
   useEffect(() => {
@@ -142,14 +188,74 @@ export default function Programme() {
   const visibleTasks = useMemo(() => getVisibleTasks(tasks, expandedIds), [tasks, expandedIds]);
 
   // ─── Schedule engine ─────────────────────────────────────────────────────────
+  const projectStart = useMemo(() => tasks.reduce((min, t) => {
+    if (!t.start_date) return min;
+    return !min || t.start_date < min ? t.start_date : min;
+  }, null), [tasks]);
+
   const scheduledMap = useMemo(() => {
     if (!tasks.length) return new Map();
-    const pStart = tasks.reduce((min, t) => {
-      if (!t.start_date) return min;
-      return !min || t.start_date < min ? t.start_date : min;
-    }, null) || new Date().toISOString().split('T')[0];
-    return runScheduleEngine(tasks, pStart);
-  }, [tasks]);
+    if (selectedProjectId === 'all') {
+      return runScheduleEngineByProject(tasks, programmesByProject || new Map());
+    }
+    const calendar = calendarForProgramme(programme, tasks);
+    return runScheduleEngine(tasks, projectStart, calendar, { dataDate: programme?.data_date || null });
+  }, [tasks, projectStart, programme, programmesByProject, selectedProjectId]);
+
+  // Context every schedule mutation needs (audit user, calendar, data date)
+  const scheduleOptions = useMemo(() => ({
+    userId: user?.id || null,
+    projectStart,
+    calendar: selectedProjectId !== 'all' ? calendarForProgramme(programme, tasks) : undefined,
+    dataDate: selectedProjectId !== 'all' ? (programme?.data_date || null) : null,
+  }), [user?.id, projectStart, programme, tasks, selectedProjectId]);
+
+  const programmeEditable = canEdit(user, 'programme') && selectedProjectId !== 'all';
+
+  // ─── Authoring handlers (Gantt drag + editors → scheduling service) ──────────
+  const afterScheduleChange = useCallback((patchCount) => {
+    queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    if (patchCount > 1) {
+      toast({ title: 'Schedule updated', description: `${patchCount - 1} downstream task${patchCount === 2 ? '' : 's'} rescheduled.`, duration: 3500 });
+    }
+  }, [queryClient, toast]);
+
+  const handleMoveTask = useCallback(async (taskId, newStartDate) => {
+    try {
+      const { patches } = await updateTaskStartDate(taskId, newStartDate, tasks, scheduleOptions);
+      afterScheduleChange(patches.length);
+    } catch (e) {
+      toast({ title: 'Reschedule failed', description: e.message, variant: 'destructive' });
+    }
+  }, [tasks, scheduleOptions, afterScheduleChange, toast]);
+
+  const handleResizeTask = useCallback(async (taskId, newDuration) => {
+    try {
+      const { patches } = await updateTaskDuration(taskId, newDuration, tasks, scheduleOptions);
+      afterScheduleChange(patches.length);
+    } catch (e) {
+      toast({ title: 'Duration change failed', description: e.message, variant: 'destructive' });
+    }
+  }, [tasks, scheduleOptions, afterScheduleChange, toast]);
+
+  const handleCreateDependency = useCallback(async ({ predecessorId, successorId, type, lagDays }) => {
+    const successor = tasks.find(t => t.id === successorId);
+    if (!successor) return;
+    const existing = (successor.predecessors || []).filter(p => (p.predecessor_id || p.task_id) !== predecessorId);
+    const preds = [...existing, {
+      predecessor_id: predecessorId,
+      type,
+      lag_days: lagDays || 0,
+      lag_hours: (lagDays || 0) * 8,
+      is_elapsed: false,
+    }];
+    try {
+      const { patches } = await updateTaskDependency(successorId, preds, tasks, scheduleOptions);
+      afterScheduleChange(patches.length);
+    } catch (e) {
+      toast({ title: 'Link rejected', description: e.message, variant: 'destructive' });
+    }
+  }, [tasks, scheduleOptions, afterScheduleChange, toast]);
 
   const criticalTaskCount = useMemo(() => {
     let count = 0;
@@ -197,74 +303,25 @@ export default function Programme() {
         return;
       }
 
-      // Stage 3: chunked create with exponential backoff
-      setStage(2, 30, `Creating ${parsedTasks.length} tasks`);
-      const tasksToCreate = parsedTasks.map(({ _mspUid, _predecessorLinks, _parentUid, _outlineLevel, is_summary, ...t }) => t);
-
-      const CREATE_BATCH = 100;
-      const created = [];
-      for (let i = 0; i < tasksToCreate.length; i += CREATE_BATCH) {
-        const chunk = tasksToCreate.slice(i, i + CREATE_BATCH);
-        const result = await retry429(() => Task.bulkCreate(chunk));
-        created.push(...result);
-        const pct = 30 + Math.round(((i + chunk.length) / tasksToCreate.length) * 25);
-        setStage(2, pct, `${created.length} / ${tasksToCreate.length} tasks created`);
-      }
-      setStage(2, 55, `${created.length} tasks created`);
-
-
-      const uidToDbId = new Map();
-      parsedTasks.forEach((pt, i) => {
-        if (pt._mspUid != null && created[i]?.id) uidToDbId.set(pt._mspUid, created[i].id);
-      });
-
-      // Stage 4: link dependencies sequentially
-      setStage(3, 60);
-      const updates = [];
-      parsedTasks.forEach((pt, i) => {
-        const dbId = created[i]?.id;
-        if (!dbId) return;
-        const payload = {};
-        if (pt._predecessorLinks?.length) {
-          const predecessors = pt._predecessorLinks
-            .map(link => {
-              const predDbId = uidToDbId.get(link._predUid);
-              if (!predDbId) return null;
-              return { predecessor_id: predDbId, task_id: predDbId, type: link.type, lag_hours: link.lag_hours, lag_days: Math.round(link.lag_hours / 8), is_elapsed: link.is_elapsed };
-            }).filter(Boolean);
-          if (predecessors.length) payload.predecessors = predecessors;
-        }
-        if (pt._parentUid != null) {
-          const parentDbId = uidToDbId.get(pt._parentUid);
-          if (parentDbId) payload.parent_id = parentDbId;
-        }
-        if (Object.keys(payload).length) updates.push({ id: dbId, ...payload });
-      });
-
-      const DEP_BATCH = 15;
-      let done = 0;
-      for (let i = 0; i < updates.length; i += DEP_BATCH) {
-        const batch = updates.slice(i, i + DEP_BATCH);
-        await Promise.all(batch.map(({ id, ...payload }) =>
-          retry429(() => Task.update(id, payload)).then(() => {
-            done++;
-            setStage(3, 60 + Math.round((done / updates.length) * 25), `${done} / ${updates.length} dependencies`);
-          })
-        ));
+      // Update-vs-append: an XML re-import into a programme that already has
+      // MS Project UIDs goes through a diff + confirmation screen instead of
+      // blindly appending duplicates.
+      if (ext === 'xml' && isUpdateImport(tasks)) {
+        const diff = computeImportDiff(parsedTasks, tasks);
+        setImportProgress(null);
+        setPendingImport({ diff, fileName: mppFile.name });
+        return;
       }
 
-      // Stage 5/6: finalise
-      setStage(4, 88, 'Building WBS structure');
-      setStage(5, 95, 'Finalising');
+      const createdCount = await executeFreshImport(parsedTasks, selectedProjectId, setStage);
 
       setImportProgress(p => ({ ...p, pct: 100, statusText: 'Import complete!' }));
-
 
       setTimeout(async () => {
         setImportProgress(null);
         setMppFile(null);
         await queryClient.refetchQueries({ queryKey: ['tasks'] });
-        toast({ title: `Schedule imported`, description: `${parsedTasks.length} tasks loaded successfully.`, duration: 4000 });
+        toast({ title: `Schedule imported`, description: `${createdCount} tasks loaded successfully.`, duration: 4000 });
       }, 1200);
 
     } catch (error) {
@@ -272,6 +329,62 @@ export default function Programme() {
     } finally {
       bulkOperationState.active = false;
     }
+  };
+
+  // Commit a reviewed update-import (from the diff dialog)
+  const handleConfirmUpdateImport = async () => {
+    const pending = pendingImport;
+    setPendingImport(null);
+    if (!pending) return;
+
+    const setStage = (stageIdx, pct, detail = '') => {
+      setImportProgress({
+        stage: stageIdx + 1,
+        stageOf: IMPORT_STAGES.length,
+        pct,
+        statusText: `${IMPORT_STAGES[stageIdx]}${detail ? ` — ${detail}` : ''}`,
+        error: null,
+      });
+    };
+
+    bulkOperationState.active = true;
+    try {
+      const { createdCount, updatedCount } = await executeUpdateImport(
+        pending.diff, selectedProjectId, tasks, user?.id, setStage
+      );
+      setImportProgress(p => ({ ...p, pct: 100, statusText: 'Update complete!' }));
+      setTimeout(async () => {
+        setImportProgress(null);
+        setMppFile(null);
+        await queryClient.refetchQueries({ queryKey: ['tasks'] });
+        toast({
+          title: 'Programme updated',
+          description: `${createdCount} tasks added, ${updatedCount} updated. ${pending.diff.missing.length ? `${pending.diff.missing.length} tasks missing from the file were kept.` : ''}`,
+          duration: 5000,
+        });
+      }, 800);
+    } catch (error) {
+      setImportProgress(p => ({ ...(p || {}), error: error.message || 'Update import failed.' }));
+    } finally {
+      bulkOperationState.active = false;
+    }
+  };
+
+  // ─── Export ──────────────────────────────────────────────────────────────────
+  const selectedProjectName = projects.find(p => p.id === selectedProjectId)?.name || 'programme';
+
+  const handleExportMspdi = () => {
+    const calendar = calendarForProgramme(programme, tasks);
+    downloadMspdi(tasks, programme, {
+      projectName: selectedProjectName,
+      holidays: calendar.holidays,
+    });
+    toast({ title: 'Exported', description: 'MS Project XML downloaded — opens via File → Open in Microsoft Project.', duration: 4000 });
+  };
+
+  const handleExportExcel = () => {
+    downloadProgrammeExcel(tasks, scheduledMap, selectedProjectName);
+    toast({ title: 'Exported', description: 'Excel programme downloaded.', duration: 3000 });
   };
 
   // ─── Sequential delete with exponential backoff ──────────────────────────────
@@ -405,11 +518,52 @@ export default function Programme() {
               </Badge>
             )}
 
+            {programmeEditable && (
+              <Button variant="outline" size="sm" onClick={() => setShowAddTask(true)} className="gap-1.5 text-xs h-9">
+                <Plus className="w-3.5 h-3.5" /> Add Task
+              </Button>
+            )}
+            <Button
+              variant={showCriticalPath ? 'default' : 'outline'} size="sm"
+              onClick={() => setShowCriticalPath(v => !v)}
+              title="Show critical path only"
+              className="gap-1.5 text-xs h-9">
+              <Target className="w-3.5 h-3.5" /> Critical
+            </Button>
+            {programmeEditable && (
+              <ScheduleSettingsPopover
+                projectId={selectedProjectId}
+                programme={programme}
+              />
+            )}
+            {programmeEditable && (
+              <BaselineManager
+                projectId={selectedProjectId}
+                tasks={tasks}
+                scheduledMap={scheduledMap}
+                selectedBaselineId={selectedBaselineId}
+                onSelectBaseline={setSelectedBaselineId}
+                canDelete={['admin', 'pricing'].includes(user?.role)}
+              />
+            )}
             <Button variant="outline" size="sm" onClick={expandAll} title="Expand all" className="gap-1.5 text-xs h-9"><ChevronsUpDown className="w-3.5 h-3.5" />Expand All</Button>
             <Button variant="outline" size="sm" onClick={collapseAll} title="Collapse all" className="gap-1.5 text-xs h-9"><ChevronsDownUp className="w-3.5 h-3.5" />Collapse</Button>
             <Button variant="outline" size="icon" onClick={() => cycleZoom('out')} title={`Zoom out (${zoom})`}><ZoomOut className="w-4 h-4" /></Button>
             <Button variant="outline" size="icon" onClick={() => cycleZoom('in')} title={`Zoom in (${zoom})`}><ZoomIn className="w-4 h-4" /></Button>
             <Button variant="outline" size="icon" onClick={() => window.print()} title="Print"><Printer className="w-4 h-4" /></Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-1.5 text-xs h-9"
+                  disabled={selectedProjectId === 'all' || tasks.length === 0}
+                  title={selectedProjectId === 'all' ? 'Select a project to export' : 'Export programme'}>
+                  <Download className="w-3.5 h-3.5" /> Export
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={handleExportMspdi}>MS Project XML (.xml)</DropdownMenuItem>
+                <DropdownMenuItem onClick={handleExportExcel}>Excel (.xlsx)</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button onClick={() => { if (selectedProjectId === 'all' && projects[0]?.id) setSelectedProjectId(projects[0].id); setShowImportDialog(true); }} disabled={!!deleteProgress} className="gap-2"><Upload className="w-4 h-4" /> Import</Button>
             <Button variant="destructive" size="icon"
               onClick={() => setShowDeleteConfirm(true)}
@@ -424,6 +578,11 @@ export default function Programme() {
       <Tabs defaultValue="gantt" className="flex-1 flex flex-col overflow-hidden">
         {isMobile && (
           <div className="flex items-center gap-2 py-2 border-b bg-muted/20 overflow-x-auto flex-shrink-0">
+            {canEdit(user, 'programme') && (
+              <Button size="sm" asChild className="flex-shrink-0 h-8 text-xs gap-1">
+                <Link to="/field"><ClipboardCheck className="w-3 h-3" /> Field view</Link>
+              </Button>
+            )}
             <Button size="sm" variant="outline" onClick={expandAll} className="flex-shrink-0 h-8 text-xs gap-1"><ChevronsUpDown className="w-3 h-3" /> Expand All</Button>
             <Button size="sm" variant="outline" onClick={collapseAll} className="flex-shrink-0 h-8 text-xs gap-1"><ChevronsDownUp className="w-3 h-3" /> Collapse</Button>
             <Button size="sm" variant="outline" onClick={() => cycleZoom('out')} className="flex-shrink-0 h-8"><ZoomOut className="w-3.5 h-3.5" /></Button>
@@ -470,6 +629,7 @@ export default function Programme() {
                     onToggleExpand={onToggleExpand}
                     onTaskClick={setSelectedTask}
                     onEditTask={setEditingTask}
+                    baselineMap={baselineMap}
                     scrollRef={taskScrollRef}
                     onScroll={() => {
                       if (taskScrollRef.current && ganttScrollRef.current) {
@@ -491,8 +651,14 @@ export default function Programme() {
                     syncScroll(ganttScrollRef.current, taskScrollRef.current);
                   }
                 }}
-                baselineMap={null}
+                baselineMap={baselineMap}
                 onTaskClick={setSelectedTask}
+                editable={programmeEditable && !isMobile}
+                dataDate={selectedProjectId !== 'all' ? (programme?.data_date || null) : null}
+                criticalOnly={showCriticalPath}
+                onMoveTask={handleMoveTask}
+                onResizeTask={handleResizeTask}
+                onCreateDependency={handleCreateDependency}
               />
             </>
           )}
@@ -503,13 +669,16 @@ export default function Programme() {
         </TabsContent>
 
         <TabsContent value="health" className="flex-1 overflow-hidden border rounded-lg bg-card">
-          <ProgrammeHealth tasks={tasks} scheduledMap={scheduledMap} />
+          <ProgrammeHealth tasks={tasks} scheduledMap={scheduledMap} baselineMap={baselineMap} />
         </TabsContent>
       </Tabs>
 
       {/* Inline task editor */}
       <TaskInlineEditor
         task={editingTask}
+        tasks={tasks}
+        scheduleOptions={scheduleOptions}
+        editable={programmeEditable}
         open={!!editingTask}
         onOpenChange={open => { if (!open) setEditingTask(null); }}
       />
@@ -519,8 +688,28 @@ export default function Programme() {
         task={selectedTask}
         tasks={tasks}
         scheduledMap={scheduledMap}
+        scheduleOptions={scheduleOptions}
         open={!!selectedTask}
         onOpenChange={open => { if (!open) setSelectedTask(null); }}
+      />
+
+      {/* Add task */}
+      <AddTaskDialog
+        open={showAddTask}
+        onOpenChange={setShowAddTask}
+        projectId={selectedProjectId}
+        tasks={tasks}
+        scheduleOptions={scheduleOptions}
+      />
+
+      {/* Update-import review (diff before commit) */}
+      <ImportDiffDialog
+        open={!!pendingImport}
+        onOpenChange={open => { if (!open) setPendingImport(null); }}
+        diff={pendingImport?.diff || null}
+        fileName={pendingImport?.fileName || ''}
+        onConfirm={handleConfirmUpdateImport}
+        onCancel={() => { setPendingImport(null); setMppFile(null); }}
       />
 
       {/* Import progress modal */}
@@ -568,7 +757,9 @@ export default function Programme() {
           <DialogHeader><DialogTitle>Import Schedule</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Import from MS Project or Excel. The imported schedule becomes the master plan — dates are read-only in ConstructIQ.
+              Import from MS Project or Excel. Re-importing an updated XML file into an existing
+              programme shows a review screen — existing tasks are updated by their MS Project ID,
+              new ones added, and nothing is deleted.
             </p>
             <div className="grid grid-cols-3 gap-2 text-xs">
               <div className="rounded-md border p-2.5 space-y-1"><p className="font-semibold">XML (recommended)</p><p className="text-muted-foreground">File → Save As → XML Format</p></div>

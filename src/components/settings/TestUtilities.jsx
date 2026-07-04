@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { AlertTriangle, RefreshCw, Trash2, Users, BarChart2, ShieldCheck, Search } from 'lucide-react';
+import { AlertTriangle, RefreshCw, Trash2, BarChart2, ShieldCheck, Search } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 
 const ACTIONS = [

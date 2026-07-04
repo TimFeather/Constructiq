@@ -20,9 +20,26 @@
 
 import { buildDependencyGraph, wouldCreateCycle } from './dependencyGraph.js';
 import { runCPM } from './criticalPath.js';
-import { DEFAULT_CALENDAR, toDateStr, parseDate, nextWorkingDay } from './calendarEngine.js';
+import { DEFAULT_CALENDAR, toDateStr, countWorkingDays } from './calendarEngine.js';
+import { buildProjectCalendar } from './nzHolidays.js';
 
 export { wouldCreateCycle };
+
+/**
+ * Derive the working calendar + data date for a programme row (from the
+ * programmes table). Holidays are generated across the schedule's year span.
+ */
+export function calendarForProgramme(programme, tasks = []) {
+  const years = tasks
+    .flatMap(t => [t.start_date, t.end_date])
+    .filter(Boolean)
+    .map(d => parseInt(String(d).slice(0, 4), 10))
+    .filter(y => y > 2000 && y < 2100);
+  const thisYear = new Date().getFullYear();
+  const startYear = years.length ? Math.min(...years, thisYear) : thisYear;
+  const endYear = (years.length ? Math.max(...years, thisYear) : thisYear) + 2;
+  return buildProjectCalendar(programme, startYear, endYear);
+}
 
 /**
  * Run the full schedule engine on a task list.
@@ -43,13 +60,11 @@ export { wouldCreateCycle };
  *   lateStart: Date, lateFinish: Date,
  * }
  */
-export function runScheduleEngine(tasks, projectStartDate, calendar = DEFAULT_CALENDAR) {
+export function runScheduleEngine(tasks, projectStartDate, calendar = DEFAULT_CALENDAR, options = {}) {
   if (!tasks || tasks.length === 0) return new Map();
 
-  // Separate summary tasks (have children) from leaf tasks
+  // Summary tasks (those with children) get their dates from child rollup
   const childParentIds = new Set(tasks.filter(t => t.parent_id).map(t => t.parent_id));
-  const leafTasks = tasks.filter(t => !childParentIds.has(t.id));
-  const summaryTasks = tasks.filter(t => childParentIds.has(t.id));
 
   // Build dependency graph (for leaf tasks only — summary tasks use child rollup)
   const graph = buildDependencyGraph(tasks);
@@ -63,19 +78,47 @@ export function runScheduleEngine(tasks, projectStartDate, calendar = DEFAULT_CA
     || toDateStr(new Date());
 
   // Run CPM on ALL tasks (engine handles summary internally)
-  const cpmResult = runCPM(tasks, graph, fallback, calendar);
+  const cpmResult = runCPM(tasks, graph, fallback, calendar, options);
 
   // Rollup summary task dates from children
-  rollupSummaryTasks(tasks, cpmResult, childParentIds);
+  rollupSummaryTasks(tasks, cpmResult, childParentIds, calendar);
 
   return cpmResult;
+}
+
+/**
+ * Run the engine per project for the cross-project ('all') view.
+ * Each project has its own calendar and data date; there are no
+ * cross-project dependencies, so this is a simple partition loop.
+ *
+ * @param {Array} tasks - tasks across multiple projects
+ * @param {Map<string, Object>} programmesByProject - project_id → programmes row
+ * @returns {Map<string, ScheduleResult>} merged result map
+ */
+export function runScheduleEngineByProject(tasks, programmesByProject = new Map()) {
+  const byProject = new Map();
+  for (const task of tasks) {
+    if (!byProject.has(task.project_id)) byProject.set(task.project_id, []);
+    byProject.get(task.project_id).push(task);
+  }
+
+  const merged = new Map();
+  for (const [projectId, projectTasks] of byProject) {
+    const programme = programmesByProject.get(projectId) || null;
+    const calendar = calendarForProgramme(programme, projectTasks);
+    const result = runScheduleEngine(projectTasks, null, calendar, {
+      dataDate: programme?.data_date || null,
+    });
+    result.forEach((v, k) => merged.set(k, v));
+  }
+  return merged;
 }
 
 /**
  * Roll up summary task dates from their children's resolved dates.
  * Processes bottom-up so nested summaries are correct.
  */
-function rollupSummaryTasks(tasks, resolvedMap, summaryIds) {
+function rollupSummaryTasks(tasks, resolvedMap, summaryIds, calendar = DEFAULT_CALENDAR) {
   if (!summaryIds.size) return;
 
   // Build parent→children map
@@ -116,7 +159,10 @@ function rollupSummaryTasks(tasks, resolvedMap, summaryIds) {
 
     const minStart = new Date(Math.min(...childStarts.map(d => d.getTime())));
     const maxFinish = new Date(Math.max(...childFinishes.map(d => d.getTime())));
-    const durationDays = Math.max(1, Math.round((maxFinish - minStart) / 86400000) + 1);
+    // Duration in WORKING days (same unit as the duration column)
+    const dayAfterFinish = new Date(maxFinish);
+    dayAfterFinish.setDate(dayAfterFinish.getDate() + 1);
+    const durationDays = Math.max(1, countWorkingDays(minStart, dayAfterFinish, calendar));
 
     // Progress rollup — weighted average by duration
     const childProgressList = childIds
