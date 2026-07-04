@@ -276,7 +276,7 @@ Deno.serve(async (req) => {
         assignment = activeAssignment;
       }
 
-      if (isNewInvite) {
+      if (isNewInvite || !activeAssignment) {
         sendInvitationEmail({ to: normalEmail, toName: fullName, projectName, inviterName: user.full_name || user.email, branding, token: invitedUser?.token }).catch((e: any) => {
           console.error('[invitationService] Email failed:', e.message);
           supabaseAdmin.from('audit_logs').insert({
@@ -411,7 +411,85 @@ Deno.serve(async (req) => {
         await supabaseAdmin.from('projects').update({ team }).eq('id', projectId);
       }
 
-      return Response.json({ success: true, alreadyMember }, { headers: corsHeaders });
+      // Send the "you've been added to project X" email server-side so it can't be
+      // silently swallowed by a client-side try/catch. Never let this fail the request.
+      // Skipped when they were already on the team (re-adding must not re-email).
+      let emailSent = false;
+      if (!alreadyMember) try {
+        const memberName = fullName || targetUserData.full_name || targetUserData.email;
+
+        const [{ data: templates }, { data: brandings }] = await Promise.all([
+          supabaseAdmin.from('email_templates').select('*').eq('template_key', 'team_added').limit(1),
+          supabaseAdmin.from('email_branding').select('*').limit(1),
+        ]);
+
+        const template = templates?.[0] || {
+          subject: "You've been added to project: {project_name}",
+          body_html: `
+<p>Hi <strong>{name}</strong>,</p>
+<p>You have been added to the project <strong>{project_name}</strong> as <strong>{role}</strong>.</p>
+<p>Please log in to view your project details and get started.</p>
+<p style="margin-top:24px;color:#6b7280;font-size:13px;">Best regards,<br>ConstructIQ</p>`,
+        };
+        const branding = brandings?.[0] || {};
+
+        const vars: Record<string, string> = {
+          name: escapeHtml(memberName),
+          project_name: escapeHtml(projectData.name || ''),
+          role: escapeHtml(role),
+        };
+
+        let subject = template.subject || '';
+        let bodyHtml = template.body_html || template.body || '';
+        for (const [key, val] of Object.entries(vars)) {
+          const re = new RegExp(`\\{${key}\\}`, 'g');
+          subject = subject.replace(re, val ?? '');
+          bodyHtml = bodyHtml.replace(re, val ?? '');
+        }
+
+        const brandColour = branding.brand_colour || '#1a56db';
+        const fromName    = branding.sender_name || branding.company_name || 'ConstructIQ';
+        const senderEmail = branding.sender_email || Deno.env.get('SENDER_EMAIL') || 'noreply@totalhomesolutions.co.nz';
+        const fromEmail   = `${fromName} <${senderEmail}>`;
+        const logoHtml = branding.logo_url
+          ? `<div style="text-align:${branding.logo_alignment || 'left'};margin-bottom:20px;"><img src="${branding.logo_url}" alt="${escapeHtml(branding.company_name || 'Logo')}" width="${branding.logo_width || 160}" style="max-width:100%;height:auto;display:inline-block;" /></div>`
+          : '';
+        const footerHtml = branding.footer_text
+          ? `<div style="margin-top:32px;padding-top:16px;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af;line-height:1.6;">${String(branding.footer_text).replace(/\n/g, '<br>')}</div>`
+          : '';
+
+        const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:32px 16px;">
+<tr><td align="center"><table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
+<tr><td style="background:${brandColour};height:4px;"></td></tr>
+<tr><td style="padding:32px 40px;">${logoHtml}<div style="font-size:15px;color:#111827;line-height:1.7;">${bodyHtml}</div>${footerHtml}</td></tr>
+<tr><td style="background:${brandColour};height:2px;"></td></tr>
+</table></td></tr></table></body></html>`;
+
+        const resend = new Resend(Deno.env.get('RESEND_API_KEY'));
+        await resend.emails.send({
+          from: fromEmail,
+          to: targetUserData.email,
+          subject,
+          html,
+        });
+        emailSent = true;
+      } catch (e: any) {
+        console.error('[invitationService] addExistingUser email failed:', e?.message);
+        await supabaseAdmin.from('audit_logs').insert({
+          action: 'Email Failed',
+          entity_type: 'Project',
+          entity_id: projectId,
+          project_id: projectId,
+          user_id: user.id,
+          user_name: user.full_name || user.email,
+          description: `Team-added email to ${targetUserData.email} failed: ${e?.message}`,
+          created_at: new Date().toISOString(),
+        }).then(null, () => {});
+      }
+
+      return Response.json({ success: true, alreadyMember, emailSent }, { headers: corsHeaders });
     }
 
     // ── removeFromProjectTeams ───────────────────────────────────────────────

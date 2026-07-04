@@ -1,6 +1,6 @@
 import { invokeFunction } from '@/api/supabaseClient';
 import React, { useState, useCallback } from 'react';
-import { EmailBranding, EmailTemplate, Project, ProjectRole, TenderContact, User } from '@/api/entities';
+import { Project, ProjectRole, TenderContact, User } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -11,7 +11,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Plus, Trash2, Users, UserCheck, Building2, Pencil, Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/components/ui/use-toast';
-import { resolveTemplate, applyTemplate, buildEmailHtml } from '@/lib/emailTemplates';
 import { isUserDeactivated, filterActiveUsers } from '@/lib/userStatus';
 import { normalizeEmail } from '@/lib/normalizeEmail';
 
@@ -82,16 +81,6 @@ export default function TeamManager({ project }) {
     queryKey: ['tenderContacts'],
     queryFn: () => TenderContact.list('-created_at', 500).catch(() => []),
     enabled: isAllowed,
-  });
-
-  const { data: emailTemplates = [] } = useQuery({
-    queryKey: ['emailTemplates'],
-    queryFn: () => EmailTemplate.list(),
-  });
-
-  const { data: emailBranding = {} } = useQuery({
-    queryKey: ['emailBranding'],
-    queryFn: () => EmailBranding.list().then(r => r[0] ?? {}),
   });
 
   const { data: projectRolesRaw = [] } = useQuery({
@@ -200,8 +189,8 @@ export default function TeamManager({ project }) {
       const permissionRole = selectedProjectRole?.permission_role || 'external';
 
       if (emailStatus === 'existing_user' && emailStatusData?.user) {
-        // Route through invitationService for direct add + audit log
-        await invokeFunction('invitationService', {
+        // Route through invitationService for direct add + audit log + server-side email
+        const res = await invokeFunction('invitationService', {
           action: 'addExistingUser',
           targetUserId: emailStatusData.user.id,
           projectId: project.id,
@@ -211,19 +200,14 @@ export default function TeamManager({ project }) {
           phone: member.phone,
           trade: member.trade,
         });
-        // Also send notification email
-        const tpl = resolveTemplate(emailTemplates, 'team_added');
-        const { subject, body } = applyTemplate(tpl, {
-          name: member.full_name,
-          project_name: project.name,
-          role: member.role,
-        });
-        try {
-          const htmlBody = buildEmailHtml(body, emailBranding);
-          await invokeFunction('sendEmail', { to: member.user_email, toName: member.full_name, subject, htmlBody });
-        } catch (e) { /* email non-critical */ }
 
-        toast({ title: `${member.full_name} added to project` });
+        if (res?.data?.alreadyMember) {
+          toast({ title: `${member.full_name} is already on this project` });
+        } else if (res?.data?.emailSent) {
+          toast({ title: `${member.full_name} added to project`, description: 'They were notified by email.' });
+        } else {
+          toast({ title: `${member.full_name} added to project`, description: 'The notification email failed to send.', variant: 'destructive' });
+        }
 
       } else if (member.user_email) {
         // New user or pending — add to team array locally + route through invitationService
