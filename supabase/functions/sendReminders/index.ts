@@ -158,6 +158,17 @@ Deno.serve(async (req: Request) => {
     let totalSent = 0;
     let totalSkipped = 0;
 
+    interface ReminderDetail {
+      type: string;
+      id: string | null;
+      title: string | null;
+      days: number | null;
+      action: 'sent' | 'skipped';
+      reason?: string;
+      recipients?: string[];
+    }
+    const details: ReminderDetail[] = [];
+
     // ── TENDER EXTERNAL REMINDER ─────────────────────────────────────────────
     const extSetting = getSetting('tender_external');
     if (extSetting?.enabled) {
@@ -174,7 +185,10 @@ Deno.serve(async (req: Request) => {
       for (const tender of (tenders || [])) {
         if (!tender.closing_date) continue;
         const days = daysUntil(tender.closing_date);
-        if (days !== daysB) continue;
+        if (days < 0 || days > daysB) {
+          details.push({ type: 'tender_ext', id: tender.id, title: tender.title, days, action: 'skipped', reason: 'outside window' });
+          continue;
+        }
 
         // Get invitees who haven't submitted
         const { data: invitations } = await supabaseAdmin
@@ -183,10 +197,18 @@ Deno.serve(async (req: Request) => {
           .eq('tender_id', tender.id)
           .in('status', ['Sent', 'Viewed']);
 
+        if (!invitations || invitations.length === 0) {
+          details.push({ type: 'tender_ext', id: tender.id, title: tender.title, days, action: 'skipped', reason: 'no invitees pending' });
+        }
+
         for (const inv of (invitations || [])) {
           if (!inv.invitee_email) continue;
           const logKey = `tender_ext_${tender.id}_${daysB}d`;
-          if (await alreadySent(logKey, tender.id, inv.invitee_email)) { totalSkipped++; continue; }
+          if (await alreadySent(logKey, tender.id, inv.invitee_email)) {
+            totalSkipped++;
+            details.push({ type: 'tender_ext', id: tender.id, title: tender.title, days, action: 'skipped', reason: 'already sent (dedup)', recipients: [inv.invitee_email] });
+            continue;
+          }
 
           const portalUrl = `${APP_URL}/tender-submit/${inv.token}`;
           const vars: Record<string, string> = {
@@ -208,9 +230,15 @@ Deno.serve(async (req: Request) => {
             await resend.emails.send({ from: fromEmail, to: inv.invitee_email, subject, html: buildWrapper(replaceVars(rawBody, vars), branding) });
             await logSent(logKey, tender.id, inv.invitee_email);
             totalSent++;
-          } catch (_e) { totalSkipped++; }
+            details.push({ type: 'tender_ext', id: tender.id, title: tender.title, days, action: 'sent', recipients: [inv.invitee_email] });
+          } catch (_e) {
+            totalSkipped++;
+            details.push({ type: 'tender_ext', id: tender.id, title: tender.title, days, action: 'skipped', reason: 'send error', recipients: [inv.invitee_email] });
+          }
         }
       }
+    } else {
+      details.push({ type: 'tender_ext', id: null, title: null, days: null, action: 'skipped', reason: 'settings disabled' });
     }
 
     // ── TENDER INTERNAL REMINDER ─────────────────────────────────────────────
@@ -228,7 +256,10 @@ Deno.serve(async (req: Request) => {
       for (const tender of (tenders || [])) {
         if (!tender.closing_date) continue;
         const days = daysUntil(tender.closing_date);
-        if (days !== daysB) continue;
+        if (days < 0 || days > daysB) {
+          details.push({ type: 'tender_int', id: tender.id, title: tender.title, days, action: 'skipped', reason: 'outside window' });
+          continue;
+        }
 
         // Count submissions + invitees
         const [{ count: subCount }, { count: invCount }] = await Promise.all([
@@ -250,8 +281,16 @@ Deno.serve(async (req: Request) => {
         const adminUrl = `${APP_URL}/tenders/${tender.id}`;
         const logKey = `tender_int_${tender.id}_${daysB}d`;
 
+        if (recipients.size === 0) {
+          details.push({ type: 'tender_int', id: tender.id, title: tender.title, days, action: 'skipped', reason: 'no invitees pending' });
+        }
+
         for (const email of recipients) {
-          if (await alreadySent(logKey, tender.id, email)) { totalSkipped++; continue; }
+          if (await alreadySent(logKey, tender.id, email)) {
+            totalSkipped++;
+            details.push({ type: 'tender_int', id: tender.id, title: tender.title, days, action: 'skipped', reason: 'already sent (dedup)', recipients: [email] });
+            continue;
+          }
 
           const vars: Record<string, string> = {
             tender_number:    escapeHtml(tender.tender_number || ''),
@@ -270,9 +309,15 @@ Deno.serve(async (req: Request) => {
             await resend.emails.send({ from: fromEmail, to: email, subject, html: buildWrapper(replaceVars(rawBody, vars), branding) });
             await logSent(logKey, tender.id, email);
             totalSent++;
-          } catch (_e) { totalSkipped++; }
+            details.push({ type: 'tender_int', id: tender.id, title: tender.title, days, action: 'sent', recipients: [email] });
+          } catch (_e) {
+            totalSkipped++;
+            details.push({ type: 'tender_int', id: tender.id, title: tender.title, days, action: 'skipped', reason: 'send error', recipients: [email] });
+          }
         }
       }
+    } else {
+      details.push({ type: 'tender_int', id: null, title: null, days: null, action: 'skipped', reason: 'settings disabled' });
     }
 
     // ── RFI QUESTIONS DEADLINE REMINDER ──────────────────────────────────────
@@ -291,7 +336,10 @@ Deno.serve(async (req: Request) => {
       for (const tender of (tenders || [])) {
         if (!tender.questions_date) continue;
         const days = daysUntil(tender.questions_date);
-        if (days !== daysB) continue;
+        if (days < 0 || days > daysB) {
+          details.push({ type: 'rfi_reminder', id: tender.id, title: tender.title, days, action: 'skipped', reason: 'outside window' });
+          continue;
+        }
 
         const { data: invitations } = await supabaseAdmin
           .from('tender_invitations')
@@ -301,9 +349,17 @@ Deno.serve(async (req: Request) => {
 
         const logKey = `rfi_rem_${tender.id}_${daysB}d`;
 
+        if (!invitations || invitations.length === 0) {
+          details.push({ type: 'rfi_reminder', id: tender.id, title: tender.title, days, action: 'skipped', reason: 'no invitees pending' });
+        }
+
         for (const inv of (invitations || [])) {
           if (!inv.invitee_email) continue;
-          if (await alreadySent(logKey, tender.id, inv.invitee_email)) { totalSkipped++; continue; }
+          if (await alreadySent(logKey, tender.id, inv.invitee_email)) {
+            totalSkipped++;
+            details.push({ type: 'rfi_reminder', id: tender.id, title: tender.title, days, action: 'skipped', reason: 'already sent (dedup)', recipients: [inv.invitee_email] });
+            continue;
+          }
 
           const portalUrl = `${APP_URL}/tender-submit/${inv.token}`;
           const vars: Record<string, string> = {
@@ -324,13 +380,19 @@ Deno.serve(async (req: Request) => {
             await resend.emails.send({ from: fromEmail, to: inv.invitee_email, subject, html: buildWrapper(replaceVars(rawBody, vars), branding) });
             await logSent(logKey, tender.id, inv.invitee_email);
             totalSent++;
-          } catch (_e) { totalSkipped++; }
+            details.push({ type: 'rfi_reminder', id: tender.id, title: tender.title, days, action: 'sent', recipients: [inv.invitee_email] });
+          } catch (_e) {
+            totalSkipped++;
+            details.push({ type: 'rfi_reminder', id: tender.id, title: tender.title, days, action: 'skipped', reason: 'send error', recipients: [inv.invitee_email] });
+          }
         }
       }
+    } else {
+      details.push({ type: 'rfi_reminder', id: null, title: null, days: null, action: 'skipped', reason: 'settings disabled' });
     }
 
     console.log(`[sendReminders] DONE sent=${totalSent} skipped=${totalSkipped}`);
-    return Response.json({ success: true, sent: totalSent, skipped: totalSkipped }, { headers: corsHeaders });
+    return Response.json({ success: true, sent: totalSent, skipped: totalSkipped, details }, { headers: corsHeaders });
 
   } catch (e: any) {
     console.error('[sendReminders] ERROR:', e.message);
