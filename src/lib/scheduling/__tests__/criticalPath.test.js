@@ -276,6 +276,90 @@ describe('SNET floor constraint', () => {
   });
 });
 
+describe('sub-day packing (continuous working-hour timeline)', () => {
+  it('packs two consecutive 4h FS tasks into ONE calendar day', () => {
+    // 0.5wd = 4h. A: 08:00–12:00 Mon; B FS after A: 13:00–17:00 SAME Mon.
+    const a = makeTask({ id: 'A', start_date: '2026-01-05', duration: 0.5 });
+    const b = makeTask({ id: 'B', duration: 0.5, predecessors: [fs('A')] });
+    const r = run([a, b]);
+
+    expect(r.get('A').startStr).toBe('2026-01-05');
+    expect(r.get('A').finishStr).toBe('2026-01-05');
+    expect(r.get('B').startStr).toBe('2026-01-05'); // packs, no next-day drift
+    expect(r.get('B').finishStr).toBe('2026-01-05');
+  });
+
+  it('a 4h task FS-after a 12h (1.5d) task: pred finishes midday day 2, succ finishes same day', () => {
+    // A: 12h from Mon 08:00 -> fills Mon (8h) + Tue morning (4h), finishes Tue 12:00.
+    // B (4h) FS: starts Tue 13:00, finishes Tue 17:00 — same day as A's finish.
+    const a = makeTask({ id: 'A', start_date: '2026-01-05', duration: 1.5 });
+    const b = makeTask({ id: 'B', duration: 0.5, predecessors: [fs('A')] });
+    const r = run([a, b]);
+
+    expect(r.get('A').startStr).toBe('2026-01-05'); // Mon
+    expect(r.get('A').finishStr).toBe('2026-01-06'); // Tue (midday)
+    expect(r.get('B').startStr).toBe('2026-01-06'); // Tue afternoon
+    expect(r.get('B').finishStr).toBe('2026-01-06'); // same day
+  });
+
+  it('a sub-day FS chain crossing a weekend and a holiday packs correctly', () => {
+    // Holiday Wed 7 Jan injected. Four 4h FS tasks from Mon 5 Jan:
+    //   T1: Mon AM, T2: Mon PM, T3: Tue AM, T4: Tue PM (Wed is holiday).
+    const cal = { type: '5day', holidays: ['2026-01-07'], shutdowns: [] };
+    const t1 = makeTask({ id: 'T1', start_date: '2026-01-05', duration: 0.5 });
+    const t2 = makeTask({ id: 'T2', duration: 0.5, predecessors: [fs('T1')] });
+    const t3 = makeTask({ id: 'T3', duration: 0.5, predecessors: [fs('T2')] });
+    const t4 = makeTask({ id: 'T4', duration: 0.5, predecessors: [fs('T3')] });
+    const r = runScheduleEngine([t1, t2, t3, t4], '2026-01-05', cal);
+
+    expect(r.get('T1').startStr).toBe('2026-01-05'); // Mon AM
+    expect(r.get('T2').startStr).toBe('2026-01-05'); // Mon PM
+    expect(r.get('T3').startStr).toBe('2026-01-06'); // Tue AM
+    expect(r.get('T4').startStr).toBe('2026-01-06'); // Tue PM
+    expect(r.get('T4').finishStr).toBe('2026-01-06');
+
+    // A fifth task rolls to Thu 8 (Wed 7 is a holiday, weekend not yet reached).
+    const t5 = makeTask({ id: 'T5', duration: 0.5, predecessors: [fs('T4')] });
+    const r2 = runScheduleEngine([t1, t2, t3, t4, t5], '2026-01-05', cal);
+    expect(r2.get('T5').startStr).toBe('2026-01-08'); // Thu, skipping the holiday
+  });
+
+  it('a milestone FS-after a 4h task lands on the same day as the 4h task', () => {
+    const a = makeTask({ id: 'A', start_date: '2026-01-05', duration: 0.5 });
+    const m = makeTask({ id: 'M', duration: 0, is_milestone: true, predecessors: [fs('A')] });
+    const r = run([a, m]);
+    expect(r.get('A').finishStr).toBe('2026-01-05');
+    expect(r.get('M').startStr).toBe('2026-01-05'); // same day, not next
+    expect(r.get('M').finishStr).toBe('2026-01-05');
+  });
+
+  it('three 4h FS tasks: tasks 1+2 on day 1, task 3 on day 2 morning', () => {
+    const t1 = makeTask({ id: 'T1', start_date: '2026-01-05', duration: 0.5 });
+    const t2 = makeTask({ id: 'T2', duration: 0.5, predecessors: [fs('T1')] });
+    const t3 = makeTask({ id: 'T3', duration: 0.5, predecessors: [fs('T2')] });
+    const r = run([t1, t2, t3]);
+
+    expect(r.get('T1').startStr).toBe('2026-01-05'); // Mon AM
+    expect(r.get('T2').startStr).toBe('2026-01-05'); // Mon PM (fills the day)
+    expect(r.get('T3').startStr).toBe('2026-01-06'); // Tue AM (rollover)
+    expect(r.get('T3').finishStr).toBe('2026-01-06');
+  });
+
+  it('float still reports in hours; full-day-task floats match pre-change values', () => {
+    // Same diamond fixture shape as above: short leg has 24h float.
+    const a = makeTask({ id: 'A', start_date: '2026-01-05', duration: 2 });
+    const b = makeTask({ id: 'B', duration: 5, predecessors: [fs('A')] });
+    const c = makeTask({ id: 'C', duration: 2, predecessors: [fs('A')] });
+    const d = makeTask({ id: 'D', duration: 1, predecessors: [fs('B'), fs('C')] });
+    const r = run([a, b, c, d]);
+
+    expect(r.get('C').totalFloat).toBe(24); // 3 working days × 8h, unchanged
+    expect(r.get('C').freeFloat).toBe(24);
+    expect(r.get('B').totalFloat).toBe(0);
+    expect(r.get('A').isCritical).toBe(true);
+  });
+});
+
 describe('summary rollup', () => {
   it('rolls up child dates and working-day duration', () => {
     const s = makeTask({ id: 'S', name: 'Summary' });
