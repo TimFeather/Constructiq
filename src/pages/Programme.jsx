@@ -96,6 +96,7 @@ export default function Programme() {
   const taskScrollRef = useRef(null);
   const ganttScrollRef = useRef(null);
   const isSyncing = useRef(false);
+  const [hoveredTaskId, setHoveredTaskId] = useState(null);
 
   const syncScroll = useCallback((source, target) => {
     if (!source || !target || isSyncing.current) return;
@@ -662,6 +663,8 @@ export default function Programme() {
                     onEditTask={taskEditable ? setEditingTask : undefined}
                     canDeleteTasks={canDeleteTasks}
                     baselineMap={baselineMap}
+                    hoveredTaskId={hoveredTaskId}
+                    onHoverTask={setHoveredTaskId}
                     scrollRef={taskScrollRef}
                     onScroll={() => {
                       if (taskScrollRef.current && ganttScrollRef.current) {
@@ -691,6 +694,8 @@ export default function Programme() {
                 onMoveTask={handleMoveTask}
                 onResizeTask={handleResizeTask}
                 onCreateDependency={handleCreateDependency}
+                hoveredTaskId={hoveredTaskId}
+                onHoverTask={setHoveredTaskId}
               />
             </>
           )}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { ChevronRight, ChevronDown, Pencil, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format, differenceInDays } from 'date-fns';
@@ -33,12 +33,20 @@ export default function TaskList({
   scrollRef,
   onScroll,
   baselineMap,    // optional Map<task_id, { baseline_start, baseline_finish, baseline_duration }>
+  hoveredTaskId = null,  // shared row-hover highlight (synced with GanttChart)
+  onHoverTask,           // (taskId | null) => void
 }) {
   const COLS = baselineMap ? '44px 20px 1fr 52px 64px 64px 72px 72px' : '44px 20px 1fr 52px 64px 64px 72px';
   const today = new Date();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+
+  // Tasks that have children (summary rows) — shaded for readability.
+  const summaryIds = useMemo(
+    () => new Set(tasks.filter(t => t.parent_id).map(t => t.parent_id)),
+    [tasks],
+  );
 
   const deleteMutation = useMutation({
     mutationFn: (taskId) => Task.delete(taskId),
@@ -92,7 +100,7 @@ export default function TaskList({
       {/* Rows — flat list from pre-computed visibleTasks */}
       <div className="flex-1 overflow-y-auto" ref={scrollRef} onScroll={onScroll}>
         {visibleTasks.map(task => {
-          const hasChildren = tasks.some(t => t.parent_id === task.id);
+          const hasChildren = summaryIds.has(task.id);
           const isSummary = hasChildren;
           const isExpanded = expandedIds.has(task.id);
           const isMilestone = task.is_milestone || task.duration === 0;
@@ -133,8 +141,12 @@ export default function TaskList({
               className={cn(
                 'relative group grid items-center w-full border-b border-border/20 hover:bg-muted/40 transition-colors cursor-pointer px-2 border-l-2',
                 isCritical ? 'border-l-red-500 bg-red-50/30 dark:bg-red-950/10' : (levelColors[depth] || 'border-l-muted'),
+                isSummary && !isCritical && 'bg-muted/50',
+                hoveredTaskId === task.id && 'bg-muted/60',
               )}
               onClick={() => onTaskClick?.(task)}
+              onMouseEnter={() => onHoverTask?.(task.id)}
+              onMouseLeave={() => onHoverTask?.(null)}
             >
               <span className="text-[10px] font-mono text-muted-foreground text-center">{task.wbs || '—'}</span>
 
@@ -207,6 +219,9 @@ export default function TaskList({
             </div>
           );
         })}
+        {/* Bottom spacer — matches GanttChart's chartHeight overshoot so scroll sync
+            stays row-accurate when either pane is scrolled to its very bottom. */}
+        {visibleTasks.length > 0 && <div style={{ height: 50 }} aria-hidden="true" />}
         {tasks.length === 0 && (
           <div className="text-center py-12 text-sm text-muted-foreground">Import a schedule to get started</div>
         )}

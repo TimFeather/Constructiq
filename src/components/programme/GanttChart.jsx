@@ -54,6 +54,8 @@ export default function GanttChart({
   onMoveTask,               // (taskId, newStartDateStr) => void
   onResizeTask,             // (taskId, newDurationDays) => void
   onCreateDependency,       // ({ predecessorId, successorId, type, lagDays }) => void
+  hoveredTaskId = null,     // shared row-hover highlight (synced with TaskList)
+  onHoverTask,              // (taskId | null) => void
 }) {
   const dayWidth = ZOOM_DAY_WIDTHS[zoom] || 18;
   const scrolledToday = useRef(false);
@@ -198,10 +200,14 @@ export default function GanttChart({
 
   // ─── Interaction helpers ─────────────────────────────────────────────────────
 
-  // Whether a task is a summary (has children) — summaries are never draggable.
-  const isSummaryTask = useCallback(
-    (task) => tasks.some(t => t.parent_id === task.id),
+  // Tasks that have children (summaries) — summaries are never draggable.
+  const summaryIds = useMemo(
+    () => new Set(tasks.filter(t => t.parent_id).map(t => t.parent_id)),
     [tasks],
+  );
+  const isSummaryTask = useCallback(
+    (task) => summaryIds.has(task.id),
+    [summaryIds],
   );
 
   // Whether a leaf/milestone task may be edited (move/resize/link source & target).
@@ -409,9 +415,23 @@ export default function GanttChart({
 
             {/* Row backgrounds — keyed to visibleTasks */}
             {visibleTasks.map((t, i) => (
-              <div key={t.id} className={cn('absolute w-full border-b border-border/10', i % 2 === 0 ? 'bg-muted/5' : '')}
-                style={{ top: i * ROW_H, height: ROW_H }} />
+              <div key={t.id}
+                className={cn('absolute w-full border-b border-border/10',
+                  summaryIds.has(t.id) ? 'bg-muted/20' : i % 2 === 0 ? 'bg-muted/5' : '')}
+                style={{ top: i * ROW_H, height: ROW_H }}
+                onMouseEnter={() => onHoverTask?.(t.id)}
+                onMouseLeave={() => onHoverTask?.(null)} />
             ))}
+
+            {/* Shared hover highlight — mirrors TaskList row hover */}
+            {hoveredTaskId && (() => {
+              const idx = visibleTasks.findIndex(t => t.id === hoveredTaskId);
+              if (idx === -1) return null;
+              return (
+                <div className="absolute pointer-events-none bg-primary/10"
+                  style={{ left: 0, right: 0, top: idx * ROW_H, height: ROW_H, zIndex: 28 }} />
+              );
+            })()}
 
             {/* Dependency arrows */}
             <svg className="absolute inset-0 pointer-events-none overflow-visible" width={chartWidth} height={chartHeight} style={{ zIndex: 1 }}>
@@ -421,11 +441,22 @@ export default function GanttChart({
                     <path d="M0,0 L8,4 L0,8 Z" fill={color} />
                   </marker>
                 ))}
+                <marker id="arrow-critical" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+                  <path d="M0,0 L8,4 L0,8 Z" fill="#dc2626" />
+                </marker>
               </defs>
               {arrows.map(({ pathD, color, type, bothCritical, key }) => (
                 <g key={key} opacity={criticalOnly && !bothCritical ? 0.15 : 1}>
                   <path d={pathD} fill="none" stroke="transparent" strokeWidth="6" />
-                  <path d={pathD} fill="none" stroke={color} strokeWidth="1.5" strokeDasharray="5 3" opacity="0.8" markerEnd={`url(#arrow-${type})`} />
+                  <path
+                    d={pathD}
+                    fill="none"
+                    stroke={bothCritical ? '#dc2626' : color}
+                    strokeWidth={bothCritical ? 2 : 1.5}
+                    strokeDasharray="5 3"
+                    opacity={bothCritical ? 1 : 0.8}
+                    markerEnd={bothCritical ? 'url(#arrow-critical)' : `url(#arrow-${type})`}
+                  />
                 </g>
               ))}
             </svg>
@@ -459,8 +490,7 @@ export default function GanttChart({
               const resolved = scheduledMap?.get(task.id);
               const isCritical = resolved?.isCritical || false;
               const isMilestoneTask = bar.isMilestone;
-              const hasChildren = tasks.some(t => t.parent_id === task.id);
-              const isSummary = hasChildren;
+              const isSummary = summaryIds.has(task.id);
               const percentComplete = isSummary
                 ? (resolved?.rolledProgress ?? task.percent_complete ?? 0)
                 : (task.percent_complete || 0);
@@ -499,6 +529,8 @@ export default function GanttChart({
                       }}
                       width={size * 2 + 4} height={size * 2 + 4}
                       onClick={() => { if (dragMovedRef.current) return; onTaskClick?.(task); }}
+                      onMouseEnter={() => onHoverTask?.(task.id)}
+                      onMouseLeave={() => onHoverTask?.(null)}
                       onPointerDown={editThis ? (e) => beginBarDrag(e, task, 'move') : undefined}
                       onPointerMove={editThis ? moveBarDrag : undefined}
                       onPointerUp={editThis ? endBarDrag : undefined}
@@ -551,6 +583,8 @@ export default function GanttChart({
                       style={{ left: bar.left, width: bar.width, top: top + 6, height: ROW_H - 12, borderRadius: 2 }}
                       title={`${task.name} (Summary)${isCritical ? ' — CRITICAL' : ''}`}
                       onClick={() => onTaskClick?.(task)}
+                      onMouseEnter={() => onHoverTask?.(task.id)}
+                      onMouseLeave={() => onHoverTask?.(null)}
                     >
                       <div className="absolute inset-0 bg-black/20 rounded" style={{ width: `${percentComplete}%` }} />
                       {bar.width > 50 && (
@@ -585,6 +619,8 @@ export default function GanttChart({
                     }}
                     title={`${task.name}\n${task.start_date} → ${task.end_date}\n${task.duration || 0}d | ${percentComplete}%${isCritical ? '\n⚠ CRITICAL PATH' : ''}${totalFloat !== null ? `\nFloat: ${Math.round(totalFloat / 8)}d` : ''}`}
                     onClick={() => { if (dragMovedRef.current) return; onTaskClick?.(task); }}
+                    onMouseEnter={() => onHoverTask?.(task.id)}
+                    onMouseLeave={() => onHoverTask?.(null)}
                     onPointerDown={editThis ? (e) => beginBarDrag(e, task, 'move') : undefined}
                     onPointerMove={editThis ? moveBarDrag : undefined}
                     onPointerUp={editThis ? endBarDrag : undefined}
