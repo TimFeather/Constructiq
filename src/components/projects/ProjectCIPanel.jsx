@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Plus, Send, Archive, ChevronDown, ChevronUp, AlertTriangle, Upload, X } from 'lucide-react';
 import { format } from 'date-fns';
+import { useToast } from '@/components/ui/use-toast';
 
 const CI_TYPES = [
   'Variation Approval',
@@ -47,6 +48,7 @@ async function generateCINumber(projectId) {
 
 export default function ProjectCIPanel({ project, canManage }) {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const { data: cis = [], isLoading, isError, error } = useQuery({
     queryKey: ['contractInstructions', project.id],
@@ -88,7 +90,7 @@ export default function ProjectCIPanel({ project, canManage }) {
       const subcontractors = (project.team || []).filter(m => m.role === 'Subcontractor' && m.user_email);
       if (subcontractors.length > 0) {
         try {
-          await invokeFunction('invitationService', {
+          const res = await invokeFunction('invitationService', {
             action:    'notifyCI',
             projectId: project.id,
             projectName: project.name,
@@ -97,7 +99,23 @@ export default function ProjectCIPanel({ project, canManage }) {
             ciType:    ci?.instruction_type || '',
             recipients: subcontractors.map(s => ({ email: s.user_email, name: s.full_name || s.user_email })),
           });
-        } catch (_e) { /* non-blocking */ }
+          const sent = res?.data?.sent ?? 0;
+          if (sent < subcontractors.length) {
+            console.warn(`[ProjectCIPanel] notifyCI: only ${sent}/${subcontractors.length} emails sent`);
+            toast({
+              variant: 'destructive',
+              title: 'Some notifications failed to send',
+              description: `${sent} of ${subcontractors.length} subcontractor(s) were notified by email.`,
+            });
+          }
+        } catch (e) {
+          console.warn('[ProjectCIPanel] notifyCI failed:', e?.message || e);
+          toast({
+            variant: 'destructive',
+            title: 'Failed to notify subcontractors',
+            description: 'The CI was issued, but the notification email could not be sent.',
+          });
+        }
       }
 
       queryClient.invalidateQueries({ queryKey: ['contractInstructions', project.id] });

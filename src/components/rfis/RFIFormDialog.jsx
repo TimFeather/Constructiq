@@ -110,7 +110,10 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
           url: rfiUrl,
         });
         const htmlBody = buildEmailHtml(body, emailBranding);
-        invokeFunction('sendEmail', { to: assignee.email, toName: assignee.name || '', subject, htmlBody }).catch(() => {});
+        invokeFunction('sendEmail', { to: assignee.email, toName: assignee.name || '', subject, htmlBody }).catch((e) => {
+          console.warn('[RFIFormDialog] failed to notify assignee by email:', assignee.email, e?.message || e);
+          toast({ variant: 'destructive', title: `Could not notify ${assignee.name || assignee.email} by email` });
+        });
       });
       return rfi;
     },
