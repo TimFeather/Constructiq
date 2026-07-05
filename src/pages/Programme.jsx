@@ -417,15 +417,35 @@ export default function Programme() {
   useEffect(() => {
     if (!isPrinting) return undefined;
     document.body.classList.add('printing-programme');
-    const raf = requestAnimationFrame(() => {
-      window.print();
+
+    // Double-rAF: the print view mounts on this same render, and its
+    // useLayoutEffect measures DOM rects for the dependency-arrow overlay —
+    // one rAF can still fire before that layout paints, printing stale (empty)
+    // arrows. Two rAFs guarantee a full paint has happened first.
+    let timeout;
+    const raf1 = requestAnimationFrame(() => {
+      const raf2 = requestAnimationFrame(() => {
+        window.print();
+      });
+      timeout = raf2;
     });
+
     const onAfterPrint = () => setIsPrinting(false);
     window.addEventListener('afterprint', onAfterPrint);
+
+    // Safety net: `afterprint` can be missed (some browsers skip it if the
+    // print dialog is cancelled quickly) — fall back to polling the print
+    // media query so isPrinting can't get stuck true.
+    const mql = window.matchMedia('print');
+    const onMediaChange = (e) => { if (!e.matches) setIsPrinting(false); };
+    mql.addEventListener('change', onMediaChange);
+
     return () => {
-      cancelAnimationFrame(raf);
+      cancelAnimationFrame(raf1);
+      if (timeout) cancelAnimationFrame(timeout);
       document.body.classList.remove('printing-programme');
       window.removeEventListener('afterprint', onAfterPrint);
+      mql.removeEventListener('change', onMediaChange);
     };
   }, [isPrinting]);
 

@@ -107,13 +107,29 @@
 }
 
 /* Print styles */
-.programme-print-view { display: none; }
+/* Kept off-screen (not display:none) on screen so ProgrammePrintView's
+   useLayoutEffect can measure real DOM rects for the dependency-arrow
+   overlay before print — a display:none subtree always measures zero. */
+.programme-print-portal {
+  position: fixed;
+  top: 0;
+  left: -200vw;
+  width: 1100px;
+}
 
 @media print {
   @page { size: A4 landscape; margin: 10mm; }
 
-  body.printing-programme > #root > *:not(.programme-print-portal) { display: none !important; }
-  body.printing-programme .programme-print-portal { display: block !important; }
+  /* The portal mounts as a direct child of <body>, a sibling of #root — not
+     nested inside it — so toast/dialog portals (also body-level) must be
+     matched by the same selector or they stay visible over a blank page. */
+  body.printing-programme > *:not(.programme-print-portal) { display: none !important; }
+
+  .programme-print-portal {
+    position: static;
+    left: auto;
+    width: auto;
+  }
 
   .no-print { display: none !important; }
   .print-full { width: 100% !important; }
