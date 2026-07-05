@@ -107,7 +107,59 @@
 }
 
 /* Print styles */
+.programme-print-view { display: none; }
+
 @media print {
+  @page { size: A4 landscape; margin: 10mm; }
+
+  body.printing-programme > #root > *:not(.programme-print-portal) { display: none !important; }
+  body.printing-programme .programme-print-portal { display: block !important; }
+
   .no-print { display: none !important; }
   .print-full { width: 100% !important; }
+
+  .programme-print-view {
+    display: block;
+    font-family: inherit;
+    color: #000;
+  }
+
+  .programme-print-view .pp-header { margin-bottom: 10px; }
+  .programme-print-view .pp-header h1 { font-size: 16px; margin: 0 0 4px; }
+  .programme-print-view .pp-meta { display: flex; gap: 16px; font-size: 10px; color: #555; }
+
+  .programme-print-view .pp-table { border-collapse: collapse; width: 100%; font-size: 9px; }
+  .programme-print-view .pp-table thead { display: table-header-group; }
+  .programme-print-view .pp-table tr { break-inside: avoid; }
+  .programme-print-view .pp-table th,
+  .programme-print-view .pp-table td { border: 1px solid #ddd; padding: 2px 4px; vertical-align: middle; }
+  .programme-print-view .pp-col-wbs { width: 46px; text-align: center; }
+  .programme-print-view .pp-col-name { text-align: left; min-width: 160px; }
+  .programme-print-view .pp-col-num { width: 52px; text-align: center; white-space: nowrap; }
+  .programme-print-view .pp-summary-row { background: #f3f4f6; }
+
+  .programme-print-view .pp-month-header { position: relative; height: 14px; }
+  .programme-print-view .pp-month {
+    position: absolute; top: 0; height: 14px; font-size: 8px; font-weight: 600;
+    border-left: 1px solid #ccc; padding-left: 2px; overflow: hidden; white-space: nowrap;
+  }
+
+  .programme-print-view .pp-chart-row { position: relative; height: 16px; }
+  .programme-print-view .pp-bar {
+    position: absolute; top: 2px; height: 12px; background: #6b7280; border-radius: 2px; overflow: hidden;
+  }
+  .programme-print-view .pp-bar.pp-critical { background: #dc2626; }
+  .programme-print-view .pp-summary-bar { background: #1f2937; border-radius: 1px; }
+  .programme-print-view .pp-bar-fill { height: 100%; background: rgba(255,255,255,0.45); }
+  .programme-print-view .pp-milestone {
+    position: absolute; top: 2px; width: 10px; height: 10px; background: #4f46e5;
+    transform: rotate(45deg);
+  }
+  .programme-print-view .pp-milestone.pp-critical { background: #dc2626; }
+  .programme-print-view .pp-baseline-bar {
+    position: absolute; top: 15px; height: 2px; background: repeating-linear-gradient(90deg,#94a3b8 0px,#94a3b8 3px,transparent 3px,transparent 6px);
+  }
+  .programme-print-view .pp-datadate-line {
+    position: absolute; top: 0; bottom: 0; border-left: 1px dashed #d97706;
+  }
 }

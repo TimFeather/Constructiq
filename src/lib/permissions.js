@@ -32,6 +32,8 @@ const MODULE_RULES = {
     edit:   ['admin', 'pricing', 'internal'],
     delete: ['admin', 'pricing'],
     manage: ['admin', 'pricing', 'internal'],
+    import: ['admin', 'pricing', 'internal'],
+    export: ['admin', 'pricing', 'internal'],
   },
   documents: {
     access: ['admin', 'pricing', 'internal', 'external'],
@@ -157,6 +159,14 @@ export function canManage(user, module) {
 
 export function canCreate(user, module) {
   return check(user, module, 'create');
+}
+
+export function canImport(user, module) {
+  return check(user, module, 'import');
+}
+
+export function canExport(user, module) {
+  return check(user, module, 'export');
 }
 
 export function isAdmin(user) {

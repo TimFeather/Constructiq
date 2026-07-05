@@ -96,8 +96,10 @@ create table public.projects (
 );
 alter table public.projects enable row level security;
 -- Scoped (migration 003): non-privileged users see only their own/team projects.
+-- Migration 009: 'internal' dropped from see-all — scoped to team membership
+-- like external, so internal users only see projects they're invited to.
 create policy "projects_select" on public.projects for select using (
-  get_my_role() in ('admin','internal','pricing')
+  get_my_role() in ('admin','pricing')
   or created_by_id = auth.uid()
   or team @> jsonb_build_array(jsonb_build_object('user_email', (select email from public.users where id = auth.uid())))
 );
@@ -143,26 +145,27 @@ create table public.tasks (
   archived         boolean default false
 );
 alter table public.tasks enable row level security;
--- External users scoped to their team projects (no longer open to all external).
+-- Migration 009: scoped to team membership for everyone but admin/pricing
+-- (internal no longer sees all projects' tasks; external's old assignee_email/
+-- created_by_id escape hatches removed — membership is the only path in).
 create policy "tasks_select" on public.tasks for select using (
-  get_my_role() in ('admin','internal','pricing')
-  or created_by_id = auth.uid()
-  or assignee_email = (select email from public.users where id = auth.uid())
-  or (get_my_role() = 'external' and exists (
+  get_my_role() in ('admin','pricing')
+  or exists (
         select 1 from public.projects p
         where p.id = tasks.project_id
-        and p.team @> jsonb_build_array(jsonb_build_object('user_email', (select email from public.users where id = auth.uid())))
-     ))
+        and (p.created_by_id = auth.uid()
+             or p.team @> jsonb_build_array(jsonb_build_object('user_email', (select email from public.users where id = auth.uid()))))
+     )
 );
 -- Migration 008: pricing added to all three write policies (UI permission
 -- matrix already allowed pricing to edit the programme).
 create policy "tasks_insert" on public.tasks for insert with check (
   get_my_role() in ('admin','internal','pricing')
 );
+-- Migration 009: external's write path (created_by_id/assignee_email) removed —
+-- external users are strictly read-only on tasks.
 create policy "tasks_update" on public.tasks for update using (
   get_my_role() in ('admin','internal','pricing')
-  or created_by_id = auth.uid()
-  or assignee_email = (select email from public.users where id = auth.uid())
 );
 create policy "tasks_delete" on public.tasks for delete using (
   get_my_role() in ('admin','internal','pricing')

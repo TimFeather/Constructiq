@@ -44,12 +44,14 @@ import { TaskBaselineItem } from '@/api/entities';
 import { runScheduleEngine, runScheduleEngineByProject, calendarForProgramme } from '@/lib/scheduling/scheduleEngine';
 import { updateTaskStartDate, updateTaskDuration, updateTaskDependency } from '@/lib/scheduleUpdateService';
 import { fetchProgrammesByProject } from '@/api/programmeData';
-import { canEdit } from '@/lib/permissions';
+import { canEdit, canImport, canExport } from '@/lib/permissions';
 import { getVisibleTasks } from '@/lib/programme/visibleTasks';
 import { bulkOperationState } from '@/lib/bulkOperationState';
 import { retry429 } from '@/lib/retry429';
 import TaskInlineEditor from '@/components/programme/TaskInlineEditor';
+import ProgrammePrintView from '@/components/programme/ProgrammePrintView';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { createPortal } from 'react-dom';
 
 const ZOOM_LEVELS = ['year', 'quarter', 'month', 'week', 'day'];
 const DELETE_CHUNK = 150;
@@ -88,6 +90,7 @@ export default function Programme() {
   const [showCriticalPath, setShowCriticalPath] = useState(false); // critical-only filter
   const [showAddTask, setShowAddTask] = useState(false);
   const [selectedBaselineId, setSelectedBaselineId] = useState(null); // baseline overlay
+  const [isPrinting, setIsPrinting] = useState(false);
 
   const queryClient = useQueryClient();
   const taskScrollRef = useRef(null);
@@ -214,6 +217,8 @@ export default function Programme() {
 
   const programmeEditable = canEdit(user, 'programme') && selectedProjectId !== 'all';
   const canDeleteTasks = ['admin', 'pricing', 'internal'].includes(user?.role);
+  const taskEditable = canEdit(user, 'programme');
+  const canImportExport = canImport(user, 'programme') && canExport(user, 'programme');
 
   // ─── Authoring handlers (Gantt drag + editors → scheduling service) ──────────
   const afterScheduleChange = useCallback((patchCount) => {
@@ -268,6 +273,7 @@ export default function Programme() {
 
   // ─── Import with progress ────────────────────────────────────────────────────
   const handleMPPUpload = async () => {
+    if (!canImport(user, 'programme')) return;
     if (!mppFile || !selectedProjectId || selectedProjectId === 'all') return;
     setShowImportDialog(false);
 
@@ -384,6 +390,26 @@ export default function Programme() {
     });
     toast({ title: 'Exported', description: 'MS Project XML downloaded — opens via File → Open in Microsoft Project.', duration: 4000 });
   };
+
+  // ─── Print ───────────────────────────────────────────────────────────────────
+  const handlePrint = useCallback(() => {
+    setIsPrinting(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isPrinting) return undefined;
+    document.body.classList.add('printing-programme');
+    const raf = requestAnimationFrame(() => {
+      window.print();
+    });
+    const onAfterPrint = () => setIsPrinting(false);
+    window.addEventListener('afterprint', onAfterPrint);
+    return () => {
+      cancelAnimationFrame(raf);
+      document.body.classList.remove('printing-programme');
+      window.removeEventListener('afterprint', onAfterPrint);
+    };
+  }, [isPrinting]);
 
   const handleExportExcel = () => {
     downloadProgrammeExcel(tasks, scheduledMap, selectedProjectName);
@@ -553,21 +579,25 @@ export default function Programme() {
             <Button variant="outline" size="sm" onClick={collapseAll} title="Collapse all" className="gap-1.5 text-xs h-9"><ChevronsDownUp className="w-3.5 h-3.5" />Collapse</Button>
             <Button variant="outline" size="icon" onClick={() => cycleZoom('out')} title={`Zoom out (${zoom})`}><ZoomOut className="w-4 h-4" /></Button>
             <Button variant="outline" size="icon" onClick={() => cycleZoom('in')} title={`Zoom in (${zoom})`}><ZoomIn className="w-4 h-4" /></Button>
-            <Button variant="outline" size="icon" onClick={() => window.print()} title="Print"><Printer className="w-4 h-4" /></Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="gap-1.5 text-xs h-9"
-                  disabled={selectedProjectId === 'all' || tasks.length === 0}
-                  title={selectedProjectId === 'all' ? 'Select a project to export' : 'Export programme'}>
-                  <Download className="w-3.5 h-3.5" /> Export
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={handleExportMspdi}>MS Project XML (.xml)</DropdownMenuItem>
-                <DropdownMenuItem onClick={handleExportExcel}>Excel (.xlsx)</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <Button onClick={() => { if (selectedProjectId === 'all' && projects[0]?.id) setSelectedProjectId(projects[0].id); setShowImportDialog(true); }} disabled={!!deleteProgress} className="gap-2"><Upload className="w-4 h-4" /> Import</Button>
+            <Button variant="outline" size="icon" onClick={handlePrint} disabled={selectedProjectId === 'all' || tasks.length === 0} title="Print"><Printer className="w-4 h-4" /></Button>
+            {canImportExport && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="gap-1.5 text-xs h-9"
+                    disabled={selectedProjectId === 'all' || tasks.length === 0}
+                    title={selectedProjectId === 'all' ? 'Select a project to export' : 'Export programme'}>
+                    <Download className="w-3.5 h-3.5" /> Export
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={handleExportMspdi}>MS Project XML (.xml)</DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleExportExcel}>Excel (.xlsx)</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+            {canImportExport && (
+              <Button onClick={() => { if (selectedProjectId === 'all' && projects[0]?.id) setSelectedProjectId(projects[0].id); setShowImportDialog(true); }} disabled={!!deleteProgress} className="gap-2"><Upload className="w-4 h-4" /> Import</Button>
+            )}
             {canDeleteTasks && (
               <Button variant="destructive" size="icon"
                 onClick={() => setShowDeleteConfirm(true)}
@@ -606,7 +636,7 @@ export default function Programme() {
                 expandedIds={expandedIds}
                 onToggleExpand={onToggleExpand}
                 onTaskClick={setSelectedTask}
-                onEditTask={setEditingTask}
+                onEditTask={taskEditable ? setEditingTask : undefined}
                 canDeleteTasks={canDeleteTasks}
                 scrollRef={taskScrollRef}
                 onScroll={() => {}}
@@ -629,7 +659,7 @@ export default function Programme() {
                     expandedIds={expandedIds}
                     onToggleExpand={onToggleExpand}
                     onTaskClick={setSelectedTask}
-                    onEditTask={setEditingTask}
+                    onEditTask={taskEditable ? setEditingTask : undefined}
                     canDeleteTasks={canDeleteTasks}
                     baselineMap={baselineMap}
                     scrollRef={taskScrollRef}
@@ -697,6 +727,7 @@ export default function Programme() {
         tasks={tasks}
         scheduledMap={scheduledMap}
         scheduleOptions={scheduleOptions}
+        editable={taskEditable}
         open={!!selectedTask}
         onOpenChange={open => { if (!open) setSelectedTask(null); }}
       />
@@ -795,6 +826,21 @@ export default function Programme() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Print view — rendered into a portal, shown only during print */}
+      {isPrinting && createPortal(
+        <div className="programme-print-portal">
+          <ProgrammePrintView
+            tasks={tasks}
+            scheduledMap={scheduledMap}
+            programme={programme}
+            projectName={selectedProjectName}
+            baselineMap={baselineMap}
+            criticalOnly={showCriticalPath}
+          />
+        </div>,
+        document.body
+      )}
     </div>
   );
 }

@@ -20,7 +20,7 @@ const FIELD_LABELS = {
   predecessors: 'Dependencies', name: 'Name', assignee_email: 'Assignee',
 };
 
-export default function TaskProgressPanel({ task, tasks = [], scheduledMap, scheduleOptions, open, onOpenChange }) {
+export default function TaskProgressPanel({ task, tasks = [], scheduledMap, scheduleOptions, editable = true, open, onOpenChange }) {
   const [form, setForm] = useState({});
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -154,65 +154,99 @@ export default function TaskProgressPanel({ task, tasks = [], scheduledMap, sche
         </div>
 
         <div className="space-y-5 mt-5">
-          {/* Progress slider */}
-          <div>
-            <Label className="flex justify-between">
-              <span>Percent Complete</span>
-              <span className="font-semibold text-primary">{form.percent_complete || 0}%</span>
-            </Label>
-            <Slider
-              value={[form.percent_complete || 0]}
-              onValueChange={([v]) => setForm(f => ({ ...f, percent_complete: v }))}
-              max={100} step={5} className="mt-3"
-            />
-            <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
-              <span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span>
-            </div>
-          </div>
+          {editable ? (
+            <>
+              {/* Progress slider */}
+              <div>
+                <Label className="flex justify-between">
+                  <span>Percent Complete</span>
+                  <span className="font-semibold text-primary">{form.percent_complete || 0}%</span>
+                </Label>
+                <Slider
+                  value={[form.percent_complete || 0]}
+                  onValueChange={([v]) => setForm(f => ({ ...f, percent_complete: v }))}
+                  max={100} step={5} className="mt-3"
+                />
+                <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
+                  <span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span>
+                </div>
+              </div>
 
-          {/* Actual dates */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Actual Start</Label>
-              <Input
-                type="date"
-                value={form.actual_start || ''}
-                onChange={e => setForm(f => ({ ...f, actual_start: e.target.value }))}
-                className="mt-1"
-              />
-            </div>
-            <div>
-              <Label>Actual Finish</Label>
-              <Input
-                type="date"
-                value={form.actual_finish || ''}
-                onChange={e => setForm(f => ({ ...f, actual_finish: e.target.value, percent_complete: e.target.value ? 100 : f.percent_complete }))}
-                className="mt-1"
-              />
-            </div>
-          </div>
+              {/* Actual dates */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Actual Start</Label>
+                  <Input
+                    type="date"
+                    value={form.actual_start || ''}
+                    onChange={e => setForm(f => ({ ...f, actual_start: e.target.value }))}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label>Actual Finish</Label>
+                  <Input
+                    type="date"
+                    value={form.actual_finish || ''}
+                    onChange={e => setForm(f => ({ ...f, actual_finish: e.target.value, percent_complete: e.target.value ? 100 : f.percent_complete }))}
+                    className="mt-1"
+                  />
+                </div>
+              </div>
 
-          {/* Status notes */}
-          <div>
-            <Label>Status Notes</Label>
-            <Textarea
-              value={form.status_notes || ''}
-              onChange={e => setForm(f => ({ ...f, status_notes: e.target.value }))}
-              placeholder="Current status, progress details..."
-              className="mt-1 h-20 text-sm"
-            />
-          </div>
+              {/* Status notes */}
+              <div>
+                <Label>Status Notes</Label>
+                <Textarea
+                  value={form.status_notes || ''}
+                  onChange={e => setForm(f => ({ ...f, status_notes: e.target.value }))}
+                  placeholder="Current status, progress details..."
+                  className="mt-1 h-20 text-sm"
+                />
+              </div>
 
-          {/* Delay notes */}
-          <div>
-            <Label>Delay Notes</Label>
-            <Textarea
-              value={form.delay_notes || ''}
-              onChange={e => setForm(f => ({ ...f, delay_notes: e.target.value }))}
-              placeholder="Reason for any delays..."
-              className="mt-1 h-20 text-sm"
-            />
-          </div>
+              {/* Delay notes */}
+              <div>
+                <Label>Delay Notes</Label>
+                <Textarea
+                  value={form.delay_notes || ''}
+                  onChange={e => setForm(f => ({ ...f, delay_notes: e.target.value }))}
+                  placeholder="Reason for any delays..."
+                  className="mt-1 h-20 text-sm"
+                />
+              </div>
+            </>
+          ) : (
+            <div className="p-3 rounded-lg bg-muted/40 border space-y-2">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Progress</p>
+              <div className="grid grid-cols-3 gap-2 text-xs">
+                <div>
+                  <span className="text-muted-foreground block">% Complete</span>
+                  <span className="font-semibold">{task.percent_complete || 0}%</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block">Actual Start</span>
+                  <span className="font-mono">{task.actual_start ? format(new Date(task.actual_start), 'dd MMM yy') : '—'}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block">Actual Finish</span>
+                  <span className="font-mono">{task.actual_finish ? format(new Date(task.actual_finish), 'dd MMM yy') : '—'}</span>
+                </div>
+              </div>
+              {task.status_notes && (
+                <div className="text-xs pt-2 border-t border-border/50">
+                  <span className="text-muted-foreground block">Status Notes</span>
+                  <p className="whitespace-pre-wrap">{task.status_notes}</p>
+                </div>
+              )}
+              {task.delay_notes && (
+                <div className="text-xs pt-2 border-t border-border/50">
+                  <span className="text-muted-foreground block">Delay Notes</span>
+                  <p className="whitespace-pre-wrap">{task.delay_notes}</p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Why did this move? — audit trail */}
           {changeLog.length > 0 && (
@@ -240,10 +274,12 @@ export default function TaskProgressPanel({ task, tasks = [], scheduledMap, sche
         </div>
 
         <SheetFooter className="mt-6 flex gap-2 justify-end">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={() => saveMutation.mutate(form)} disabled={saveMutation.isPending}>
-            {saveMutation.isPending ? 'Saving…' : 'Save Progress'}
-          </Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>{editable ? 'Cancel' : 'Close'}</Button>
+          {editable && (
+            <Button onClick={() => saveMutation.mutate(form)} disabled={saveMutation.isPending}>
+              {saveMutation.isPending ? 'Saving…' : 'Save Progress'}
+            </Button>
+          )}
         </SheetFooter>
       </SheetContent>
     </Sheet>
