@@ -58,6 +58,7 @@ function RFICard({ rfi, project, emailTemplates = [], registeredUsers = [] }) {
     mutationFn: (status) => RFI.update(rfi.id, { status }),
     onSuccess: (_data, newStatus) => {
       queryClient.invalidateQueries({ queryKey: ['rfis', project.id] });
+      queryClient.invalidateQueries({ queryKey: ['rfis'] });
       logProjectActivity({
         projectId: project.id,
         entityType: 'rfi',
@@ -74,6 +75,7 @@ function RFICard({ rfi, project, emailTemplates = [], registeredUsers = [] }) {
     mutationFn: () => RFI.delete(rfi.id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['rfis', project.id] });
+      queryClient.invalidateQueries({ queryKey: ['rfis'] });
       logProjectActivity({
         projectId: project.id,
         entityType: 'rfi',
@@ -143,6 +145,7 @@ function RFICard({ rfi, project, emailTemplates = [], registeredUsers = [] }) {
     });
 
     queryClient.invalidateQueries({ queryKey: ['rfis', project.id] });
+    queryClient.invalidateQueries({ queryKey: ['rfis'] });
     setReplyText('');
     setAttachments([]);
     setUploading(false);
@@ -169,6 +172,9 @@ function RFICard({ rfi, project, emailTemplates = [], registeredUsers = [] }) {
               <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${PRIORITY_COLORS[rfi.priority] || ''}`}>
                 {rfi.priority}
               </span>
+              {isAdminOrInternal && !rfi.is_public && (
+                <span className="text-[10px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">Private</span>
+              )}
             </div>
             <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground flex-wrap">
               {rfi.assigned_to_name && <span>→ {rfi.assigned_to_name}</span>}
@@ -428,6 +434,7 @@ export default function ProjectRFIPanel({ project, rfis = [] }) {
     }
 
     queryClient.invalidateQueries({ queryKey: ['rfis', project.id] });
+    queryClient.invalidateQueries({ queryKey: ['rfis'] });
     setShowCreate(false);
     setForm({ title: '', description: '', priority: 'Medium', due_date: '', assigned_to_email: '', assigned_to_name: '' });
     setAttachments([]);

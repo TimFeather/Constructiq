@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { X } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
@@ -21,13 +22,13 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
   const { user } = useAuth();
   const { toast } = useToast();
   const [form, setForm] = useState({
-    title: '', description: '', project_id: defaultProjectId || '', due_date: '', priority: 'Medium',
+    title: '', description: '', project_id: defaultProjectId || '', due_date: '', priority: 'Medium', is_public: false,
   });
 
   // Reset form fully when dialog opens
   React.useEffect(() => {
     if (open) {
-      setForm({ title: '', description: '', project_id: defaultProjectId || '', due_date: '', priority: 'Medium' });
+      setForm({ title: '', description: '', project_id: defaultProjectId || '', due_date: '', priority: 'Medium', is_public: false });
       setSelectedEmails([]);
     }
   }, [open, defaultProjectId]);
@@ -144,7 +145,7 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
       } else {
         toast({ title: 'RFI created and assignees notified', duration: 4000 });
       }
-      setForm({ title: '', description: '', project_id: '', due_date: '', priority: 'Medium' });
+      setForm({ title: '', description: '', project_id: '', due_date: '', priority: 'Medium', is_public: false });
       setSelectedEmails([]);
     }
   });
@@ -251,6 +252,14 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
                 ))}
               </div>
             )}
+          </div>
+
+          <div className="flex items-start justify-between gap-3 border rounded-md p-3">
+            <div>
+              <Label className="cursor-pointer" htmlFor="rfi-is-public">Visible to all project members</Label>
+              <p className="text-xs text-muted-foreground mt-0.5">Off: only assigned people and internal staff can see this RFI</p>
+            </div>
+            <Switch id="rfi-is-public" checked={form.is_public} onCheckedChange={v => setForm({...form, is_public: v})} />
           </div>
 
           <DialogFooter>

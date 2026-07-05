@@ -10,8 +10,9 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { ArrowLeft, Send, Clock, UserIcon, Paperclip, Trash2 } from 'lucide-react';
+import { ArrowLeft, Send, Clock, UserIcon, Paperclip, Trash2, Pencil, Eye, EyeOff } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
 import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
 import { format } from 'date-fns';
@@ -19,6 +20,7 @@ import { resolveTemplate, applyTemplate, buildEmailHtml } from '@/lib/emailTempl
 import { canEdit } from '@/lib/permissions';
 import { logProjectActivity } from '@/lib/activityLog';
 import ActivityFeed from '@/components/shared/ActivityFeed';
+import RFIAssigneesDialog from '@/components/rfis/RFIAssigneesDialog';
 
 export default function RFIDetail() {
   const { id } = useParams();
@@ -27,6 +29,7 @@ export default function RFIDetail() {
   const [response, setResponse] = useState('');
   const [responseFile, setResponseFile] = useState(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showAssigneesDialog, setShowAssigneesDialog] = useState(false);
   const queryClient = useQueryClient();
 
   const isAdminOrInternal = canEdit(user, 'rfis');
@@ -69,6 +72,7 @@ export default function RFIDetail() {
     mutationFn: (status) => RFI.update(id, { status }),
     onSuccess: (_data, newStatus) => {
       queryClient.invalidateQueries({ queryKey: ['rfi', id] });
+      queryClient.invalidateQueries({ queryKey: ['rfis'] });
       logProjectActivity({
         projectId: rfi.project_id,
         entityType: 'rfi',
@@ -83,7 +87,26 @@ export default function RFIDetail() {
 
   const deleteMutation = useMutation({
     mutationFn: () => RFI.delete(id),
-    onSuccess: () => navigate('/rfis', { replace: true }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['rfis'] });
+      navigate('/rfis', { replace: true });
+    },
+  });
+
+  const visibilityMutation = useMutation({
+    mutationFn: (nextIsPublic) => RFI.update(id, { is_public: nextIsPublic }),
+    onSuccess: (_data, nextIsPublic) => {
+      queryClient.invalidateQueries({ queryKey: ['rfi', id] });
+      queryClient.invalidateQueries({ queryKey: ['rfis'] });
+      logProjectActivity({
+        projectId: rfi.project_id,
+        entityType: 'rfi',
+        entityId: id,
+        eventType: 'rfi_visibility_changed',
+        user,
+        description: `RFI made ${nextIsPublic ? 'public' : 'private'}`,
+      }).catch(() => {});
+    },
   });
 
   const respondMutation = useMutation({
@@ -135,6 +158,7 @@ export default function RFIDetail() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['rfi', id] });
+      queryClient.invalidateQueries({ queryKey: ['rfis'] });
       logProjectActivity({
         projectId: rfi.project_id,
         entityType: 'rfi',
@@ -201,6 +225,17 @@ export default function RFIDetail() {
               </Select>
             )}
             {!statusOptions.length && <StatusBadge status={rfi.status} />}
+            <Badge
+              variant={rfi.is_public ? 'secondary' : 'outline'}
+              className={`gap-1 ${isOwner || isAdminOrInternal ? 'cursor-pointer' : ''}`}
+              onClick={() => {
+                if (isOwner || isAdminOrInternal) visibilityMutation.mutate(!rfi.is_public);
+              }}
+              title={isOwner || isAdminOrInternal ? 'Click to toggle visibility' : undefined}
+            >
+              {rfi.is_public ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+              {rfi.is_public ? 'Public' : 'Private'}
+            </Badge>
             {isAdminOrInternal && (
               <Button variant="destructive" size="icon" onClick={() => setShowDeleteDialog(true)} disabled={deleteMutation.isPending} title="Delete RFI">
                 <Trash2 className="w-4 h-4" />
@@ -239,7 +274,17 @@ export default function RFIDetail() {
               <p className="text-sm font-medium mt-0.5">{projectName || '—'}</p>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Assigned To</p>
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-muted-foreground">Assigned To</p>
+                {(isOwner || isAdminOrInternal) && (
+                  <button
+                    className="text-xs text-primary hover:underline flex items-center gap-1"
+                    onClick={() => setShowAssigneesDialog(true)}
+                  >
+                    <Pencil className="w-3 h-3" /> Edit
+                  </button>
+                )}
+              </div>
               {(rfi.assignees?.length > 0) ? (
                 <div className="mt-0.5 space-y-0.5">
                   {rfi.assignees.map((a, i) => (
@@ -376,6 +421,13 @@ export default function RFIDetail() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <RFIAssigneesDialog
+        open={showAssigneesDialog}
+        onOpenChange={setShowAssigneesDialog}
+        rfi={rfi}
+        project={project}
+      />
     </div>
   );
 }

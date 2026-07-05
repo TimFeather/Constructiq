@@ -3,7 +3,7 @@ import { Project, RFI } from '@/api/entities';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
 import { Link } from 'react-router-dom';
-import { isAdmin, canCreate } from '@/lib/permissions';
+import { isAdmin, canCreate, canEdit } from '@/lib/permissions';
 import { Plus, Search, MessageSquareMore, Clock, UserIcon, ArrowLeft, FolderKanban, Archive } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,7 +16,7 @@ import RFIFormDialog from '@/components/rfis/RFIFormDialog';
 import { format } from 'date-fns';
 import { normalizeEmail } from '@/lib/normalizeEmail';
 
-const RFICard = ({ rfi, projectMap, rfiNumber }) => {
+const RFICard = ({ rfi, projectMap, rfiNumber, showPrivateBadge }) => {
   const isOverdue = rfi.due_date && rfi.due_date < new Date().toISOString().split('T')[0] && rfi.status === 'Open';
   return (
   <Link key={rfi.id} to={`/rfis/${rfi.id}`}>
@@ -29,6 +29,9 @@ const RFICard = ({ rfi, projectMap, rfiNumber }) => {
               <StatusBadge status={rfi.priority} />
               <StatusBadge status={rfi.status} />
               {isOverdue && <span className="text-xs font-semibold text-red-600 bg-red-50 px-2 py-0.5 rounded-full">Overdue</span>}
+              {showPrivateBadge && !rfi.is_public && (
+                <span className="text-[10px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">Private</span>
+              )}
             </div>
             <h3 className="font-semibold text-sm mt-1.5">{rfi.title}</h3>
             {rfi.description && (
@@ -55,6 +58,7 @@ export default function RFIs() {
   const { user } = useAuth();
   const isAdminUser = isAdmin(user);
   const canCreateRfi = canCreate(user, 'rfis');
+  const isInternalRole = canEdit(user, 'rfis');
   const [selectedProjectId, setSelectedProjectId] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [formDefaultProjectId, setFormDefaultProjectId] = useState('');
@@ -169,7 +173,7 @@ export default function RFIs() {
         ) : (
           <div className="space-y-3">
             {filteredProjectRfis.map(rfi => (
-              <RFICard key={rfi.id} rfi={rfi} projectMap={null} rfiNumber={projectRfiNumber[rfi.id] || rfi.number} />
+              <RFICard key={rfi.id} rfi={rfi} projectMap={null} rfiNumber={projectRfiNumber[rfi.id] || rfi.number} showPrivateBadge={isInternalRole} />
             ))}
           </div>
         )}
@@ -223,7 +227,7 @@ export default function RFIs() {
           ) : (
             <div className="space-y-3">
               {myRfis.map(rfi => (
-                <RFICard key={rfi.id} rfi={rfi} projectMap={projectMap} rfiNumber={projectRfiNumber[rfi.id] || rfi.number} />
+                <RFICard key={rfi.id} rfi={rfi} projectMap={projectMap} rfiNumber={projectRfiNumber[rfi.id] || rfi.number} showPrivateBadge={isInternalRole} />
               ))}
             </div>
           )}
