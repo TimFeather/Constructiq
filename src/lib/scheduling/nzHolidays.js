@@ -183,6 +183,8 @@ function regionalAnniversary(year, region) {
  *   Any other value (or omission) yields no anniversary day.
  * @returns {string[]} sorted, deduplicated 'yyyy-MM-dd' date strings
  */
+const warnedMatarikiYears = new Set();
+
 export function getNzHolidays(year, options = {}) {
   const { region = 'hawkes-bay' } = options;
   const dates = [];
@@ -211,6 +213,12 @@ export function getNzHolidays(year, options = {}) {
   // Matariki: hardcoded Gazette dates, omitted if not tabulated
   if (MATARIKI_DATES[year]) {
     dates.push(new Date(`${MATARIKI_DATES[year]}T00:00:00`));
+  } else if (year > 2035 && !warnedMatarikiYears.has(year)) {
+    warnedMatarikiYears.add(year);
+    console.warn(
+      `nzHolidays: no gazetted Matariki date for ${year} — MATARIKI_DATES only covers 2022-2035. ` +
+      'Update the table once the government publishes dates further out.'
+    );
   }
 
   // Labour Day: fourth Monday of October

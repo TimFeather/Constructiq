@@ -601,6 +601,7 @@ export default function Programme() {
               <ScheduleSettingsPopover
                 projectId={selectedProjectId}
                 programme={programme}
+                tasks={tasks}
               />
             )}
             {programmeEditable && (
