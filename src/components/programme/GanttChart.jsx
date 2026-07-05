@@ -23,7 +23,7 @@ import { ROW_HEIGHT } from './TaskList';
 
 const ROW_H = ROW_HEIGHT;
 
-const DEP_COLORS = {
+export const DEP_COLORS = {
   FS: '#3b82f6',
   SS: '#10b981',
   FF: '#f59e0b',

@@ -122,25 +122,55 @@
     display: block;
     font-family: inherit;
     color: #000;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
   }
 
-  .programme-print-view .pp-header { margin-bottom: 10px; }
+  .programme-print-view .pp-header { margin-bottom: 6px; }
   .programme-print-view .pp-header h1 { font-size: 16px; margin: 0 0 4px; }
   .programme-print-view .pp-meta { display: flex; gap: 16px; font-size: 10px; color: #555; }
+
+  .programme-print-view .pp-legend {
+    display: flex; flex-wrap: wrap; gap: 10px; font-size: 8px; color: #333;
+    margin: 0 0 6px; align-items: center;
+  }
+  .programme-print-view .pp-legend-item { display: flex; align-items: center; gap: 3px; white-space: nowrap; }
+  .programme-print-view .pp-swatch { display: inline-block; width: 10px; height: 8px; flex: none; }
+  .programme-print-view .pp-swatch-bar { background: #6b7280; border-radius: 1px; }
+  .programme-print-view .pp-swatch-bar.pp-swatch-critical { background: #dc2626; }
+  .programme-print-view .pp-swatch-bar.pp-swatch-summary { background: #1f2937; }
+  .programme-print-view .pp-swatch-milestone { background: #4f46e5; transform: rotate(45deg); width: 7px; height: 7px; }
+  .programme-print-view .pp-swatch-baseline {
+    height: 2px; align-self: center;
+    background: repeating-linear-gradient(90deg,#94a3b8 0px,#94a3b8 3px,transparent 3px,transparent 6px);
+  }
+  .programme-print-view .pp-swatch-datadate { height: 8px; border-left: 1px dashed #d97706; width: 0; }
+  .programme-print-view .pp-swatch-today { height: 8px; border-left: 1px dashed #2563eb; width: 0; }
+  .programme-print-view .pp-swatch-dep { height: 2px; align-self: center; border-radius: 1px; }
+
+  .programme-print-view .pp-chart-wrap { position: relative; }
+  .programme-print-view .pp-dep-svg {
+    position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible;
+  }
 
   .programme-print-view .pp-table { border-collapse: collapse; width: 100%; font-size: 9px; }
   .programme-print-view .pp-table thead { display: table-header-group; }
   .programme-print-view .pp-table tr { break-inside: avoid; }
   .programme-print-view .pp-table th,
   .programme-print-view .pp-table td { border: 1px solid #ddd; padding: 2px 4px; vertical-align: middle; }
-  .programme-print-view .pp-col-wbs { width: 46px; text-align: center; }
-  .programme-print-view .pp-col-name { text-align: left; min-width: 160px; }
-  .programme-print-view .pp-col-num { width: 52px; text-align: center; white-space: nowrap; }
+  .programme-print-view .pp-col-rownum { width: 20px; text-align: center; }
+  .programme-print-view .pp-col-wbs { width: 40px; text-align: center; }
+  .programme-print-view .pp-col-name { text-align: left; min-width: 120px; }
+  .programme-print-view .pp-col-num { width: 42px; text-align: center; white-space: nowrap; }
+  .programme-print-view .pp-col-preds { width: 60px; font-size: 8px; white-space: normal; word-break: break-word; }
+  .programme-print-view .pp-col-float { width: 30px; text-align: center; white-space: nowrap; }
   .programme-print-view .pp-summary-row { background: #f3f4f6; }
 
-  .programme-print-view .pp-month-header { position: relative; height: 14px; }
-  .programme-print-view .pp-month {
-    position: absolute; top: 0; height: 14px; font-size: 8px; font-weight: 600;
+  .programme-print-view .pp-timeline-header { position: relative; height: 26px; }
+  .programme-print-view .pp-tl-top { position: relative; height: 13px; }
+  .programme-print-view .pp-tl-bottom { position: relative; height: 13px; }
+  .programme-print-view .pp-tl-cell {
+    position: absolute; top: 0; height: 13px; font-size: 8px; font-weight: 600;
     border-left: 1px solid #ccc; padding-left: 2px; overflow: hidden; white-space: nowrap;
   }
 
@@ -161,5 +191,8 @@
   }
   .programme-print-view .pp-datadate-line {
     position: absolute; top: 0; bottom: 0; border-left: 1px dashed #d97706;
+  }
+  .programme-print-view .pp-today-line {
+    position: absolute; top: 0; bottom: 0; border-left: 1px dashed #2563eb;
   }
 }

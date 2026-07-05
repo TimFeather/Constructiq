@@ -214,7 +214,7 @@ ${taskXml.join('\n')}
 }
 
 /** Human-readable dependency string like "12FS+2d" using export row IDs. */
-function predecessorLabel(preds, idToRowNum) {
+export function predecessorLabel(preds, idToRowNum) {
   return (preds || [])
     .map(p => {
       const row = idToRowNum.get(p.predecessor_id || p.task_id);
