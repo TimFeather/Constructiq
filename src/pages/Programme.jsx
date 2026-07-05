@@ -42,6 +42,7 @@ import BaselineManager from '@/components/programme/BaselineManager';
 import { buildBaselineMap } from '@/lib/scheduling/baselineEngine';
 import { TaskBaselineItem } from '@/api/entities';
 import { runScheduleEngine, runScheduleEngineByProject, calendarForProgramme } from '@/lib/scheduling/scheduleEngine';
+import { countWorkingDays } from '@/lib/scheduling/calendarEngine';
 import { updateTaskStartDate, updateTaskDuration, updateTaskDependency } from '@/lib/scheduleUpdateService';
 import { fetchProgrammesByProject } from '@/api/programmeData';
 import { canEdit, canImport, canExport } from '@/lib/permissions';
@@ -265,6 +266,22 @@ export default function Programme() {
       toast({ title: 'Link rejected', description: e.message, variant: 'destructive' });
     }
   }, [tasks, scheduleOptions, afterScheduleChange, toast]);
+
+  // Overall project span in working days (first start → last finish), for the
+  // TaskList title bar — matches MS Project's summary-duration convention.
+  const totalWorkingDays = useMemo(() => {
+    if (selectedProjectId === 'all' || !scheduledMap.size) return null;
+    let minStart = null, maxFinish = null;
+    scheduledMap.forEach(r => {
+      if (r.earlyStart && (!minStart || r.earlyStart < minStart)) minStart = r.earlyStart;
+      if (r.earlyFinish && (!maxFinish || r.earlyFinish > maxFinish)) maxFinish = r.earlyFinish;
+    });
+    if (!minStart || !maxFinish) return null;
+    const calendar = calendarForProgramme(programme, tasks);
+    const dayAfterFinish = new Date(maxFinish);
+    dayAfterFinish.setDate(dayAfterFinish.getDate() + 1);
+    return countWorkingDays(minStart, dayAfterFinish, calendar);
+  }, [scheduledMap, programme, tasks, selectedProjectId]);
 
   const criticalTaskCount = useMemo(() => {
     let count = 0;
@@ -639,6 +656,9 @@ export default function Programme() {
                 onTaskClick={setSelectedTask}
                 onEditTask={taskEditable ? setEditingTask : undefined}
                 canDeleteTasks={canDeleteTasks}
+                onDurationCommit={handleResizeTask}
+                editable={programmeEditable}
+                totalWorkingDays={totalWorkingDays}
                 scrollRef={taskScrollRef}
                 onScroll={() => {}}
               />
@@ -652,7 +672,7 @@ export default function Programme() {
               </button>
 
               {!taskListCollapsed && (
-                <div className="w-[520px] xl:w-[620px] flex-shrink-0 overflow-hidden">
+                <div className="w-[560px] xl:w-[660px] flex-shrink-0 overflow-hidden">
                   <TaskList
                     tasks={tasks}
                     visibleTasks={visibleTasks}
@@ -665,6 +685,9 @@ export default function Programme() {
                     baselineMap={baselineMap}
                     hoveredTaskId={hoveredTaskId}
                     onHoverTask={setHoveredTaskId}
+                    onDurationCommit={handleResizeTask}
+                    editable={programmeEditable}
+                    totalWorkingDays={totalWorkingDays}
                     scrollRef={taskScrollRef}
                     onScroll={() => {
                       if (taskScrollRef.current && ganttScrollRef.current) {

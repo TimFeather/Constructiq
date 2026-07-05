@@ -1,8 +1,10 @@
 import React, { useState, useMemo } from 'react';
 import { ChevronRight, ChevronDown, Pencil, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { format, differenceInDays } from 'date-fns';
+import { format } from 'date-fns';
 import { calculateVariance } from '@/lib/scheduling/baselineEngine';
+import { predecessorLabel } from '@/lib/scheduleExport';
+import { getVisibleTasks } from '@/lib/programme/visibleTasks';
 import { Task } from '@/api/entities';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/components/ui/use-toast';
@@ -15,6 +17,57 @@ const levelColors = [
   'border-l-amber-500',
   'border-l-purple-500',
 ];
+
+/** Editable "Days" cell — leaf tasks only; commits on Enter/blur, Escape cancels. */
+function DurationCell({ task, duration, editable, onCommit }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState('');
+  const isMilestone = task.is_milestone || task.duration === 0;
+
+  if (isMilestone) {
+    return <span className="text-center text-muted-foreground font-mono text-[10px]">—</span>;
+  }
+
+  if (!editable || !editing) {
+    return (
+      <span
+        className={cn('text-center font-mono text-[10px] block', editable && 'cursor-text hover:bg-muted/60 rounded')}
+        onClick={e => {
+          if (!editable) return;
+          e.stopPropagation();
+          setValue(String(duration));
+          setEditing(true);
+        }}
+      >
+        {duration}d
+      </span>
+    );
+  }
+
+  const commit = () => {
+    const n = parseInt(value, 10);
+    setEditing(false);
+    if (Number.isFinite(n) && n >= 1 && n !== duration) onCommit(task.id, n);
+  };
+
+  return (
+    <input
+      type="number"
+      min={1}
+      autoFocus
+      value={value}
+      className="w-full text-center text-[10px] font-mono bg-background border border-primary rounded px-0.5"
+      onChange={e => setValue(e.target.value)}
+      onClick={e => e.stopPropagation()}
+      onBlur={commit}
+      onKeyDown={e => {
+        e.stopPropagation();
+        if (e.key === 'Enter') commit();
+        else if (e.key === 'Escape') setEditing(false);
+      }}
+    />
+  );
+}
 
 /**
  * TaskList — read-only view.
@@ -35,9 +88,13 @@ export default function TaskList({
   baselineMap,    // optional Map<task_id, { baseline_start, baseline_finish, baseline_duration }>
   hoveredTaskId = null,  // shared row-hover highlight (synced with GanttChart)
   onHoverTask,           // (taskId | null) => void
+  onDurationCommit,      // (taskId, newDuration) => void — Days column edit
+  editable = false,      // whether the Days column is editable
+  totalWorkingDays = null, // overall project span in working days (title bar)
 }) {
-  const COLS = baselineMap ? '44px 20px 1fr 52px 64px 64px 72px 72px' : '44px 20px 1fr 52px 64px 64px 72px';
-  const today = new Date();
+  const COLS = baselineMap
+    ? '44px 20px 1fr 48px 44px 64px 64px 90px 72px'
+    : '44px 20px 1fr 48px 44px 64px 64px 90px';
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
@@ -47,6 +104,14 @@ export default function TaskList({
     () => new Set(tasks.filter(t => t.parent_id).map(t => t.parent_id)),
     [tasks],
   );
+
+  // Row numbers for dependency labels — must ignore collapse state so they
+  // match the print view's fixed numbering regardless of what's expanded.
+  const rowNumMap = useMemo(() => {
+    const allIds = new Set(tasks.map(t => t.id));
+    const fullyExpanded = getVisibleTasks(tasks, allIds);
+    return new Map(fullyExpanded.map((t, i) => [t.id, i + 1]));
+  }, [tasks]);
 
   const deleteMutation = useMutation({
     mutationFn: (taskId) => Task.delete(taskId),
@@ -65,21 +130,14 @@ export default function TaskList({
     },
   });
 
-  const getVariance = (task) => {
-    const resolved = scheduledMap?.get(task.id);
-    const plannedEnd = resolved?.finishStr || task.end_date;
-    if (!plannedEnd) return null;
-    if (task.actual_finish) return differenceInDays(new Date(plannedEnd), new Date(task.actual_finish));
-    if (task.percent_complete === 100) return null;
-    return differenceInDays(new Date(plannedEnd), today);
-  };
-
   return (
     <div className="border-r bg-card h-full flex flex-col">
       {/* Header */}
       <div className="flex items-center px-3 border-b bg-muted/30 h-10 flex-shrink-0">
         <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Task List</span>
-        <span className="ml-auto text-[10px] text-muted-foreground">{tasks.length} tasks</span>
+        <span className="ml-auto text-[10px] text-muted-foreground">
+          {tasks.length} tasks{totalWorkingDays != null ? ` · ${totalWorkingDays} working days` : ''}
+        </span>
       </div>
 
       {/* Column headers */}
@@ -91,9 +149,10 @@ export default function TaskList({
         <div />
         <span className="px-1">Name</span>
         <span className="text-center">%</span>
+        <span className="text-center">Days</span>
         <span className="text-center">Pln Start</span>
         <span className="text-center">Pln End</span>
-        <span className="text-center">Variance</span>
+        <span className="text-center">Dependencies</span>
         {baselineMap && <span className="text-center">Baseline</span>}
       </div>
 
@@ -114,11 +173,8 @@ export default function TaskList({
             ? (resolved?.rolledProgress ?? task.percent_complete ?? 0)
             : (task.percent_complete || 0);
 
-          const variance = getVariance(task);
-          const varianceEl = variance === null ? '—'
-            : variance > 0 ? <span className="text-emerald-600 font-mono text-[10px]">+{variance}d</span>
-            : variance < 0 ? <span className="text-red-500 font-mono text-[10px]">{variance}d</span>
-            : <span className="text-muted-foreground font-mono text-[10px]">0d</span>;
+          const duration = resolved?.durationDays ?? task.duration ?? 1;
+          const depsLabel = predecessorLabel(task.predecessors, rowNumMap);
 
           const baselineRecord = baselineMap?.get(task.id);
           const baselineVariance = baselineRecord ? calculateVariance(baselineRecord, resolved) : null;
@@ -177,13 +233,25 @@ export default function TaskList({
                 <span className="text-[9px] text-muted-foreground w-5 text-right">{percentComplete}%</span>
               </div>
 
+              <DurationCell
+                task={task}
+                duration={duration}
+                editable={editable && !isSummary}
+                onCommit={onDurationCommit}
+              />
+
               <span className="text-[10px] font-mono text-muted-foreground text-center">
                 {plannedStart ? format(new Date(plannedStart), 'dd/MM/yy') : '—'}
               </span>
               <span className="text-[10px] font-mono text-muted-foreground text-center">
                 {plannedEnd ? format(new Date(plannedEnd), 'dd/MM/yy') : '—'}
               </span>
-              <div className="text-center">{varianceEl}</div>
+              <span
+                className="text-[10px] font-mono text-muted-foreground text-center truncate px-1"
+                title={depsLabel || undefined}
+              >
+                {depsLabel || '—'}
+              </span>
               {baselineMap && <div className="text-center">{baselineEl}</div>}
 
               {(onEditTask || canDeleteTasks) && (
