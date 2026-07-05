@@ -21,7 +21,7 @@ export async function invokeFunction(name, payload = {}) {
   return { data };
 }
 
-const ALLOWED_UPLOAD_EXTS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'dwg', 'dxf', 'png', 'jpg', 'jpeg', 'zip', 'csv', 'ppt', 'pptx'];
+const ALLOWED_UPLOAD_EXTS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'dwg', 'dxf', 'png', 'jpg', 'jpeg', 'heic', 'heif', 'webp', 'zip', 'csv', 'ppt', 'pptx'];
 const MAX_UPLOAD_BYTES = 500 * 1024 * 1024; // 500 MB
 
 // Buckets whose contents are NOT publicly readable. Uploads to these buckets return a

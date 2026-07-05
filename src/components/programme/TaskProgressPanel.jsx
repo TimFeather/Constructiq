@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { TaskChangeLog } from '@/api/entities';
+import { TaskChangeLog, TaskProgressLog } from '@/api/entities';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
@@ -8,9 +8,10 @@ import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Image as ImageIcon } from 'lucide-react';
 import { format, differenceInDays, formatDistanceToNow } from 'date-fns';
 import { updateTaskFull } from '@/lib/scheduleUpdateService';
+import { getSignedUrls } from '@/api/supabaseClient';
 import { useToast } from '@/components/ui/use-toast';
 
 const FIELD_LABELS = {
@@ -18,6 +19,12 @@ const FIELD_LABELS = {
   percent_complete: '% complete', actual_start: 'Actual start',
   actual_finish: 'Actual finish', constraint: 'Constraint',
   predecessors: 'Dependencies', name: 'Name', assignee_email: 'Assignee',
+};
+
+const DELAY_REASON_LABELS = {
+  weather: 'Weather', materials: 'Materials', labour: 'Labour',
+  design_change: 'Design change', client_variation: 'Client variation',
+  site_access: 'Site access', other: 'Other',
 };
 
 export default function TaskProgressPanel({ task, tasks = [], scheduledMap, scheduleOptions, editable = true, open, onOpenChange }) {
@@ -42,6 +49,22 @@ export default function TaskProgressPanel({ task, tasks = [], scheduledMap, sche
     queryKey: ['taskChangeLog', task?.id],
     queryFn: () => TaskChangeLog.filter({ task_id: task.id }, '-created_at', 8),
     enabled: open && !!task?.id,
+  });
+
+  // Field updates: progress log entries with optional photos, most recent first.
+  const { data: progressLog = [] } = useQuery({
+    queryKey: ['taskProgressLog', task?.id],
+    queryFn: () => TaskProgressLog.filter({ task_id: task.id }, '-created_at', 20),
+    enabled: open && !!task?.id,
+  });
+
+  const photoPaths = progressLog.map(r => r.photo_path).filter(Boolean);
+  // staleTime kept below the 1h signed-URL expiry so a re-render never serves a stale link.
+  const { data: photoUrls } = useQuery({
+    queryKey: ['taskProgressPhotoUrls', task?.id, photoPaths.join(',')],
+    queryFn: () => getSignedUrls('project-files', photoPaths),
+    enabled: open && photoPaths.length > 0,
+    staleTime: 45 * 60 * 1000,
   });
 
   const saveMutation = useMutation({
@@ -245,6 +268,47 @@ export default function TaskProgressPanel({ task, tasks = [], scheduledMap, sche
                   <p className="whitespace-pre-wrap">{task.delay_notes}</p>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Field updates: progress log with notes, delay reasons and photos */}
+          {progressLog.length > 0 && (
+            <div>
+              <Label>Field Updates</Label>
+              <div className="mt-2 space-y-1.5">
+                {progressLog.map(row => {
+                  const photoUrl = row.photo_path ? photoUrls?.get(row.photo_path) : null;
+                  return (
+                    <div key={row.id} className="text-[11px] p-2 rounded border bg-muted/30 flex gap-2">
+                      {row.photo_path && (
+                        photoUrl
+                          ? (
+                            <a href={photoUrl} target="_blank" rel="noreferrer" className="flex-shrink-0">
+                              <img src={photoUrl} alt="Field progress" className="h-16 w-16 rounded object-cover border" />
+                            </a>
+                          )
+                          : (
+                            <div className="h-16 w-16 rounded border bg-muted flex items-center justify-center flex-shrink-0">
+                              <ImageIcon className="w-4 h-4 text-muted-foreground" />
+                            </div>
+                          )
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <span className="font-medium">{row.previous_percent ?? 0}% → {row.new_percent ?? 0}%</span>
+                        {row.delay_reason && (
+                          <Badge variant="outline" className="ml-1.5 text-[9px] py-0">
+                            {DELAY_REASON_LABELS[row.delay_reason] || row.delay_reason}
+                          </Badge>
+                        )}
+                        {row.note && <p className="mt-0.5 whitespace-pre-wrap">{row.note}</p>}
+                        <div className="text-muted-foreground mt-0.5">
+                          {row.created_at ? formatDistanceToNow(new Date(row.created_at), { addSuffix: true }) : ''}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 
