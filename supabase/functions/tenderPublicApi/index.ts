@@ -23,58 +23,16 @@ const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
 const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
-Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
-  }
+function buildWrapper(bodyContent: string, branding: any): string {
+  const brandColour = branding.brand_colour || '#1a56db';
+  const logoHtml = branding.logo_url
+    ? `<div style="text-align:center;margin-bottom:20px;"><img src="${branding.logo_url}" alt="${branding.company_name || 'Logo'}" width="160" style="max-width:100%;height:auto;display:inline-block;" /></div>`
+    : '';
+  const footerHtml = branding.footer_text
+    ? `<div style="margin-top:32px;padding-top:16px;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af;line-height:1.6;">${branding.footer_text.replace(/\n/g, '<br>')}</div>`
+    : '';
 
-  try {
-    const payload = await req.json();
-    const { action, token, submission } = payload;
-
-    console.log(`[tenderPublicApi] action=${action} token=${token?.slice(0, 8)}...`);
-
-    // ── RESPOND TO QUESTION (admin shortcut — no invitation token needed) ─────
-    // Called directly from TenderDetail.jsx admin view
-    if (action === 'respondQuestion' && (!token || token === '__admin_reply__')) {
-      const authHeader = req.headers.get('authorization');
-      if (!authHeader) return Response.json({ error: 'Unauthorized' }, { status: 401, headers: corsHeaders });
-      const jwtToken = authHeader.replace('Bearer ', '');
-      const { data: { user: authUser }, error: authErr } = await supabaseAdmin.auth.getUser(jwtToken);
-      if (authErr || !authUser) return Response.json({ error: 'Invalid token' }, { status: 401, headers: corsHeaders });
-      const { data: userData } = await supabaseAdmin.from('users').select('role, full_name, email').eq('id', authUser.id).single();
-      if (!['admin', 'pricing', 'internal'].includes(userData?.role || '')) return Response.json({ error: 'Forbidden' }, { status: 403, headers: corsHeaders });
-
-      const { rfi_id, content, invitee_email, invitee_name, tender_id: payloadTenderId } = payload;
-      // Load tender + branding for email
-      const { data: tRow } = await supabaseAdmin.from('tenders').select('id, tender_number, title').eq('id', payloadTenderId).single();
-      const { data: bd } = await supabaseAdmin.from('email_branding').select('*').limit(1).single();
-      const br: any = bd || {};
-      const senderEmail = br.sender_email || Deno.env.get('SENDER_EMAIL') || 'noreply@totalhomesolutions.co.nz';
-      const fromName    = br.sender_name || br.company_name || 'ConstructIQ';
-      const brandColour = br.brand_colour || '#1a56db';
-      const { data: rfiRow } = await supabaseAdmin.from('tender_rfis').select('subject').eq('id', rfi_id).single();
-      // Find the invitation token for the invitee to link back to portal
-      const { data: invRows } = await supabaseAdmin.from('tender_invitations').select('token').eq('tender_id', payloadTenderId).eq('invitee_email', invitee_email).limit(1);
-      const invToken = (invRows ?? [])[0]?.token;
-      const portalUrl = invToken ? `${Deno.env.get('SITE_URL') || Deno.env.get('APP_URL') || 'https://constructiq-beige.vercel.app'}/tender-submit/${invToken}` : '';
-
-      try {
-        const bodyContent = `<p>Dear <strong>${escapeHtml(invitee_name)}</strong>,</p>
-<p>Your question on tender <strong>${escapeHtml(tRow?.tender_number || '')}: ${escapeHtml(tRow?.title || '')}</strong> has been answered.</p>
-<p><strong>Question:</strong> ${escapeHtml(rfiRow?.subject || '')}</p>
-<p><strong>Answer:</strong><br>${escapeHtml(content)}</p>
-${portalUrl ? `<p style="margin-top:24px;"><a href="${portalUrl}" style="display:inline-block;padding:10px 24px;background:${brandColour};color:#fff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View on Portal</a></p>` : ''}
-<p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br><strong>${escapeHtml(userData?.full_name || fromName)}</strong></p>`;
-
-        const logoHtml = br.logo_url
-          ? `<div style="text-align:center;margin-bottom:20px;"><img src="${br.logo_url}" alt="${br.company_name || 'Logo'}" width="160" style="max-width:100%;height:auto;display:inline-block;" /></div>`
-          : '';
-        const footerHtml = br.footer_text
-          ? `<div style="margin-top:32px;padding-top:16px;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af;line-height:1.6;">${br.footer_text.replace(/\n/g, '<br>')}</div>`
-          : '';
-
-        const htmlBody = `<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -105,12 +63,102 @@ ${portalUrl ? `<p style="margin-top:24px;"><a href="${portalUrl}" style="display
   </table>
 </body>
 </html>`;
+}
+
+function replaceVars(template: string, vars: Record<string, string>): string {
+  return template.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? '');
+}
+
+const DEFAULT_QUESTION_POSTED_TEMPLATE = {
+  subject: 'New Tender Question — {tender_number}: {title}',
+  body_html: `
+<p>Hi,</p>
+<p><strong>{invitee_name}</strong> ({invitee_email}) has submitted a question on tender <strong>{tender_number}: {title}</strong>.</p>
+<table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;">
+  <tr><td style="padding:6px 0;color:#6b7280;width:120px;">Subject</td><td style="padding:6px 0;font-weight:500;">{question_subject}</td></tr>
+  <tr><td style="padding:6px 0;color:#6b7280;">From</td><td style="padding:6px 0;">{invitee_name} — {invitee_company}</td></tr>
+</table>
+<p style="color:#374151;"><strong>Question:</strong><br>{question_description}</p>
+<p style="margin-top:24px;">
+  <a href="{admin_url}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View &amp; Respond</a>
+</p>`,
+};
+
+const DEFAULT_QUESTION_ANSWERED_TEMPLATE = {
+  subject: 'Your question on {tender_number} has been answered',
+  body_html: `
+<p>Dear <strong>{invitee_name}</strong>,</p>
+<p>Your question on tender <strong>{tender_number}: {title}</strong> has been answered.</p>
+<table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;">
+  <tr><td style="padding:6px 0;color:#6b7280;width:120px;">Question</td><td style="padding:6px 0;font-weight:500;">{question_subject}</td></tr>
+</table>
+<p style="color:#374151;"><strong>Answer:</strong><br>{answer_text}</p>
+<p style="margin-top:24px;">
+  <a href="{submission_link}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View on Tender Portal</a>
+</p>
+<p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br><strong>{sender_name}</strong><br>{sender_email}<br>{company_name}</p>`,
+};
+
+Deno.serve(async (req: Request) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
+
+  try {
+    const payload = await req.json();
+    const { action, token, submission } = payload;
+
+    console.log(`[tenderPublicApi] action=${action} token=${token?.slice(0, 8)}...`);
+
+    // ── RESPOND TO QUESTION (admin shortcut — no invitation token needed) ─────
+    // Called directly from TenderDetail.jsx admin view
+    if (action === 'respondQuestion' && (!token || token === '__admin_reply__')) {
+      const authHeader = req.headers.get('authorization');
+      if (!authHeader) return Response.json({ error: 'Unauthorized' }, { status: 401, headers: corsHeaders });
+      const jwtToken = authHeader.replace('Bearer ', '');
+      const { data: { user: authUser }, error: authErr } = await supabaseAdmin.auth.getUser(jwtToken);
+      if (authErr || !authUser) return Response.json({ error: 'Invalid token' }, { status: 401, headers: corsHeaders });
+      const { data: userData } = await supabaseAdmin.from('users').select('role, full_name, email').eq('id', authUser.id).single();
+      if (!['admin', 'pricing', 'internal'].includes(userData?.role || '')) return Response.json({ error: 'Forbidden' }, { status: 403, headers: corsHeaders });
+
+      const { rfi_id, content, invitee_email, invitee_name, tender_id: payloadTenderId } = payload;
+      // Load tender + branding for email
+      const { data: tRow } = await supabaseAdmin.from('tenders').select('id, tender_number, title').eq('id', payloadTenderId).single();
+      const [{ data: bd }, { data: templates }] = await Promise.all([
+        supabaseAdmin.from('email_branding').select('*').limit(1).single(),
+        supabaseAdmin.from('email_templates').select('*').eq('template_key', 'tender_question_answered').limit(1),
+      ]);
+      const br: any = bd || {};
+      const senderEmail = br.sender_email || Deno.env.get('SENDER_EMAIL') || 'noreply@totalhomesolutions.co.nz';
+      const fromName    = br.sender_name || br.company_name || 'ConstructIQ';
+      const { data: rfiRow } = await supabaseAdmin.from('tender_rfis').select('subject').eq('id', rfi_id).single();
+      // Find the invitation token for the invitee to link back to portal
+      const { data: invRows } = await supabaseAdmin.from('tender_invitations').select('token').eq('tender_id', payloadTenderId).eq('invitee_email', invitee_email).limit(1);
+      const invToken = (invRows ?? [])[0]?.token;
+      const portalUrl = invToken ? `${Deno.env.get('SITE_URL') || Deno.env.get('APP_URL') || 'https://constructiq-beige.vercel.app'}/tender-submit/${invToken}` : '';
+
+      try {
+        const template = templates?.[0] || DEFAULT_QUESTION_ANSWERED_TEMPLATE;
+        const vars: Record<string, string> = {
+          invitee_name:     escapeHtml(invitee_name || ''),
+          tender_number:    escapeHtml(tRow?.tender_number || ''),
+          title:            escapeHtml(tRow?.title || ''),
+          question_subject: escapeHtml(rfiRow?.subject || ''),
+          answer_text:      escapeHtml(content),
+          submission_link:  portalUrl,
+          sender_name:      escapeHtml(userData?.full_name || fromName),
+          sender_email:     escapeHtml(userData?.email || senderEmail),
+          company_name:     escapeHtml(br.company_name || fromName),
+        };
+        const subject = replaceVars(template.subject || '', vars);
+        const bodyContent = replaceVars(template.body_html || template.body || '', vars);
+        const htmlBody = buildWrapper(bodyContent, br);
 
         const resend = new Resend(Deno.env.get('RESEND_API_KEY'));
         await resend.emails.send({
           from:    `${fromName} <${senderEmail}>`,
           to:      invitee_email,
-          subject: `Your question on ${tRow?.tender_number || ''} has been answered`,
+          subject,
           html: htmlBody,
         });
       } catch (_e) { /* non-blocking */ }
@@ -500,13 +548,14 @@ ${portalUrl ? `<p style="margin-top:24px;"><a href="${portalUrl}" style="display
         } catch (_e) { /* non-blocking */ }
       }
 
-      // Notify tender creator
-      if (tender.created_by_email) {
+      // Notify tender lead + creator (dedup if same address)
+      const internalRecipients = [...new Set([tender.tender_lead_email, tender.created_by_email].filter(Boolean))];
+      for (const internalRecipient of internalRecipients) {
         try {
           const price = `NZD ${Number(submission.lump_sum_price).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}`;
           await resend.emails.send({
             from:    fromEmail,
-            to:      tender.created_by_email,
+            to:      internalRecipient,
             subject: `New Submission — ${tender.title}`,
             html: `<!DOCTYPE html><html><body style="font-family:-apple-system,sans-serif;background:#f3f4f6;margin:0;padding:32px 16px;">
 <table width="100%" style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1);">
@@ -628,64 +677,37 @@ ${portalUrl ? `<p style="margin-top:24px;"><a href="${portalUrl}" style="display
 
       // Notify tender lead / creator
       try {
-        const { data: bd } = await supabaseAdmin.from('email_branding').select('*').limit(1).single();
+        const [{ data: bd }, { data: templates }] = await Promise.all([
+          supabaseAdmin.from('email_branding').select('*').limit(1).single(),
+          supabaseAdmin.from('email_templates').select('*').eq('template_key', 'tender_question_posted').limit(1),
+        ]);
         const br: any = bd || {};
         const senderEmail = br.sender_email || Deno.env.get('SENDER_EMAIL') || 'noreply@totalhomesolutions.co.nz';
         const fromName    = br.sender_name || br.company_name || 'ConstructIQ';
-        const brandColour = br.brand_colour || '#1a56db';
         const toEmail     = tender.tender_lead_email || tender.created_by_email;
         const adminUrl    = `${Deno.env.get('SITE_URL') || Deno.env.get('APP_URL') || 'https://constructiq-beige.vercel.app'}/tenders/${tender.id}?tab=questions`;
         const resend      = new Resend(Deno.env.get('RESEND_API_KEY'));
 
         if (toEmail) {
-          const bodyContent = `<p><strong>${escapeHtml(invitation.invitee_name)}</strong> (${escapeHtml(invitation.invitee_email)}) has submitted a question on tender <strong>${escapeHtml(tender.tender_number)}: ${escapeHtml(tender.title)}</strong>.</p>
-<p><strong>Subject:</strong> ${escapeHtml(subject)}</p>
-${qDesc ? `<p><strong>Question:</strong><br>${escapeHtml(qDesc)}</p>` : ''}
-<p style="margin-top:24px;"><a href="${adminUrl}" style="display:inline-block;padding:10px 24px;background:${brandColour};color:#fff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View &amp; Respond</a></p>`;
-
-          const logoHtml = br.logo_url
-            ? `<div style="text-align:center;margin-bottom:20px;"><img src="${br.logo_url}" alt="${br.company_name || 'Logo'}" width="160" style="max-width:100%;height:auto;display:inline-block;" /></div>`
-            : '';
-          const footerHtml = br.footer_text
-            ? `<div style="margin-top:32px;padding-top:16px;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af;line-height:1.6;">${br.footer_text.replace(/\n/g, '<br>')}</div>`
-            : '';
-
-          const htmlBody = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1.0">
-  <title>Email</title>
-</head>
-<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:32px 16px;">
-    <tr>
-      <td align="center">
-        <table width="600" cellpadding="0" cellspacing="0"
-               style="max-width:600px;width:100%;background:#ffffff;border-radius:8px;
-                      overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-          <tr><td style="background:${brandColour};height:4px;"></td></tr>
-          <tr>
-            <td style="padding:32px 40px;">
-              ${logoHtml}
-              <div style="font-size:15px;color:#111827;line-height:1.7;">
-                ${bodyContent}
-              </div>
-              ${footerHtml}
-            </td>
-          </tr>
-          <tr><td style="background:${brandColour};height:2px;"></td></tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`;
+          const template = templates?.[0] || DEFAULT_QUESTION_POSTED_TEMPLATE;
+          const vars: Record<string, string> = {
+            invitee_name:        escapeHtml(invitation.invitee_name || ''),
+            invitee_email:       escapeHtml(invitation.invitee_email || ''),
+            invitee_company:     escapeHtml(invitation.invitee_company || ''),
+            tender_number:       escapeHtml(tender.tender_number || ''),
+            title:               escapeHtml(tender.title || ''),
+            question_subject:    escapeHtml(subject),
+            question_description: escapeHtml(qDesc || ''),
+            admin_url:           adminUrl,
+          };
+          const subjectLine = replaceVars(template.subject || '', vars);
+          const bodyContent = replaceVars(template.body_html || template.body || '', vars);
+          const htmlBody = buildWrapper(bodyContent, br);
 
           await resend.emails.send({
             from:    `${fromName} <${senderEmail}>`,
             to:      toEmail,
-            subject: `New Tender Question — ${tender.tender_number}: ${tender.title}`,
+            subject: subjectLine,
             html: htmlBody,
           });
         }
@@ -752,31 +774,37 @@ ${qDesc ? `<p><strong>Question:</strong><br>${escapeHtml(qDesc)}</p>` : ''}
 
       // Email invitee
       try {
-        const { data: bd } = await supabaseAdmin.from('email_branding').select('*').limit(1).single();
+        const [{ data: bd }, { data: templates }] = await Promise.all([
+          supabaseAdmin.from('email_branding').select('*').limit(1).single(),
+          supabaseAdmin.from('email_templates').select('*').eq('template_key', 'tender_question_answered').limit(1),
+        ]);
         const br: any = bd || {};
         const senderEmail = br.sender_email || Deno.env.get('SENDER_EMAIL') || 'noreply@totalhomesolutions.co.nz';
         const fromName    = br.sender_name || br.company_name || 'ConstructIQ';
-        const brandColour = br.brand_colour || '#1a56db';
         const portalUrl   = `${Deno.env.get('SITE_URL') || Deno.env.get('APP_URL') || 'https://constructiq-beige.vercel.app'}/tender-submit/${token}`;
         const resend      = new Resend(Deno.env.get('RESEND_API_KEY'));
+
+        const template = templates?.[0] || DEFAULT_QUESTION_ANSWERED_TEMPLATE;
+        const vars: Record<string, string> = {
+          invitee_name:     escapeHtml(invitation.invitee_name || ''),
+          tender_number:    escapeHtml(tender.tender_number || ''),
+          title:            escapeHtml(tender.title || ''),
+          question_subject: escapeHtml(rfiRow.subject || ''),
+          answer_text:      escapeHtml(content),
+          submission_link:  portalUrl,
+          sender_name:      escapeHtml(userData?.full_name || fromName),
+          sender_email:     escapeHtml(userData?.email || senderEmail),
+          company_name:     escapeHtml(br.company_name || fromName),
+        };
+        const subjectLine = replaceVars(template.subject || '', vars);
+        const bodyContent = replaceVars(template.body_html || template.body || '', vars);
+        const htmlBody = buildWrapper(bodyContent, br);
 
         await resend.emails.send({
           from:    `${fromName} <${senderEmail}>`,
           to:      invitation.invitee_email,
-          subject: `Your question on ${tender.tender_number} has been answered`,
-          html: `<!DOCTYPE html><html><body style="font-family:-apple-system,sans-serif;background:#f3f4f6;margin:0;padding:32px 16px;">
-<table width="100%" style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1);">
-  <tr><td style="background:${brandColour};height:4px;"></td></tr>
-  <tr><td style="padding:32px 40px;font-size:15px;color:#111827;line-height:1.7;">
-    <p>Dear <strong>${invitation.invitee_name}</strong>,</p>
-    <p>Your question on tender <strong>${tender.tender_number}: ${tender.title}</strong> has been answered.</p>
-    <p><strong>Question:</strong> ${rfiRow.subject}</p>
-    <p><strong>Answer:</strong><br>${content}</p>
-    <p style="margin-top:24px;"><a href="${portalUrl}" style="display:inline-block;padding:10px 24px;background:${brandColour};color:#fff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View on Portal</a></p>
-    <p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br><strong>${userData?.full_name || fromName}</strong><br>${br.company_name || fromName}</p>
-  </td></tr>
-  <tr><td style="background:${brandColour};height:2px;"></td></tr>
-</table></body></html>`,
+          subject: subjectLine,
+          html: htmlBody,
         });
       } catch (_e) { /* non-blocking */ }
 

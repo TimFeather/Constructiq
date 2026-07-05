@@ -21,11 +21,13 @@ import { canEdit } from '@/lib/permissions';
 import { logProjectActivity } from '@/lib/activityLog';
 import ActivityFeed from '@/components/shared/ActivityFeed';
 import RFIAssigneesDialog from '@/components/rfis/RFIAssigneesDialog';
+import { useToast } from '@/components/ui/use-toast';
 
 export default function RFIDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { toast } = useToast();
   const [response, setResponse] = useState('');
   const [responseFile, setResponseFile] = useState(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -150,10 +152,28 @@ export default function RFIDetail() {
       (rfi?.assignees || []).forEach(a => { if (a.email && a.email !== user?.email) notifyEmails.add(a.email); });
       if (rfi?.assigned_to_email && rfi.assigned_to_email !== user?.email) notifyEmails.add(rfi.assigned_to_email);
 
+      const registered = [];
+      const skipped = [];
       notifyEmails.forEach(email => {
         if (registeredUsers.some(u => u.email?.toLowerCase() === email?.toLowerCase())) {
-          invokeFunction('sendEmail', { to: email, subject, htmlBody }).catch(() => {});
+          registered.push(email);
+        } else {
+          skipped.push(email);
         }
+      });
+
+      if (skipped.length > 0) {
+        toast({
+          title: 'Some recipients not notified',
+          description: `${skipped.join(', ')} ${skipped.length === 1 ? "doesn't" : "don't"} have a ConstructIQ account, so no email was sent to them.`,
+        });
+      }
+
+      registered.forEach(email => {
+        invokeFunction('sendEmail', { to: email, subject, htmlBody }).catch((e) => {
+          console.warn('[RFIDetail] failed to notify recipient by email:', email, e?.message || e);
+          toast({ variant: 'destructive', title: `Could not notify ${email} by email` });
+        });
       });
     },
     onSuccess: () => {

@@ -42,15 +42,6 @@ export const DEFAULT_TEMPLATES = {
 <p>Please log in to view your project details and get started.</p>
 <p style="margin-top:24px;color:#6b7280;font-size:13px;">Best regards,<br>ConstructIQ</p>`,
   },
-  team_invited: {
-    name: 'Project Invitation',
-    subject: "You're invited to join {project_name} on ConstructIQ",
-    body_html: `
-<p>Hi,</p>
-<p>You have been invited to collaborate on the project <strong>{project_name}</strong> on ConstructIQ.</p>
-<p>Please sign up to get started and view your project details.</p>
-<p style="margin-top:24px;color:#6b7280;font-size:13px;">Best regards,<br>ConstructIQ</p>`,
-  },
   tender_invitation: {
     name: 'Tender Invitation',
     subject: 'Tender Invitation — {tender_number}: {title}',
@@ -172,16 +163,6 @@ export const DEFAULT_TEMPLATES = {
 </p>
 <p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br>{sender_name}<br>{company_name}</p>`,
   },
-  tender_outcome_unsuccessful: {
-    name: 'Tender Outcome — Unsuccessful (We Lost)',
-    subject: 'Tender Update — {tender_number}: {title}',
-    body_html: `
-<p>Dear <strong>{invitee_name}</strong>,</p>
-<p>Thank you for submitting your pricing for <strong>{title}</strong>.</p>
-<p>We wish to advise that unfortunately we were unsuccessful in our tender submission for this project.</p>
-<p>We appreciate your time and effort in preparing your submission and look forward to working with you on future opportunities.</p>
-<p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br>{sender_name}<br>{company_name}</p>`,
-  },
   tender_sub_awarded: {
     name: 'Tender Award — Subcontractor Selected',
     subject: 'Tender Award — {tender_number}: {title}',
@@ -265,9 +246,6 @@ export const TEMPLATE_VARIABLES = {
     { key: 'project_name', desc: 'Project name' },
     { key: 'role', desc: 'Their role on the project' },
   ],
-  team_invited: [
-    { key: 'project_name', desc: 'Project name' },
-  ],
   tender_invitation: [
     { key: 'invitee_name', desc: 'Subcontractor name' },
     { key: 'company_name', desc: 'Your company name' },
@@ -341,13 +319,6 @@ export const TEMPLATE_VARIABLES = {
     { key: 'questions_date', desc: 'Questions deadline date' },
     { key: 'days_remaining', desc: 'Days until questions deadline' },
     { key: 'submission_link', desc: 'Link to tender portal' },
-    { key: 'sender_name', desc: 'Your name' },
-    { key: 'company_name', desc: 'Your company name' },
-  ],
-  tender_outcome_unsuccessful: [
-    { key: 'invitee_name', desc: 'Subcontractor name' },
-    { key: 'title', desc: 'Project title' },
-    { key: 'tender_number', desc: 'Tender reference' },
     { key: 'sender_name', desc: 'Your name' },
     { key: 'company_name', desc: 'Your company name' },
   ],

@@ -145,72 +145,79 @@ a delivery gap.
 Both changes were verified with `npm run lint` (see below) — no new errors
 introduced, output was clean (no findings) for the full repo.
 
-## Known gaps requiring follow-up
+## Follow-up fixes (2026-07-05, second pass)
 
-- **`rfi_response` recipient filtering** (`src/pages/RFIDetail.jsx`, `respondMutation`,
-  ~lines 148-157): assignees/creator who are contacts without a ConstructIQ
-  account are silently excluded from the notification (filtered against
-  `registeredUsers`), and the `sendEmail` call itself still swallows failures
-  via `.catch(() => {})`. Suggested approach: either (a) extend the RFI
-  portal to support a token-based unauthenticated view similar to the tender
-  portal so unregistered assignees can be emailed a working link, or (b) at
-  minimum surface a toast when `notifyEmails` contains addresses that get
-  filtered out, so the RFI owner knows some assignees weren't notified. Either
-  requires a product decision, not just a bug fix.
+All 6 items below were implemented per Tim's decisions. Summary:
 
-- **`tender_question_posted` / `tender_question_answered` template drift**
-  (`supabase/functions/tenderPublicApi/index.ts`, actions `createQuestion` /
-  `respondQuestion` / admin-shortcut branch): these hand-build HTML instead of
-  calling `resolveTemplate()` against the `email_templates` table, so
-  Settings-page edits to those two templates have no effect on the emails
-  actually sent. Suggested approach: load `email_templates` + `email_branding`
-  in `tenderPublicApi` (same pattern already used in `sendTenderInvitations`
-  and `issueNTT`) and render via the shared `replace()`/`buildWrapper()`
-  helpers instead of inline template literals.
+1. **`rfi_response` recipient filtering** (`src/pages/RFIDetail.jsx`,
+   `respondMutation`): kept the registered-users-only filter (unregistered
+   contacts still can't be emailed a working link without a portal change),
+   but now partitions `notifyEmails` into `registered`/`skipped`. Skipped
+   recipients trigger a non-destructive toast naming them. Each registered
+   send's `.catch(() => {})` was replaced with `console.warn` +
+   destructive toast per failed recipient, matching `RFIAssigneesDialog.jsx`.
+   The RFI response itself always saves regardless of email outcome.
+   Verified live: response saved and the send failure logged via
+   `console.warn` as expected.
 
-- **`contract_instruction` template unused** (`supabase/functions/invitationService/index.ts`,
-  action `notifyCI`): sends a hardcoded inline email instead of resolving the
-  `contract_instruction` DB template, even though that template is fully
-  defined with matching variables (`ci_number`, `project_name`, `title`,
-  `instruction_type`, `issue_date`, `description`, `url`, etc.) and exposed in
-  the Settings template editor. Suggested approach: have `notifyCI` fetch
-  `email_templates` filtered to `contract_instruction`, apply vars the same
-  way `addExistingUser`'s `team_added` send already does in the same file, and
-  fall back to the current inline HTML only if no custom template row exists.
+2. **`contract_instruction` wired up** (`supabase/functions/invitationService/index.ts`
+   action `notifyCI`, called from `src/components/projects/ProjectCIPanel.jsx`):
+   `notifyCI` now fetches the `email_templates` row (falls back to the
+   `DEFAULT_TEMPLATES.contract_instruction` shape if none exists) and
+   substitutes `recipient_name, ci_number, project_name, title,
+   instruction_type, issue_date, description, attachments_note, url,
+   sender_name`. `ProjectCIPanel.jsx` now also passes `description`,
+   `issueDate`, and `hasAttachments` in the payload. Settings edits to this
+   template now take effect. **Needs deploy**: `invitationService`.
 
-- **`user_invite` and `team_invited` templates unused** (`supabase/functions/invitationService/index.ts`,
-  `sendInvitationEmail()` helper, used by actions `invite`, `invitePlatform`,
-  `resend`, and `bulkInviteProjectTeam`'s new-user branch): hardcodes its own
-  HTML rather than resolving either template. Since `sendInvitationEmail()` is
-  a single shared helper, fixing this in one place would cover both templates
-  (in practice `user_invite` is the more appropriate one to use, since
-  `team_invited` and `user_invite` largely overlap in purpose — worth deciding
-  whether to consolidate to a single template key as part of the fix, which
-  is a product decision beyond a trivial patch). Suggested approach: pass
-  `emailTemplates`/`branding` into `sendInvitationEmail()` and prefer the DB
-  template row when present.
+3. **`user_invite` wired up** (`supabase/functions/invitationService/index.ts`
+   `sendInvitationEmail()`, shared by `invite`, `invitePlatform`, `resend`,
+   `bulkInviteProjectTeam`'s new-user branch): now fetches the `user_invite`
+   template row and uses it (vars `name, invited_by, project_context,
+   invite_link`) when present; falls back to the existing hardcoded HTML
+   exactly as before when no custom row exists — no behaviour change for the
+   common case. **Needs deploy**: `invitationService`.
 
-- **Tender submission internal-notify recipient** (`supabase/functions/tenderPublicApi/index.ts`,
-  action `submit`, ~line 504): only notifies `tender.created_by_email`, not
-  `tender.tender_lead_email` (the internal reminder in `sendReminders`
-  notifies both). If a tender is created by one person but "led" by another,
-  the lead never hears about new submissions. Suggested approach: build a
-  `Set` of `[tender.tender_lead_email, tender.created_by_email]` the same way
-  `sendReminders`'s internal-reminder branch already does, and send to all of
-  them.
+4. **`tender_question_posted` / `tender_question_answered` wired up + escaping fix**
+   (`supabase/functions/tenderPublicApi/index.ts`, actions `createQuestion`,
+   `respondQuestion` (token path), and the admin-shortcut `respondQuestion`
+   branch): all three now fetch the relevant `email_templates` row and
+   render via `buildWrapper()`/`replaceVars()` helpers (copied from
+   `sendReminders/index.ts`), falling back to inline defaults matching
+   `DEFAULT_TEMPLATES` when no row exists. This also fixes a latent
+   HTML-injection bug in the token-path `respondQuestion` branch, which
+   previously interpolated `invitee_name`, `rfiRow.subject`, and the answer
+   `content` into the email HTML **unescaped** — all three are now passed
+   through `escapeHtml`. **Needs deploy**: `tenderPublicApi`.
 
-- **`tender_outcome_unsuccessful` template unused** (`src/lib/emailTemplates.js`,
-  `src/pages/Settings.jsx`): fully defined and editable in Settings, but no
-  sender resolves this key — `sendOutcomeNotifications` only ever uses
-  `tender_sub_awarded` / `tender_sub_unsuccessful`. Likely a naming leftover
-  from an earlier template set. Suggested approach: either wire it in
-  wherever an "unsuccessful — we lost the whole tender" internal notification
-  should exist (no such internal notification currently exists at all), or
-  remove the dead template + Settings entry if it's confirmed obsolete —
-  either way this needs a product decision, not a blind fix.
+5. **Submission internal-notify now includes tender lead**
+   (`supabase/functions/tenderPublicApi/index.ts` action `submit`): replaced
+   the single `tender.created_by_email` recipient with a deduped
+   `[tender.tender_lead_email, tender.created_by_email]` set, each sent
+   inside its own try/catch so one failure doesn't skip the other. **Needs
+   deploy**: `tenderPublicApi`.
 
-All of the above are code-level observations only — none require a DB
-migration to investigate further, but the `contract_instruction` /
-`user_invite` / `team_invited` fixes would benefit from confirming with Tim
-whether any of these three templates should be retired instead of wired up,
-since two of the three heavily overlap in purpose.
+6. **Retired `team_invited` and `tender_outcome_unsuccessful`**: removed both
+   keys from `DEFAULT_TEMPLATES` and `TEMPLATE_VARIABLES` in
+   `src/lib/emailTemplates.js`, and removed their entries from the
+   `TEMPLATE_KEYS` list in `src/pages/Settings.jsx` (hardcoded there, not
+   derived from `DEFAULT_TEMPLATES`). Verified live in Settings → Email
+   Templates: neither "Project Invitation" nor "Tender Outcome —
+   Unsuccessful (We Lost)" appear; the remaining 14 template editors still
+   load. Confirmed zero remaining references outside `docs/` and the legacy
+   `base44/` folder. **No DB migration written** — Tim can optionally run
+   `delete from email_templates where template_key in ('team_invited',
+   'tender_outcome_unsuccessful');` manually; harmless either way since no
+   sender resolves those keys.
+
+**Verification done:** `npm run lint` and `npm run build` both pass clean.
+Client-side items (1, 6) verified live in the preview against production
+Supabase logged in as tim@thshb.co.nz. Edge-function items (2–5) were
+verified by re-reading the diff for fallback-path equivalence, but the
+actual Deno functions have not run since they're not deployed yet.
+
+**Still needs Tim:**
+`supabase functions deploy invitationService tenderPublicApi`, then smoke-test:
+issue a CI on a test project, ask + answer a tender question on a test
+tender invitee row, and confirm a custom edit to the `contract_instruction`
+template in Settings shows up in the received email.

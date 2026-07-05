@@ -80,10 +80,11 @@ export default function ProjectCIPanel({ project, canManage }) {
     setWorking(true);
     try {
       const ci = cis.find(c => c.id === confirmIssue);
+      const issueDate = new Date().toISOString();
       await ContractInstruction.update(confirmIssue, {
         status:     'Issued',
-        issue_date: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        issue_date: issueDate,
+        updated_at: issueDate,
       });
 
       // Email subcontractors via invitationService
@@ -97,6 +98,9 @@ export default function ProjectCIPanel({ project, canManage }) {
             ciNumber:  ci?.ci_number || '',
             ciTitle:   ci?.title || '',
             ciType:    ci?.instruction_type || '',
+            description: ci?.description || '',
+            issueDate,
+            hasAttachments: (ci?.attachments?.length || 0) > 0,
             recipients: subcontractors.map(s => ({ email: s.user_email, name: s.full_name || s.user_email })),
           });
           const sent = res?.data?.sent ?? 0;

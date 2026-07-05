@@ -57,6 +57,47 @@ async function sendInvitationEmail({ to, toName, projectName, inviterName, brand
   // Invite-only: the register page requires this token to create an account.
   const registerUrl = token ? `${APP_URL}/register?token=${encodeURIComponent(token)}` : `${APP_URL}/register`;
   const brandColour = branding?.brand_colour || '#1a56db';
+
+  const { data: templates } = await supabaseAdmin.from('email_templates').select('*').eq('template_key', 'user_invite').limit(1);
+  const dbTemplate = templates?.[0];
+
+  if (dbTemplate) {
+    const vars: Record<string, string> = {
+      name: escapeHtml(toName || to),
+      invited_by: escapeHtml(inviterName || 'A team member'),
+      project_context: projectName ? `<p>You've been invited to collaborate on <strong>${escapeHtml(projectName)}</strong>.</p>` : '',
+      invite_link: registerUrl,
+    };
+    let subject = dbTemplate.subject || '';
+    let bodyHtml = dbTemplate.body_html || dbTemplate.body || '';
+    for (const [key, val] of Object.entries(vars)) {
+      const re = new RegExp(`\\{${key}\\}`, 'g');
+      subject = subject.replace(re, val ?? '');
+      bodyHtml = bodyHtml.replace(re, val ?? '');
+    }
+    const logoHtml = branding?.logo_url
+      ? `<div style="text-align:${branding.logo_alignment || 'left'};margin-bottom:20px;"><img src="${branding.logo_url}" alt="${escapeHtml(branding.company_name || 'Logo')}" width="${branding.logo_width || 160}" style="max-width:100%;height:auto;display:inline-block;" /></div>`
+      : '';
+    const footerHtml = branding?.footer_text
+      ? `<div style="margin-top:32px;padding-top:16px;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af;line-height:1.6;">${String(branding.footer_text).replace(/\n/g, '<br>')}</div>`
+      : '';
+    const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:32px 16px;">
+<tr><td align="center"><table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
+<tr><td style="background:${brandColour};height:4px;"></td></tr>
+<tr><td style="padding:32px 40px;">${logoHtml}<div style="font-size:15px;color:#111827;line-height:1.7;">${bodyHtml}</div>${footerHtml}</td></tr>
+<tr><td style="background:${brandColour};height:2px;"></td></tr>
+</table></td></tr></table></body></html>`;
+
+    return resend.emails.send({
+      from: `${fromName} <${Deno.env.get('SENDER_EMAIL') || 'noreply@totalhomesolutions.co.nz'}>`,
+      to,
+      subject,
+      html,
+    });
+  }
+
   const logoHtml = branding?.logo_url
     ? `<img src="${branding.logo_url}" alt="${fromName}" style="height:40px;" />`
     : `<div style="font-size:20px;font-weight:700;color:${brandColour};">${fromName}</div>`;
@@ -609,41 +650,88 @@ Deno.serve(async (req) => {
     // ── notifyCI ─────────────────────────────────────────────────────────────
     // Send CI notification to project subcontractors
     if (action === 'notifyCI') {
-      const { projectId, projectName, ciNumber, ciTitle, ciType, recipients } = body;
+      const { projectId, projectName, ciNumber, ciTitle, ciType, description, issueDate, hasAttachments, recipients } = body;
       if (!recipients?.length) return Response.json({ success: true, sent: 0 }, { headers: corsHeaders });
 
-      const { data: brandingsData } = await supabaseAdmin.from('email_branding').select('*');
+      const [{ data: templates }, { data: brandingsData }] = await Promise.all([
+        supabaseAdmin.from('email_templates').select('*').eq('template_key', 'contract_instruction').limit(1),
+        supabaseAdmin.from('email_branding').select('*'),
+      ]);
+      const template = templates?.[0] || {
+        subject: 'Contract Instruction {ci_number} — {project_name}',
+        body_html: `
+<p>Hi <strong>{recipient_name}</strong>,</p>
+<p>A Contract Instruction has been issued on project <strong>{project_name}</strong>.</p>
+<table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;">
+  <tr><td style="padding:6px 0;color:#6b7280;width:160px;">Reference</td><td style="padding:6px 0;font-weight:500;">{ci_number}</td></tr>
+  <tr><td style="padding:6px 0;color:#6b7280;">Project</td><td style="padding:6px 0;font-weight:500;">{project_name}</td></tr>
+  <tr><td style="padding:6px 0;color:#6b7280;">Title</td><td style="padding:6px 0;font-weight:500;">{title}</td></tr>
+  <tr><td style="padding:6px 0;color:#6b7280;">Type</td><td style="padding:6px 0;">{instruction_type}</td></tr>
+  <tr><td style="padding:6px 0;color:#6b7280;">Issued</td><td style="padding:6px 0;">{issue_date}</td></tr>
+</table>
+<p style="color:#374151;"><strong>Description:</strong><br>{description}</p>
+{attachments_note}
+<p style="margin-top:24px;">
+  <a href="{url}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View Contract Instruction</a>
+</p>
+<p style="font-size:13px;color:#6b7280;margin-top:8px;">Note: Attachments can be viewed by logging into the project portal.</p>
+<p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br>{sender_name}</p>`,
+      };
       const branding    = (brandingsData ?? [])[0] || {};
       const brandColour = branding.brand_colour || '#1a56db';
       const fromName    = branding.sender_name   || branding.company_name || 'ConstructIQ';
       const senderEmail = branding.sender_email || Deno.env.get('SENDER_EMAIL') || 'noreply@totalhomesolutions.co.nz';
       const fromEmail   = `${fromName} <${senderEmail}>`;
       const resend      = new Resend(Deno.env.get('RESEND_API_KEY'));
+      const senderName  = user.full_name || user.email;
+      const attachmentsNote = hasAttachments
+        ? '<p style="color:#374151;">Attachments are available in the portal.</p>'
+        : '';
+      const logoHtml = branding.logo_url
+        ? `<div style="text-align:${branding.logo_alignment || 'left'};margin-bottom:20px;"><img src="${branding.logo_url}" alt="${escapeHtml(branding.company_name || 'Logo')}" width="${branding.logo_width || 160}" style="max-width:100%;height:auto;display:inline-block;" /></div>`
+        : '';
+      const footerHtml = branding.footer_text
+        ? `<div style="margin-top:32px;padding-top:16px;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af;line-height:1.6;">${String(branding.footer_text).replace(/\n/g, '<br>')}</div>`
+        : '';
 
       let sent = 0;
       for (const r of recipients) {
         try {
+          const vars: Record<string, string> = {
+            recipient_name:    escapeHtml(r.name || r.email),
+            ci_number:         escapeHtml(ciNumber || ''),
+            project_name:      escapeHtml(projectName || ''),
+            title:             escapeHtml(ciTitle || ''),
+            instruction_type:  escapeHtml(ciType || ''),
+            issue_date:        escapeHtml(issueDate || ''),
+            description:       escapeHtml(description || ''),
+            attachments_note:  attachmentsNote,
+            url:               `${APP_URL}/projects/${projectId}`,
+            sender_name:       escapeHtml(senderName),
+          };
+
+          let subject = template.subject || '';
+          let bodyHtml = template.body_html || template.body || '';
+          for (const [key, val] of Object.entries(vars)) {
+            const re = new RegExp(`\\{${key}\\}`, 'g');
+            subject = subject.replace(re, val ?? '');
+            bodyHtml = bodyHtml.replace(re, val ?? '');
+          }
+
+          const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:32px 16px;">
+<tr><td align="center"><table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
+<tr><td style="background:${brandColour};height:4px;"></td></tr>
+<tr><td style="padding:32px 40px;">${logoHtml}<div style="font-size:15px;color:#111827;line-height:1.7;">${bodyHtml}</div>${footerHtml}</td></tr>
+<tr><td style="background:${brandColour};height:2px;"></td></tr>
+</table></td></tr></table></body></html>`;
+
           await resend.emails.send({
-            from: fromEmail, to: r.email,
-            subject: `${projectName} — ${ciNumber} Issued`,
-            html: `<!DOCTYPE html><html><body style="font-family:-apple-system,sans-serif;background:#f3f4f6;margin:0;padding:32px 16px;">
-<table width="100%" style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;">
-  <tr><td style="background:${brandColour};height:4px;"></td></tr>
-  <tr><td style="padding:32px 40px;font-size:15px;color:#111827;line-height:1.7;">
-    <p>Hi ${escapeHtml(r.name || r.email)},</p>
-    <p>A new Contract Instruction has been issued for <strong>${escapeHtml(projectName)}</strong>.</p>
-    <table style="width:100%;border-collapse:collapse;margin:16px 0;background:#f9fafb;border-radius:6px;">
-      <tr><td style="padding:10px 14px;font-size:13px;color:#6b7280;border-bottom:1px solid #e5e7eb;">CI Number</td>
-          <td style="padding:10px 14px;font-weight:600;">${escapeHtml(ciNumber)}</td></tr>
-      <tr><td style="padding:10px 14px;font-size:13px;color:#6b7280;border-bottom:1px solid #e5e7eb;">Type</td>
-          <td style="padding:10px 14px;">${escapeHtml(ciType)}</td></tr>
-      <tr><td style="padding:10px 14px;font-size:13px;color:#6b7280;">Title</td>
-          <td style="padding:10px 14px;">${escapeHtml(ciTitle)}</td></tr>
-    </table>
-    <p style="color:#6b7280;font-size:13px;">Regards,<br>${escapeHtml(branding.company_name || 'ConstructIQ')}</p>
-  </td></tr>
-  <tr><td style="background:${brandColour};height:2px;"></td></tr>
-</table></body></html>`,
+            from: fromEmail,
+            to: r.email,
+            subject,
+            html,
           });
           sent++;
         } catch (_e: any) {
