@@ -14,12 +14,45 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useToast } from '@/components/ui/use-toast';
 import { Task } from '@/api/entities';
 import { updateTaskDependency } from '@/lib/scheduleUpdateService';
+import { bulkUpdateTaskWbs } from '@/api/programmeData';
+import { computeWBS } from '@/lib/wbsUtils';
 
 const NONE = '__none__';
+
+const DEP_TYPES = [
+  { value: 'FS', label: 'Finish-to-Start (FS)' },
+  { value: 'SS', label: 'Start-to-Start (SS)' },
+  { value: 'FF', label: 'Finish-to-Finish (FF)' },
+  { value: 'SF', label: 'Start-to-Finish (SF)' },
+];
 
 function todayStr() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * Where to place a new task in its group's sort order.
+ * Anchor = the predecessor, if it lives in the same parent group as the
+ * chosen parent — the new task lands directly below it (fractional
+ * sort_order, midpoint to the next sibling). Otherwise it's appended as the
+ * last child of the chosen parent (or top-level if no parent).
+ */
+function computeSortOrder(tasks, parentId, predecessorId) {
+  const predecessor = predecessorId && predecessorId !== NONE ? tasks.find(t => t.id === predecessorId) : null;
+  const groupSiblings = tasks.filter(t => (t.parent_id || null) === (parentId || null));
+
+  if (predecessor && (predecessor.parent_id || null) === (parentId || null)) {
+    const sorted = groupSiblings.slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+    const idx = sorted.findIndex(t => t.id === predecessor.id);
+    const next = sorted[idx + 1];
+    return next
+      ? ((predecessor.sort_order || 0) + (next.sort_order || 0)) / 2
+      : (predecessor.sort_order || 0) + 1;
+  }
+
+  const maxSort = groupSiblings.reduce((m, t) => Math.max(m, Number(t.sort_order) || 0), 0);
+  return maxSort + 1;
 }
 
 export default function AddTaskDialog({ open, onOpenChange, projectId, tasks, scheduleOptions }) {
@@ -28,7 +61,7 @@ export default function AddTaskDialog({ open, onOpenChange, projectId, tasks, sc
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     name: '', duration: 5, start_date: '', is_milestone: false,
-    parent_id: NONE, predecessor_id: NONE,
+    parent_id: NONE, predecessor_id: NONE, dep_type: 'FS', lag_days: 0,
   });
 
   useEffect(() => {
@@ -36,20 +69,23 @@ export default function AddTaskDialog({ open, onOpenChange, projectId, tasks, sc
       setForm({
         name: '', duration: 5,
         start_date: scheduleOptions?.dataDate || todayStr(),
-        is_milestone: false, parent_id: NONE, predecessor_id: NONE,
+        is_milestone: false, parent_id: NONE, predecessor_id: NONE, dep_type: 'FS', lag_days: 0,
       });
     }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const parentOptions = tasks.filter(t => tasks.some(c => c.parent_id === t.id) || !t.parent_id);
 
+  const predecessor = form.predecessor_id !== NONE ? tasks.find(t => t.id === form.predecessor_id) : null;
+  const parentId = form.parent_id === NONE ? null : form.parent_id;
+  const predecessorInDifferentGroup = !!predecessor && (predecessor.parent_id || null) !== parentId;
+
   const handleCreate = async () => {
     if (!form.name.trim() || !projectId || projectId === 'all') return;
     setSaving(true);
     try {
-      const maxSort = tasks.reduce((m, t) => Math.max(m, Number(t.sort_order) || 0), 0);
-      const parentId = form.parent_id === NONE ? null : form.parent_id;
       const parent = parentId ? tasks.find(t => t.id === parentId) : null;
+      const sortOrder = computeSortOrder(tasks, parentId, form.predecessor_id);
 
       const created = await Task.create({
         project_id: projectId,
@@ -60,7 +96,7 @@ export default function AddTaskDialog({ open, onOpenChange, projectId, tasks, sc
         end_date: null,
         parent_id: parentId,
         level: parent ? Math.min((parent.level ?? 1) + 1, 3) : 1,
-        sort_order: maxSort + 1,
+        sort_order: sortOrder,
         percent_complete: 0,
         task_status: 'Not Started',
       });
@@ -68,10 +104,29 @@ export default function AddTaskDialog({ open, onOpenChange, projectId, tasks, sc
       // Optional predecessor: link via the service so the engine places the
       // new task (and cascades) immediately.
       if (form.predecessor_id !== NONE && created?.id) {
+        const lagDays = Number(form.lag_days) || 0;
         const allTasks = [...tasks, { ...created, predecessors: [] }];
         await updateTaskDependency(created.id, [{
-          predecessor_id: form.predecessor_id, type: 'FS', lag_days: 0, lag_hours: 0, is_elapsed: false,
+          predecessor_id: form.predecessor_id, type: form.dep_type || 'FS',
+          lag_days: lagDays, lag_hours: lagDays * 8, is_elapsed: false,
         }], allTasks, scheduleOptions);
+      }
+
+      // WBS renumber cascade: visibleTasks sorts by WBS before sort_order, so
+      // an unnumbered insert would otherwise sort to the top of its group.
+      if (created?.id) {
+        const postInsertTasks = [...tasks, created];
+        const wbsPatches = computeWBS(postInsertTasks).filter(p => {
+          const t = postInsertTasks.find(x => x.id === p.id);
+          return t?.wbs !== p.wbs;
+        });
+        if (wbsPatches.length) {
+          try {
+            await bulkUpdateTaskWbs(wbsPatches);
+          } catch (e) {
+            toast({ title: 'WBS renumber failed', description: e.message, variant: 'destructive' });
+          }
+        }
       }
 
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
@@ -124,7 +179,7 @@ export default function AddTaskDialog({ open, onOpenChange, projectId, tasks, sc
             </Select>
           </div>
           <div>
-            <Label>Predecessor (optional, finish-to-start)</Label>
+            <Label>Predecessor (optional)</Label>
             <Select value={form.predecessor_id} onValueChange={v => setForm(f => ({ ...f, predecessor_id: v }))}>
               <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -134,10 +189,40 @@ export default function AddTaskDialog({ open, onOpenChange, projectId, tasks, sc
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-[11px] text-muted-foreground mt-1">
-              More link types and lag can be set afterwards by dragging between bars or editing the task.
-            </p>
           </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Dependency type</Label>
+              <Select
+                value={form.dep_type}
+                onValueChange={v => setForm(f => ({ ...f, dep_type: v }))}
+                disabled={form.predecessor_id === NONE}
+              >
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {DEP_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Lag (days)</Label>
+              <Input
+                type="number"
+                value={form.lag_days}
+                disabled={form.predecessor_id === NONE}
+                onChange={e => setForm(f => ({ ...f, lag_days: e.target.value }))}
+                className="mt-1"
+                placeholder="0"
+              />
+            </div>
+          </div>
+          <p className="text-[11px] text-muted-foreground -mt-2">
+            {predecessorInDifferentGroup
+              ? 'Predecessor is in a different WBS group — this task is placed at the end of the chosen parent group.'
+              : predecessor
+                ? 'New task is placed directly below its predecessor.'
+                : 'Negative lag = lead time. More links can be added afterwards by dragging between bars.'}
+          </p>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>

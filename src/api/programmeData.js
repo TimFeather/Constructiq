@@ -127,6 +127,27 @@ export async function bulkUpdateSchedule(patches) {
   return payload.length;
 }
 
+/**
+ * Persist WBS renumber patches [{ id, wbs }] in one round trip via the
+ * bulk_update_task_wbs RPC (RLS applies). Falls back to chunked updates
+ * pre-migration (before the RPC has been created).
+ */
+export async function bulkUpdateTaskWbs(patches) {
+  if (!patches?.length) return 0;
+
+  const { data, error } = await supabase.rpc('bulk_update_task_wbs', { patches });
+  if (!error) return data;
+
+  console.warn('bulk_update_task_wbs RPC unavailable, falling back to per-task updates:', error.message);
+  const CHUNK = 20;
+  for (let i = 0; i < patches.length; i += CHUNK) {
+    await Promise.all(
+      patches.slice(i, i + CHUNK).map(({ id, wbs }) => Task.update(id, { wbs }))
+    );
+  }
+  return patches.length;
+}
+
 /** Fetch the programmes row for a project (null if none yet). */
 export async function fetchProgramme(projectId) {
   if (!projectId || projectId === 'all') return null;
