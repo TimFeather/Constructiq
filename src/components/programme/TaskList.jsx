@@ -5,6 +5,7 @@ import { format } from 'date-fns';
 import { calculateVariance } from '@/lib/scheduling/baselineEngine';
 import { predecessorLabel, wbsLabelMap } from '@/lib/scheduleExport';
 import { parsePredecessorInput } from '@/lib/programme/predecessorParse';
+import TaskContextMenu from './TaskContextMenu';
 import { Task } from '@/api/entities';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/components/ui/use-toast';
@@ -70,6 +71,7 @@ export default function TaskList({
   onPredecessorsCommit,  // (taskId, preds) => void — Predecessors column edit
   onProgressCommit,      // (taskId, newPercent) => void — % column edit
   onCreateTask,          // (name) => void — commit from the "Add task…" ghost row
+  onTaskAction,          // (action, task) => void — indent/outdent/insert/convert-milestone from right-click menu
   editable = false,      // whether the grid is editable
   totalWorkingDays = null, // overall project span in working days (title bar)
 }) {
@@ -270,7 +272,11 @@ export default function TaskList({
     const { rowIdx, colKey } = cursor;
     const colIdx = EDIT_COLS.indexOf(colKey);
 
-    if (e.key === 'ArrowUp') {
+    if (e.altKey && e.shiftKey && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
+      e.preventDefault();
+      const task = visibleTasks[rowIdx];
+      if (task) onTaskAction?.(e.key === 'ArrowRight' ? 'indent' : 'outdent', task);
+    } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setCursor({ rowIdx: Math.max(0, rowIdx - 1), colKey, isGhost: false });
     } else if (e.key === 'ArrowDown') {
@@ -332,6 +338,25 @@ export default function TaskList({
     },
   });
 
+  // Right-click menu actions. Delete is leaf-only and handled locally
+  // (reuses the same mutation as the row's trash icon); everything else
+  // bubbles up to Programme.jsx.
+  function handleContextAction(action, task) {
+    if (action === 'delete') {
+      if (summaryIds.has(task.id)) {
+        toast({ title: "Can't delete a summary task", description: 'Move or delete its subtasks first.', variant: 'destructive' });
+        return;
+      }
+      deleteMutation.mutate(task.id);
+      return;
+    }
+    if (action === 'convert-milestone' && summaryIds.has(task.id)) {
+      toast({ title: "Can't convert a summary task to a milestone", variant: 'destructive' });
+      return;
+    }
+    onTaskAction?.(action, task);
+  }
+
   return (
     <div className="border-r bg-card h-full flex flex-col">
       {/* Header */}
@@ -385,9 +410,8 @@ export default function TaskList({
                 ? <span className="text-emerald-600 font-mono text-[10px]" title="Ahead of baseline">{baselineVariance.finishVariance}d</span>
                 : <span className="text-muted-foreground font-mono text-[10px]">0d</span>;
 
-          return (
+          const row = (
             <div
-              key={task.id}
               data-row-idx={rowIdx}
               style={{
                 height: ROW_HEIGHT,
@@ -599,6 +623,12 @@ export default function TaskList({
                 </div>
               )}
             </div>
+          );
+
+          return editable ? (
+            <TaskContextMenu key={task.id} task={task} onAction={handleContextAction}>{row}</TaskContextMenu>
+          ) : (
+            <React.Fragment key={task.id}>{row}</React.Fragment>
           );
         })}
         {/* "Add task…" ghost row — last stop in the cursor grid. Not part of

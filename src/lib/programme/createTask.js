@@ -38,6 +38,27 @@ function computeSortOrder(tasks, parentId, predecessorId) {
   return maxSort + 1;
 }
 
+// Positional insert beside an existing row (context-menu "Insert Above" /
+// "Insert Below") — same group as the anchor task, no dependency link.
+function computeAnchorSortOrder(tasks, anchorTask, position) {
+  const groupSiblings = tasks
+    .filter(t => (t.parent_id || null) === (anchorTask.parent_id || null))
+    .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+  const idx = groupSiblings.findIndex(t => t.id === anchorTask.id);
+
+  if (position === 'above') {
+    const prev = groupSiblings[idx - 1];
+    return prev
+      ? ((prev.sort_order || 0) + (anchorTask.sort_order || 0)) / 2
+      : (anchorTask.sort_order || 0) - 1;
+  }
+
+  const next = groupSiblings[idx + 1];
+  return next
+    ? ((anchorTask.sort_order || 0) + (next.sort_order || 0)) / 2
+    : (anchorTask.sort_order || 0) + 1;
+}
+
 /**
  * @param {object} opts
  * @param {string} opts.projectId
@@ -51,15 +72,22 @@ function computeSortOrder(tasks, parentId, predecessorId) {
  * @param {number} [opts.duration] — working days; ignored for milestones
  * @param {boolean} [opts.isMilestone]
  * @param {string|null} [opts.startDate] — yyyy-MM-dd; defaults to data date / today
+ * @param {{task: object, position: 'above'|'below'}|null} [opts.anchor] — positional
+ *   insert beside an existing row (context-menu Insert Above/Below); lands in the
+ *   anchor's own group. Takes precedence over parentId/predecessorId placement and
+ *   never creates a dependency link.
  * @returns {Promise<object>} the created task record
  */
 export async function createTaskInline({
   projectId, name, tasks, scheduleOptions,
   parentId = null, predecessorId = null, depType = 'FS', lagDays = 0,
-  duration = 5, isMilestone = false, startDate = null,
+  duration = 5, isMilestone = false, startDate = null, anchor = null,
 }) {
-  const parent = parentId ? tasks.find(t => t.id === parentId) : null;
-  const sortOrder = computeSortOrder(tasks, parentId, predecessorId);
+  const effectiveParentId = anchor ? (anchor.task.parent_id || null) : parentId;
+  const parent = effectiveParentId ? tasks.find(t => t.id === effectiveParentId) : null;
+  const sortOrder = anchor
+    ? computeAnchorSortOrder(tasks, anchor.task, anchor.position)
+    : computeSortOrder(tasks, parentId, predecessorId);
 
   const created = await Task.create({
     project_id: projectId,
@@ -68,7 +96,7 @@ export async function createTaskInline({
     is_milestone: isMilestone,
     start_date: startDate || scheduleOptions?.dataDate || todayStr(),
     end_date: null,
-    parent_id: parentId,
+    parent_id: effectiveParentId,
     level: parent ? Math.min((parent.level ?? 1) + 1, 3) : 1,
     sort_order: sortOrder,
     percent_complete: 0,

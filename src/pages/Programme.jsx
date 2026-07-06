@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Project, Task } from '@/api/entities';
-import { fetchProgrammeTasks, fetchProgramme } from '@/api/programmeData';
+import { fetchProgrammeTasks, fetchProgramme, bulkUpdateTaskWbs } from '@/api/programmeData';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -45,6 +45,7 @@ import { runScheduleEngine, runScheduleEngineByProject, calendarForProgramme } f
 import { countWorkingDays } from '@/lib/scheduling/calendarEngine';
 import { updateTaskStartDate, updateTaskDuration, updateTaskDependency, updateTaskFull, updateTaskProgress } from '@/lib/scheduleUpdateService';
 import { createTaskInline } from '@/lib/programme/createTask';
+import { indentTask, outdentTask } from '@/lib/wbsUtils';
 import { fetchProgrammesByProject } from '@/api/programmeData';
 import { canEdit, canImport, canExport } from '@/lib/permissions';
 import { getVisibleTasks } from '@/lib/programme/visibleTasks';
@@ -307,6 +308,67 @@ export default function Programme() {
       toast({ title: 'Could not add task', description: e.message, variant: 'destructive' });
     }
   }, [selectedProjectId, tasks, scheduleOptions, queryClient, toast]);
+
+  // Persist indent/outdent patches ({ id, parent_id?, level?, sort_order?, wbs? }).
+  // Hierarchy fields go through chunked Task.update; wbs renumbers go through the
+  // bulk RPC. No engine run needed — rollups recompute client-side after refetch.
+  const handleHierarchyChange = useCallback(async (patches) => {
+    if (!patches?.length) return;
+    const wbsPatches = patches.filter(p => p.wbs !== undefined).map(p => ({ id: p.id, wbs: p.wbs }));
+    const hierarchyPatches = patches
+      .map(({ id, parent_id, level, sort_order }) => {
+        const fields = {};
+        if (parent_id !== undefined) fields.parent_id = parent_id;
+        if (level !== undefined) fields.level = level;
+        if (sort_order !== undefined) fields.sort_order = sort_order;
+        return Object.keys(fields).length ? { id, ...fields } : null;
+      })
+      .filter(Boolean);
+
+    bulkOperationState.active = true;
+    try {
+      const CHUNK = 20;
+      for (let i = 0; i < hierarchyPatches.length; i += CHUNK) {
+        await Promise.all(
+          hierarchyPatches.slice(i, i + CHUNK).map(({ id, ...fields }) => Task.update(id, fields))
+        );
+      }
+      if (wbsPatches.length) await bulkUpdateTaskWbs(wbsPatches);
+      await queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    } finally {
+      bulkOperationState.active = false;
+    }
+  }, [queryClient]);
+
+  // Right-click / keyboard row actions: indent, outdent, insert beside a row,
+  // convert to milestone. Delete is handled locally in TaskList (existing
+  // leaf-only mutation).
+  const handleTaskAction = useCallback(async (action, task) => {
+    if (!task) return;
+    try {
+      if (action === 'indent') {
+        const patches = indentTask(task.id, tasks);
+        if (!patches.length) { toast({ title: "Can't indent further", duration: 2000 }); return; }
+        await handleHierarchyChange(patches);
+      } else if (action === 'outdent') {
+        const patches = outdentTask(task.id, tasks);
+        if (!patches.length) { toast({ title: "Can't outdent further", duration: 2000 }); return; }
+        await handleHierarchyChange(patches);
+        setExpandedIds(prev => new Set(prev).add(task.id));
+      } else if (action === 'insert-above' || action === 'insert-below') {
+        await createTaskInline({
+          projectId: selectedProjectId, name: 'New Task', tasks, scheduleOptions,
+          anchor: { task, position: action === 'insert-above' ? 'above' : 'below' },
+        });
+        queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      } else if (action === 'convert-milestone') {
+        const { patches } = await updateTaskFull(task.id, { is_milestone: true, duration: 0 }, tasks, scheduleOptions);
+        afterScheduleChange(patches.length);
+      }
+    } catch (e) {
+      toast({ title: 'Action failed', description: e.message, variant: 'destructive' });
+    }
+  }, [tasks, scheduleOptions, handleHierarchyChange, selectedProjectId, queryClient, toast, afterScheduleChange]);
 
   // Overall project span in working days (first start → last finish), for the
   // TaskList title bar — matches MS Project's summary-duration convention.
@@ -726,6 +788,7 @@ export default function Programme() {
                 onPredecessorsCommit={handlePredecessorsCommit}
                 onProgressCommit={handleProgressCommit}
                 onCreateTask={handleCreateInline}
+                onTaskAction={handleTaskAction}
                 editable={programmeEditable}
                 totalWorkingDays={totalWorkingDays}
                 scrollRef={taskScrollRef}
@@ -760,6 +823,7 @@ export default function Programme() {
                     onPredecessorsCommit={handlePredecessorsCommit}
                     onProgressCommit={handleProgressCommit}
                     onCreateTask={handleCreateInline}
+                    onTaskAction={handleTaskAction}
                     editable={programmeEditable}
                     totalWorkingDays={totalWorkingDays}
                     scrollRef={taskScrollRef}
