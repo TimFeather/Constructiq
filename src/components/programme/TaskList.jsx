@@ -3,8 +3,7 @@ import { ChevronRight, ChevronDown, Pencil, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { calculateVariance } from '@/lib/scheduling/baselineEngine';
-import { predecessorLabel } from '@/lib/scheduleExport';
-import { getVisibleTasks } from '@/lib/programme/visibleTasks';
+import { predecessorLabel, wbsLabelMap } from '@/lib/scheduleExport';
 import { Task } from '@/api/entities';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/components/ui/use-toast';
@@ -105,13 +104,9 @@ export default function TaskList({
     [tasks],
   );
 
-  // Row numbers for dependency labels — must ignore collapse state so they
-  // match the print view's fixed numbering regardless of what's expanded.
-  const rowNumMap = useMemo(() => {
-    const allIds = new Set(tasks.map(t => t.id));
-    const fullyExpanded = getVisibleTasks(tasks, allIds);
-    return new Map(fullyExpanded.map((t, i) => [t.id, i + 1]));
-  }, [tasks]);
+  // WBS labels for dependency references (falls back to outline row number
+  // for any task missing a WBS value).
+  const wbsMap = useMemo(() => wbsLabelMap(tasks), [tasks]);
 
   const deleteMutation = useMutation({
     mutationFn: (taskId) => Task.delete(taskId),
@@ -152,7 +147,7 @@ export default function TaskList({
         <span className="text-center">Days</span>
         <span className="text-center">Pln Start</span>
         <span className="text-center">Pln End</span>
-        <span className="text-center">Dependencies</span>
+        <span className="text-center">Predecessors</span>
         {baselineMap && <span className="text-center">Baseline</span>}
       </div>
 
@@ -174,7 +169,7 @@ export default function TaskList({
             : (task.percent_complete || 0);
 
           const duration = resolved?.durationDays ?? task.duration ?? 1;
-          const depsLabel = predecessorLabel(task.predecessors, rowNumMap);
+          const depsLabel = predecessorLabel(task.predecessors, wbsMap);
 
           const baselineRecord = baselineMap?.get(task.id);
           const baselineVariance = baselineRecord ? calculateVariance(baselineRecord, resolved) : null;

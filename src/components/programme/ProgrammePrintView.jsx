@@ -13,7 +13,7 @@
 import React, { useMemo, useRef, useState, useLayoutEffect, useCallback } from 'react';
 import { differenceInDays, format, eachMonthOfInterval, eachWeekOfInterval, addDays } from 'date-fns';
 import { getVisibleTasks } from '@/lib/programme/visibleTasks';
-import { predecessorLabel } from '@/lib/scheduleExport';
+import { predecessorLabel, wbsLabelMap } from '@/lib/scheduleExport';
 import { DEP_COLORS } from './GanttChart';
 
 const CHART_WIDTH = 600; // px — fits an A4 landscape page alongside the wider task columns
@@ -39,6 +39,8 @@ export default function ProgrammePrintView({
     () => new Map(visibleTasks.map((t, i) => [t.id, i + 1])),
     [visibleTasks]
   );
+
+  const wbsMap = useMemo(() => wbsLabelMap(visibleTasks), [visibleTasks]);
 
   const { minDate, totalDays, timeline } = useMemo(() => {
     const dates = [];
@@ -219,7 +221,7 @@ export default function ProgrammePrintView({
               <th className="pp-col-num">Start</th>
               <th className="pp-col-num">Finish</th>
               <th className="pp-col-num">%</th>
-              <th className="pp-col-preds">Preds</th>
+              <th className="pp-col-preds">Predecessors</th>
               <th className="pp-col-float">Float</th>
               <th className="pp-col-chart" style={{ width: CHART_WIDTH }} ref={chartColRef}>
                 <div className="pp-timeline-header" style={{ width: CHART_WIDTH }}>
@@ -265,7 +267,7 @@ export default function ProgrammePrintView({
                   <td className="pp-col-num">{resolved?.startStr ? format(resolved.start, 'dd/MM/yy') : '—'}</td>
                   <td className="pp-col-num">{resolved?.finishStr ? format(resolved.finish, 'dd/MM/yy') : '—'}</td>
                   <td className="pp-col-num">{percentComplete}%</td>
-                  <td className="pp-col-preds">{predecessorLabel(task.predecessors, rowNumMap)}</td>
+                  <td className="pp-col-preds">{predecessorLabel(task.predecessors, wbsMap)}</td>
                   <td className="pp-col-float">{totalFloatDays === null ? '—' : `${totalFloatDays}d`}</td>
                   <td className="pp-col-chart" style={{ width: CHART_WIDTH }}>
                     <div className="pp-chart-row" style={{ width: CHART_WIDTH }}>

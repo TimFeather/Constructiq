@@ -228,6 +228,21 @@ export function predecessorLabel(preds, idToRowNum) {
 }
 
 /**
+ * Map task.id -> a display label for predecessor references.
+ * Prefers task.wbs; falls back to outline row number (1-based, depth-first
+ * sort_order order) for any task missing a WBS value (e.g. freshly created,
+ * before a renumber cascade has run).
+ */
+export function wbsLabelMap(tasks) {
+  const ordered = outlineOrder(tasks);
+  const map = new Map();
+  ordered.forEach(({ task }, i) => {
+    map.set(task.id, task.wbs || String(i + 1));
+  });
+  return map;
+}
+
+/**
  * Build an Excel workbook of the programme.
  *
  * @param {Array} tasks - engine-shape tasks
@@ -237,7 +252,7 @@ export function predecessorLabel(preds, idToRowNum) {
 export function buildProgrammeWorkbook(tasks, scheduledMap = new Map()) {
   const ordered = outlineOrder(tasks);
   const childIds = new Set(tasks.filter(t => t.parent_id).map(t => t.parent_id));
-  const idToRowNum = new Map(ordered.map(({ task }, i) => [task.id, i + 1]));
+  const wbsMap = wbsLabelMap(tasks);
 
   const rows = ordered.map(({ task, outlineLevel }, i) => {
     const r = scheduledMap.get(task.id);
@@ -251,7 +266,7 @@ export function buildProgrammeWorkbook(tasks, scheduledMap = new Map()) {
       'Finish': task.end_date || '',
       'Duration (days)': isMilestone ? 0 : (task.duration ?? ''),
       '% complete': task.percent_complete ?? 0,
-      'Predecessors': predecessorLabel(task.predecessors, idToRowNum),
+      'Predecessors': predecessorLabel(task.predecessors, wbsMap),
       'Total float (days)': r ? Math.round((r.totalFloat / 8) * 10) / 10 : '',
       'Critical': r ? (r.isCritical ? 'Yes' : 'No') : '',
       'Assigned to': task.assignee_name || task.assignee_email || '',
