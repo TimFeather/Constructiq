@@ -267,6 +267,16 @@ export default function Programme() {
     }
   }, [tasks, scheduleOptions, afterScheduleChange, toast]);
 
+  // Predecessors cell in the table — replaces the whole predecessor set for a task.
+  const handlePredecessorsCommit = useCallback(async (taskId, preds) => {
+    try {
+      const { patches } = await updateTaskDependency(taskId, preds, tasks, scheduleOptions);
+      afterScheduleChange(patches.length);
+    } catch (e) {
+      toast({ title: 'Link rejected', description: e.message, variant: 'destructive' });
+    }
+  }, [tasks, scheduleOptions, afterScheduleChange, toast]);
+
   // Overall project span in working days (first start → last finish), for the
   // TaskList title bar — matches MS Project's summary-duration convention.
   const totalWorkingDays = useMemo(() => {
@@ -680,6 +690,7 @@ export default function Programme() {
                 onEditTask={taskEditable ? setEditingTask : undefined}
                 canDeleteTasks={canDeleteTasks}
                 onDurationCommit={handleResizeTask}
+                onPredecessorsCommit={handlePredecessorsCommit}
                 editable={programmeEditable}
                 totalWorkingDays={totalWorkingDays}
                 scrollRef={taskScrollRef}
@@ -709,6 +720,7 @@ export default function Programme() {
                     hoveredTaskId={hoveredTaskId}
                     onHoverTask={setHoveredTaskId}
                     onDurationCommit={handleResizeTask}
+                    onPredecessorsCommit={handlePredecessorsCommit}
                     editable={programmeEditable}
                     totalWorkingDays={totalWorkingDays}
                     scrollRef={taskScrollRef}

@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { calculateVariance } from '@/lib/scheduling/baselineEngine';
 import { predecessorLabel, wbsLabelMap } from '@/lib/scheduleExport';
+import { parsePredecessorInput } from '@/lib/programme/predecessorParse';
 import { Task } from '@/api/entities';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/components/ui/use-toast';
@@ -69,6 +70,62 @@ function DurationCell({ task, duration, editable, onCommit }) {
 }
 
 /**
+ * Editable "Predecessors" cell — leaf and milestone tasks only.
+ * Accepts WBS-based text like "1.2FS+2d, 3.1SS". Invalid tokens or unknown
+ * WBS references show an error toast and revert to the previous value.
+ */
+function PredecessorCell({ task, depsLabel, wbsToId, editable, onCommit, toast }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState('');
+
+  if (!editable || !editing) {
+    return (
+      <span
+        className={cn('text-[10px] font-mono text-muted-foreground text-center truncate px-1 block',
+          editable && 'cursor-text hover:bg-muted/60 rounded')}
+        title={depsLabel || undefined}
+        onClick={e => {
+          if (!editable) return;
+          e.stopPropagation();
+          setValue(depsLabel || '');
+          setEditing(true);
+        }}
+      >
+        {depsLabel || '—'}
+      </span>
+    );
+  }
+
+  const commit = () => {
+    const { preds, errors } = parsePredecessorInput(value, wbsToId);
+    setEditing(false);
+    if (errors.length) {
+      toast({ title: 'Predecessor not updated', description: errors.join('; '), variant: 'destructive' });
+      return;
+    }
+    onCommit(task.id, preds);
+  };
+
+  return (
+    <input
+      type="text"
+      autoFocus
+      value={value}
+      placeholder="e.g. 1.2FS+2d"
+      className="w-full text-center text-[10px] font-mono bg-background border border-primary rounded px-0.5"
+      onChange={e => setValue(e.target.value)}
+      onClick={e => e.stopPropagation()}
+      onBlur={commit}
+      onKeyDown={e => {
+        e.stopPropagation();
+        if (e.key === 'Enter') commit();
+        else if (e.key === 'Escape') setEditing(false);
+      }}
+    />
+  );
+}
+
+/**
  * TaskList — read-only view.
  * expandedIds and onToggleExpand are controlled by parent (Programme page)
  * so GanttChart stays perfectly aligned.
@@ -88,7 +145,8 @@ export default function TaskList({
   hoveredTaskId = null,  // shared row-hover highlight (synced with GanttChart)
   onHoverTask,           // (taskId | null) => void
   onDurationCommit,      // (taskId, newDuration) => void — Days column edit
-  editable = false,      // whether the Days column is editable
+  onPredecessorsCommit,  // (taskId, preds) => void — Predecessors column edit
+  editable = false,      // whether the Days/Predecessors columns are editable
   totalWorkingDays = null, // overall project span in working days (title bar)
 }) {
   const COLS = baselineMap
@@ -107,6 +165,8 @@ export default function TaskList({
   // WBS labels for dependency references (falls back to outline row number
   // for any task missing a WBS value).
   const wbsMap = useMemo(() => wbsLabelMap(tasks), [tasks]);
+  // Inverse map for parsing typed predecessor input back to task ids.
+  const wbsToId = useMemo(() => new Map([...wbsMap].map(([id, wbs]) => [wbs, id])), [wbsMap]);
 
   const deleteMutation = useMutation({
     mutationFn: (taskId) => Task.delete(taskId),
@@ -241,12 +301,14 @@ export default function TaskList({
               <span className="text-[10px] font-mono text-muted-foreground text-center">
                 {plannedEnd ? format(new Date(plannedEnd), 'dd/MM/yy') : '—'}
               </span>
-              <span
-                className="text-[10px] font-mono text-muted-foreground text-center truncate px-1"
-                title={depsLabel || undefined}
-              >
-                {depsLabel || '—'}
-              </span>
+              <PredecessorCell
+                task={task}
+                depsLabel={depsLabel}
+                wbsToId={wbsToId}
+                editable={editable && !isSummary}
+                onCommit={onPredecessorsCommit}
+                toast={toast}
+              />
               {baselineMap && <div className="text-center">{baselineEl}</div>}
 
               {(onEditTask || canDeleteTasks) && (
