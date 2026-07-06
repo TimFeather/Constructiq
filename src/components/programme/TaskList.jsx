@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { ChevronRight, ChevronDown, Pencil, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
@@ -18,117 +18,37 @@ const levelColors = [
   'border-l-purple-500',
 ];
 
-/** Editable "Days" cell — leaf tasks only; commits on Enter/blur, Escape cancels. */
-function DurationCell({ task, duration, editable, onCommit }) {
-  const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState('');
-  const isMilestone = task.is_milestone || task.duration === 0;
+// Cell-cursor navigation order (Excel-style grid). "start"/"end" here refer
+// to the Pln Start / Pln End columns — only Pln Start is editable.
+const EDIT_COLS = ['name', 'duration', 'start', 'preds', 'pct'];
 
-  if (isMilestone) {
-    return <span className="text-center text-muted-foreground font-mono text-[10px]">—</span>;
+function canEditCol(colKey, task, isSummary) {
+  if (colKey === 'name') return true;
+  if (isSummary) return false;
+  if (colKey === 'duration') return !(task.is_milestone || task.duration === 0);
+  return true; // start, preds, pct — leaf + milestone
+}
+
+function initialEditValue(colKey, task, ctx) {
+  switch (colKey) {
+    case 'name': return task.name || '';
+    case 'duration': return String(ctx.duration);
+    case 'start': return ctx.plannedStart || '';
+    case 'preds': return ctx.depsLabel || '';
+    case 'pct': return String(ctx.percentComplete);
+    default: return '';
   }
-
-  if (!editable || !editing) {
-    return (
-      <span
-        className={cn('text-center font-mono text-[10px] block', editable && 'cursor-text hover:bg-muted/60 rounded')}
-        onClick={e => {
-          if (!editable) return;
-          e.stopPropagation();
-          setValue(String(duration));
-          setEditing(true);
-        }}
-      >
-        {duration}d
-      </span>
-    );
-  }
-
-  const commit = () => {
-    const n = parseInt(value, 10);
-    setEditing(false);
-    if (Number.isFinite(n) && n >= 1 && n !== duration) onCommit(task.id, n);
-  };
-
-  return (
-    <input
-      type="number"
-      min={1}
-      autoFocus
-      value={value}
-      className="w-full text-center text-[10px] font-mono bg-background border border-primary rounded px-0.5"
-      onChange={e => setValue(e.target.value)}
-      onClick={e => e.stopPropagation()}
-      onBlur={commit}
-      onKeyDown={e => {
-        e.stopPropagation();
-        if (e.key === 'Enter') commit();
-        else if (e.key === 'Escape') setEditing(false);
-      }}
-    />
-  );
 }
 
 /**
- * Editable "Predecessors" cell — leaf and milestone tasks only.
- * Accepts WBS-based text like "1.2FS+2d, 3.1SS". Invalid tokens or unknown
- * WBS references show an error toast and revert to the previous value.
- */
-function PredecessorCell({ task, depsLabel, wbsToId, editable, onCommit, toast }) {
-  const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState('');
-
-  if (!editable || !editing) {
-    return (
-      <span
-        className={cn('text-[10px] font-mono text-muted-foreground text-center truncate px-1 block',
-          editable && 'cursor-text hover:bg-muted/60 rounded')}
-        title={depsLabel || undefined}
-        onClick={e => {
-          if (!editable) return;
-          e.stopPropagation();
-          setValue(depsLabel || '');
-          setEditing(true);
-        }}
-      >
-        {depsLabel || '—'}
-      </span>
-    );
-  }
-
-  const commit = () => {
-    const { preds, errors } = parsePredecessorInput(value, wbsToId);
-    setEditing(false);
-    if (errors.length) {
-      toast({ title: 'Predecessor not updated', description: errors.join('; '), variant: 'destructive' });
-      return;
-    }
-    onCommit(task.id, preds);
-  };
-
-  return (
-    <input
-      type="text"
-      autoFocus
-      value={value}
-      placeholder="e.g. 1.2FS+2d"
-      className="w-full text-center text-[10px] font-mono bg-background border border-primary rounded px-0.5"
-      onChange={e => setValue(e.target.value)}
-      onClick={e => e.stopPropagation()}
-      onBlur={commit}
-      onKeyDown={e => {
-        e.stopPropagation();
-        if (e.key === 'Enter') commit();
-        else if (e.key === 'Escape') setEditing(false);
-      }}
-    />
-  );
-}
-
-/**
- * TaskList — read-only view.
+ * TaskList — the Programme task table.
  * expandedIds and onToggleExpand are controlled by parent (Programme page)
  * so GanttChart stays perfectly aligned.
+ *
+ * When `editable`, the table behaves like a spreadsheet grid: a keyboard
+ * cursor (Arrow/Tab/Enter) moves across Name / Days / Pln Start /
+ * Predecessors / % , clicking a cell only moves the cursor, and
+ * Enter/F2/double-click/typing a character starts editing.
  */
 export default function TaskList({
   tasks,
@@ -144,9 +64,12 @@ export default function TaskList({
   baselineMap,    // optional Map<task_id, { baseline_start, baseline_finish, baseline_duration }>
   hoveredTaskId = null,  // shared row-hover highlight (synced with GanttChart)
   onHoverTask,           // (taskId | null) => void
+  onNameCommit,          // (taskId, newName) => void — Name column edit
   onDurationCommit,      // (taskId, newDuration) => void — Days column edit
+  onStartCommit,         // (taskId, newStartDateStr) => void — Pln Start column edit
   onPredecessorsCommit,  // (taskId, preds) => void — Predecessors column edit
-  editable = false,      // whether the Days/Predecessors columns are editable
+  onProgressCommit,      // (taskId, newPercent) => void — % column edit
+  editable = false,      // whether the grid is editable
   totalWorkingDays = null, // overall project span in working days (title bar)
 }) {
   const COLS = baselineMap
@@ -155,6 +78,11 @@ export default function TaskList({
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+
+  // ─── Grid cursor state (local — does not need to survive tab switches) ───
+  const [cursor, setCursor] = useState(null); // { rowIdx, colKey } | null
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState('');
 
   // Tasks that have children (summary rows) — shaded for readability.
   const summaryIds = useMemo(
@@ -167,6 +95,168 @@ export default function TaskList({
   const wbsMap = useMemo(() => wbsLabelMap(tasks), [tasks]);
   // Inverse map for parsing typed predecessor input back to task ids.
   const wbsToId = useMemo(() => new Map([...wbsMap].map(([id, wbs]) => [wbs, id])), [wbsMap]);
+
+  function getRowCtx(task) {
+    const isSummary = summaryIds.has(task.id);
+    const resolved = scheduledMap?.get(task.id);
+    const isCritical = resolved?.isCritical || false;
+    const plannedStart = resolved?.startStr || task.start_date;
+    const plannedEnd = resolved?.finishStr || task.end_date;
+    const percentComplete = isSummary
+      ? (resolved?.rolledProgress ?? task.percent_complete ?? 0)
+      : (task.percent_complete || 0);
+    const duration = resolved?.durationDays ?? task.duration ?? 1;
+    const depsLabel = predecessorLabel(task.predecessors, wbsMap);
+    return { isSummary, resolved, isCritical, plannedStart, plannedEnd, percentComplete, duration, depsLabel };
+  }
+
+  // Clamp the cursor row when visibleTasks shrinks (collapse) — losing the
+  // precise task under the cursor after collapse is acceptable.
+  useEffect(() => {
+    if (!cursor) return;
+    if (cursor.rowIdx >= visibleTasks.length) {
+      setCursor(visibleTasks.length ? { rowIdx: visibleTasks.length - 1, colKey: cursor.colKey } : null);
+      setEditing(false);
+    }
+  }, [visibleTasks.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep the cursor cell scrolled into view.
+  useEffect(() => {
+    if (!cursor || !scrollRef?.current) return;
+    const el = scrollRef.current.querySelector(`[data-row-idx="${cursor.rowIdx}"]`);
+    el?.scrollIntoView({ block: 'nearest' });
+  }, [cursor, scrollRef]);
+
+  function startEdit(rowIdx, colKey, initial) {
+    setCursor({ rowIdx, colKey });
+    setEditValue(initial);
+    setEditing(true);
+  }
+
+  function commitCell(colKey, task, rawValue, ctx) {
+    switch (colKey) {
+      case 'name': {
+        const name = rawValue.trim();
+        if (name && name !== task.name) onNameCommit?.(task.id, name);
+        break;
+      }
+      case 'duration': {
+        const n = parseInt(rawValue, 10);
+        if (Number.isFinite(n) && n >= 1 && n !== ctx.duration) onDurationCommit?.(task.id, n);
+        break;
+      }
+      case 'start': {
+        if (rawValue && rawValue !== ctx.plannedStart) onStartCommit?.(task.id, rawValue);
+        break;
+      }
+      case 'preds': {
+        const { preds, errors } = parsePredecessorInput(rawValue, wbsToId);
+        if (errors.length) {
+          toast({ title: 'Predecessor not updated', description: errors.join('; '), variant: 'destructive' });
+          break;
+        }
+        onPredecessorsCommit?.(task.id, preds);
+        break;
+      }
+      case 'pct': {
+        const n = parseInt(rawValue, 10);
+        if (Number.isFinite(n)) {
+          const clamped = Math.max(0, Math.min(100, n));
+          if (clamped !== ctx.percentComplete) onProgressCommit?.(task.id, clamped);
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  function commitAndMove(direction) {
+    if (!cursor) return;
+    const { rowIdx, colKey } = cursor;
+    const task = visibleTasks[rowIdx];
+    if (task) commitCell(colKey, task, editValue, getRowCtx(task));
+    setEditing(false);
+    if (direction === 'down') {
+      setCursor({ rowIdx: Math.min(visibleTasks.length - 1, rowIdx + 1), colKey });
+    } else if (direction === 'right') {
+      const colIdx = EDIT_COLS.indexOf(colKey);
+      setCursor({ rowIdx, colKey: EDIT_COLS[Math.min(EDIT_COLS.length - 1, colIdx + 1)] });
+    }
+  }
+
+  function cancelEdit() {
+    setEditing(false);
+  }
+
+  function handleCellClick(e, rowIdx, colKey) {
+    if (!editable) return;
+    e.stopPropagation();
+    setCursor({ rowIdx, colKey });
+    setEditing(false);
+  }
+
+  function handleCellDoubleClick(e, rowIdx, colKey, task, isSummary, ctx) {
+    if (!editable || !canEditCol(colKey, task, isSummary)) return;
+    e.stopPropagation();
+    startEdit(rowIdx, colKey, initialEditValue(colKey, task, ctx));
+  }
+
+  function handleContainerKeyDown(e) {
+    if (!editable || editing) return;
+
+    if (!cursor) {
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.key)) {
+        e.preventDefault();
+        setCursor({ rowIdx: 0, colKey: EDIT_COLS[0] });
+      }
+      return;
+    }
+
+    const { rowIdx, colKey } = cursor;
+    const colIdx = EDIT_COLS.indexOf(colKey);
+
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setCursor({ rowIdx: Math.max(0, rowIdx - 1), colKey });
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setCursor({ rowIdx: Math.min(visibleTasks.length - 1, rowIdx + 1), colKey });
+    } else if (e.key === 'ArrowLeft' || (e.key === 'Tab' && e.shiftKey)) {
+      e.preventDefault();
+      setCursor({ rowIdx, colKey: EDIT_COLS[Math.max(0, colIdx - 1)] });
+    } else if (e.key === 'ArrowRight' || (e.key === 'Tab' && !e.shiftKey)) {
+      e.preventDefault();
+      setCursor({ rowIdx, colKey: EDIT_COLS[Math.min(EDIT_COLS.length - 1, colIdx + 1)] });
+    } else if (e.key === 'Enter' || e.key === 'F2') {
+      e.preventDefault();
+      const task = visibleTasks[rowIdx];
+      if (!task) return;
+      const ctx = getRowCtx(task);
+      if (canEditCol(colKey, task, ctx.isSummary)) startEdit(rowIdx, colKey, initialEditValue(colKey, task, ctx));
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setCursor(null);
+    } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      const task = visibleTasks[rowIdx];
+      if (!task) return;
+      const ctx = getRowCtx(task);
+      if (canEditCol(colKey, task, ctx.isSummary)) {
+        e.preventDefault();
+        startEdit(rowIdx, colKey, e.key);
+      }
+    }
+  }
+
+  const editorKeyDown = (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') commitAndMove('down');
+    else if (e.key === 'Tab') { e.preventDefault(); commitAndMove('right'); }
+    else if (e.key === 'Escape') cancelEdit();
+  };
+
+  const isCursor = (rowIdx, colKey) => editable && cursor?.rowIdx === rowIdx && cursor?.colKey === colKey;
+  const isEditingCell = (rowIdx, colKey) => editing && isCursor(rowIdx, colKey);
 
   const deleteMutation = useMutation({
     mutationFn: (taskId) => Task.delete(taskId),
@@ -212,27 +302,24 @@ export default function TaskList({
       </div>
 
       {/* Rows — flat list from pre-computed visibleTasks */}
-      <div className="flex-1 overflow-y-auto" ref={scrollRef} onScroll={onScroll}>
-        {visibleTasks.map(task => {
+      <div
+        className="flex-1 overflow-y-auto outline-none"
+        ref={scrollRef}
+        onScroll={onScroll}
+        tabIndex={editable ? 0 : undefined}
+        onKeyDown={editable ? handleContainerKeyDown : undefined}
+      >
+        {visibleTasks.map((task, rowIdx) => {
           const hasChildren = summaryIds.has(task.id);
           const isSummary = hasChildren;
           const isExpanded = expandedIds.has(task.id);
           const isMilestone = task.is_milestone || task.duration === 0;
-          const resolved = scheduledMap?.get(task.id);
-          const isCritical = resolved?.isCritical || false;
+          const ctx = getRowCtx(task);
+          const { isCritical, plannedStart, plannedEnd, percentComplete, duration, depsLabel } = ctx;
           const depth = task.level || 0;
 
-          const plannedStart = resolved?.startStr || task.start_date;
-          const plannedEnd = resolved?.finishStr || task.end_date;
-          const percentComplete = isSummary
-            ? (resolved?.rolledProgress ?? task.percent_complete ?? 0)
-            : (task.percent_complete || 0);
-
-          const duration = resolved?.durationDays ?? task.duration ?? 1;
-          const depsLabel = predecessorLabel(task.predecessors, wbsMap);
-
           const baselineRecord = baselineMap?.get(task.id);
-          const baselineVariance = baselineRecord ? calculateVariance(baselineRecord, resolved) : null;
+          const baselineVariance = baselineRecord ? calculateVariance(baselineRecord, ctx.resolved) : null;
           const baselineEl = !baselineMap ? null
             : !baselineVariance ? <span className="text-muted-foreground font-mono text-[10px]">—</span>
             : baselineVariance.finishVariance > 0
@@ -244,6 +331,7 @@ export default function TaskList({
           return (
             <div
               key={task.id}
+              data-row-idx={rowIdx}
               style={{
                 height: ROW_HEIGHT,
                 paddingLeft: `${8 + depth * 16}px`,
@@ -255,7 +343,7 @@ export default function TaskList({
                 isSummary && !isCritical && 'bg-muted/50',
                 hoveredTaskId === task.id && 'bg-muted/60',
               )}
-              onClick={() => onTaskClick?.(task)}
+              onClick={() => { if (!editable) onTaskClick?.(task); }}
               onMouseEnter={() => onHoverTask?.(task.id)}
               onMouseLeave={() => onHoverTask?.(null)}
             >
@@ -272,43 +360,155 @@ export default function TaskList({
                 ) : <div className="w-5" />}
               </div>
 
-              <span className={cn(
-                'text-xs truncate px-1',
-                isSummary && 'font-semibold',
-                isMilestone && 'text-indigo-600 dark:text-indigo-400',
-                isCritical && 'text-red-700 dark:text-red-400',
-              )}>
-                {task.name}
-              </span>
-
-              <div className="flex items-center gap-0.5 px-1">
-                <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
-                  <div className="h-full bg-primary rounded-full" style={{ width: `${percentComplete}%` }} />
-                </div>
-                <span className="text-[9px] text-muted-foreground w-5 text-right">{percentComplete}%</span>
+              {/* Name */}
+              <div
+                className="px-1 min-w-0"
+                onClick={e => handleCellClick(e, rowIdx, 'name')}
+                onDoubleClick={e => handleCellDoubleClick(e, rowIdx, 'name', task, isSummary, ctx)}
+              >
+                {isEditingCell(rowIdx, 'name') ? (
+                  <input
+                    type="text"
+                    autoFocus
+                    value={editValue}
+                    className="w-full text-xs bg-background border border-primary rounded px-1"
+                    onChange={e => setEditValue(e.target.value)}
+                    onClick={e => e.stopPropagation()}
+                    onBlur={() => commitAndMove(null)}
+                    onKeyDown={editorKeyDown}
+                  />
+                ) : (
+                  <span className={cn(
+                    'text-xs truncate block',
+                    isSummary && 'font-semibold',
+                    isMilestone && 'text-indigo-600 dark:text-indigo-400',
+                    isCritical && 'text-red-700 dark:text-red-400',
+                    isCursor(rowIdx, 'name') && 'ring-1 ring-primary ring-inset rounded',
+                  )}>
+                    {task.name}
+                  </span>
+                )}
               </div>
 
-              <DurationCell
-                task={task}
-                duration={duration}
-                editable={editable && !isSummary}
-                onCommit={onDurationCommit}
-              />
+              {/* % */}
+              <div
+                className="flex items-center gap-0.5 px-1"
+                onClick={e => handleCellClick(e, rowIdx, 'pct')}
+                onDoubleClick={e => handleCellDoubleClick(e, rowIdx, 'pct', task, isSummary, ctx)}
+              >
+                {isEditingCell(rowIdx, 'pct') ? (
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    autoFocus
+                    value={editValue}
+                    className="w-full text-center text-[10px] font-mono bg-background border border-primary rounded px-0.5"
+                    onChange={e => setEditValue(e.target.value)}
+                    onClick={e => e.stopPropagation()}
+                    onBlur={() => commitAndMove(null)}
+                    onKeyDown={editorKeyDown}
+                  />
+                ) : (
+                  <div className={cn('flex items-center gap-0.5 w-full', isCursor(rowIdx, 'pct') && 'ring-1 ring-primary ring-inset rounded')}>
+                    <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
+                      <div className="h-full bg-primary rounded-full" style={{ width: `${percentComplete}%` }} />
+                    </div>
+                    <span className="text-[9px] text-muted-foreground w-5 text-right">{percentComplete}%</span>
+                  </div>
+                )}
+              </div>
 
-              <span className="text-[10px] font-mono text-muted-foreground text-center">
-                {plannedStart ? format(new Date(plannedStart), 'dd/MM/yy') : '—'}
-              </span>
+              {/* Days */}
+              <div
+                onClick={e => handleCellClick(e, rowIdx, 'duration')}
+                onDoubleClick={e => handleCellDoubleClick(e, rowIdx, 'duration', task, isSummary, ctx)}
+              >
+                {isMilestone ? (
+                  <span className="text-center text-muted-foreground font-mono text-[10px] block">—</span>
+                ) : isEditingCell(rowIdx, 'duration') ? (
+                  <input
+                    type="number"
+                    min={1}
+                    autoFocus
+                    value={editValue}
+                    className="w-full text-center text-[10px] font-mono bg-background border border-primary rounded px-0.5"
+                    onChange={e => setEditValue(e.target.value)}
+                    onClick={e => e.stopPropagation()}
+                    onBlur={() => commitAndMove(null)}
+                    onKeyDown={editorKeyDown}
+                  />
+                ) : (
+                  <span className={cn(
+                    'text-center font-mono text-[10px] block',
+                    isCursor(rowIdx, 'duration') && 'ring-1 ring-primary ring-inset rounded',
+                  )}>
+                    {duration}d
+                  </span>
+                )}
+              </div>
+
+              {/* Pln Start */}
+              <div
+                onClick={e => handleCellClick(e, rowIdx, 'start')}
+                onDoubleClick={e => handleCellDoubleClick(e, rowIdx, 'start', task, isSummary, ctx)}
+              >
+                {isEditingCell(rowIdx, 'start') ? (
+                  <input
+                    type="date"
+                    autoFocus
+                    value={editValue}
+                    className="w-full text-center text-[10px] font-mono bg-background border border-primary rounded px-0.5"
+                    onChange={e => setEditValue(e.target.value)}
+                    onClick={e => e.stopPropagation()}
+                    onBlur={() => commitAndMove(null)}
+                    onKeyDown={editorKeyDown}
+                  />
+                ) : (
+                  <span className={cn(
+                    'text-[10px] font-mono text-muted-foreground text-center block',
+                    isCursor(rowIdx, 'start') && 'ring-1 ring-primary ring-inset rounded',
+                  )}>
+                    {plannedStart ? format(new Date(plannedStart), 'dd/MM/yy') : '—'}
+                  </span>
+                )}
+              </div>
+
+              {/* Pln End — not part of the editable grid */}
               <span className="text-[10px] font-mono text-muted-foreground text-center">
                 {plannedEnd ? format(new Date(plannedEnd), 'dd/MM/yy') : '—'}
               </span>
-              <PredecessorCell
-                task={task}
-                depsLabel={depsLabel}
-                wbsToId={wbsToId}
-                editable={editable && !isSummary}
-                onCommit={onPredecessorsCommit}
-                toast={toast}
-              />
+
+              {/* Predecessors */}
+              <div
+                onClick={e => handleCellClick(e, rowIdx, 'preds')}
+                onDoubleClick={e => handleCellDoubleClick(e, rowIdx, 'preds', task, isSummary, ctx)}
+              >
+                {isEditingCell(rowIdx, 'preds') ? (
+                  <input
+                    type="text"
+                    autoFocus
+                    value={editValue}
+                    placeholder="e.g. 1.2FS+2d"
+                    className="w-full text-center text-[10px] font-mono bg-background border border-primary rounded px-0.5"
+                    onChange={e => setEditValue(e.target.value)}
+                    onClick={e => e.stopPropagation()}
+                    onBlur={() => commitAndMove(null)}
+                    onKeyDown={editorKeyDown}
+                  />
+                ) : (
+                  <span
+                    className={cn(
+                      'text-[10px] font-mono text-muted-foreground text-center truncate px-1 block',
+                      isCursor(rowIdx, 'preds') && 'ring-1 ring-primary ring-inset rounded',
+                    )}
+                    title={depsLabel || undefined}
+                  >
+                    {depsLabel || '—'}
+                  </span>
+                )}
+              </div>
+
               {baselineMap && <div className="text-center">{baselineEl}</div>}
 
               {(onEditTask || canDeleteTasks) && (

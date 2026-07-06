@@ -43,7 +43,7 @@ import { buildBaselineMap } from '@/lib/scheduling/baselineEngine';
 import { TaskBaselineItem } from '@/api/entities';
 import { runScheduleEngine, runScheduleEngineByProject, calendarForProgramme } from '@/lib/scheduling/scheduleEngine';
 import { countWorkingDays } from '@/lib/scheduling/calendarEngine';
-import { updateTaskStartDate, updateTaskDuration, updateTaskDependency } from '@/lib/scheduleUpdateService';
+import { updateTaskStartDate, updateTaskDuration, updateTaskDependency, updateTaskFull, updateTaskProgress } from '@/lib/scheduleUpdateService';
 import { fetchProgrammesByProject } from '@/api/programmeData';
 import { canEdit, canImport, canExport } from '@/lib/permissions';
 import { getVisibleTasks } from '@/lib/programme/visibleTasks';
@@ -274,6 +274,26 @@ export default function Programme() {
       afterScheduleChange(patches.length);
     } catch (e) {
       toast({ title: 'Link rejected', description: e.message, variant: 'destructive' });
+    }
+  }, [tasks, scheduleOptions, afterScheduleChange, toast]);
+
+  // Name cell in the table — non-scheduling field, fast path (no cascade).
+  const handleNameCommit = useCallback(async (taskId, name) => {
+    try {
+      const { patches } = await updateTaskFull(taskId, { name }, tasks, scheduleOptions);
+      afterScheduleChange(patches.length);
+    } catch (e) {
+      toast({ title: 'Rename failed', description: e.message, variant: 'destructive' });
+    }
+  }, [tasks, scheduleOptions, afterScheduleChange, toast]);
+
+  // % cell in the table.
+  const handleProgressCommit = useCallback(async (taskId, pct) => {
+    try {
+      const { patches } = await updateTaskProgress(taskId, pct, tasks, scheduleOptions);
+      afterScheduleChange(patches.length);
+    } catch (e) {
+      toast({ title: 'Progress update failed', description: e.message, variant: 'destructive' });
     }
   }, [tasks, scheduleOptions, afterScheduleChange, toast]);
 
@@ -689,8 +709,11 @@ export default function Programme() {
                 onTaskClick={setSelectedTask}
                 onEditTask={taskEditable ? setEditingTask : undefined}
                 canDeleteTasks={canDeleteTasks}
+                onNameCommit={handleNameCommit}
                 onDurationCommit={handleResizeTask}
+                onStartCommit={handleMoveTask}
                 onPredecessorsCommit={handlePredecessorsCommit}
+                onProgressCommit={handleProgressCommit}
                 editable={programmeEditable}
                 totalWorkingDays={totalWorkingDays}
                 scrollRef={taskScrollRef}
@@ -719,8 +742,11 @@ export default function Programme() {
                     baselineMap={baselineMap}
                     hoveredTaskId={hoveredTaskId}
                     onHoverTask={setHoveredTaskId}
+                    onNameCommit={handleNameCommit}
                     onDurationCommit={handleResizeTask}
+                    onStartCommit={handleMoveTask}
                     onPredecessorsCommit={handlePredecessorsCommit}
+                    onProgressCommit={handleProgressCommit}
                     editable={programmeEditable}
                     totalWorkingDays={totalWorkingDays}
                     scrollRef={taskScrollRef}
