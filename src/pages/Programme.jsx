@@ -283,6 +283,8 @@ export default function Programme() {
     return countWorkingDays(minStart, dayAfterFinish, calendar);
   }, [scheduledMap, programme, tasks, selectedProjectId]);
 
+  const projectsById = useMemo(() => new Map(projects.map(p => [p.id, p.name])), [projects]);
+
   const criticalTaskCount = useMemo(() => {
     let count = 0;
     scheduledMap.forEach(r => { if (r.isCritical) count++; });
@@ -752,6 +754,8 @@ export default function Programme() {
             allTasks={allTasks}
             programmesByProject={programmesByProject}
             canUpdateProgress={canEdit(user, 'programme')}
+            projectsById={projectsById}
+            showProject={selectedProjectId === 'all'}
           />
         </TabsContent>
 

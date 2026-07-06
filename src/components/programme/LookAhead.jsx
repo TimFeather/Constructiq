@@ -17,7 +17,7 @@ const WINDOWS = [
 const ASSIGNEE_ALL = '__all__';
 const ASSIGNEE_MINE = '__mine__';
 
-export default function LookAhead({ tasks, scheduledMap, allTasks, programmesByProject, canUpdateProgress = false }) {
+export default function LookAhead({ tasks, scheduledMap, allTasks, programmesByProject, canUpdateProgress = false, projectsById = null, showProject = false }) {
   const { user } = useAuth();
   const [windowDays, setWindowDays] = useState(14);
   const [assigneeFilter, setAssigneeFilter] = useState(ASSIGNEE_ALL);
@@ -120,6 +120,11 @@ export default function LookAhead({ tasks, scheduledMap, allTasks, programmesByP
       >
         <span className="text-[10px] font-mono text-muted-foreground w-8 flex-shrink-0">{task.wbs || '—'}</span>
         <div className="flex-1 min-w-0">
+          {showProject && (
+            <span className="block text-[9px] text-muted-foreground uppercase tracking-wide truncate">
+              {projectsById?.get(task.project_id) || '—'}
+            </span>
+          )}
           <div className="flex items-center gap-1 flex-wrap">
             <span className={cn('text-xs truncate', isCritical && 'text-red-700 dark:text-red-400 font-medium', isMilestone && 'text-indigo-600')}>{task.name}</span>
             {isMilestone && <span className="text-[9px] bg-indigo-100 text-indigo-700 px-1 rounded">M</span>}
@@ -222,7 +227,14 @@ export default function LookAhead({ tasks, scheduledMap, allTasks, programmesByP
                     return (
                       <div key={task.id} className="flex items-center gap-2">
                         <div className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', d <= 7 ? 'bg-red-500' : d <= 14 ? 'bg-amber-500' : 'bg-indigo-500')} />
-                        <span className="text-xs flex-1 truncate">{task.name}</span>
+                        <div className="flex-1 min-w-0">
+                          {showProject && (
+                            <span className="block text-[9px] text-muted-foreground uppercase tracking-wide truncate">
+                              {projectsById?.get(task.project_id) || '—'}
+                            </span>
+                          )}
+                          <span className="text-xs truncate block">{task.name}</span>
+                        </div>
                         <span className="text-[10px] font-mono text-muted-foreground flex-shrink-0">{format(end, 'dd MMM')}</span>
                       </div>
                     );
