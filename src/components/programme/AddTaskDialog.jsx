@@ -12,10 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
-import { Task } from '@/api/entities';
-import { updateTaskDependency } from '@/lib/scheduleUpdateService';
-import { bulkUpdateTaskWbs } from '@/api/programmeData';
-import { computeWBS } from '@/lib/wbsUtils';
+import { createTaskInline } from '@/lib/programme/createTask';
 
 const NONE = '__none__';
 
@@ -29,30 +26,6 @@ const DEP_TYPES = [
 function todayStr() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-/**
- * Where to place a new task in its group's sort order.
- * Anchor = the predecessor, if it lives in the same parent group as the
- * chosen parent — the new task lands directly below it (fractional
- * sort_order, midpoint to the next sibling). Otherwise it's appended as the
- * last child of the chosen parent (or top-level if no parent).
- */
-function computeSortOrder(tasks, parentId, predecessorId) {
-  const predecessor = predecessorId && predecessorId !== NONE ? tasks.find(t => t.id === predecessorId) : null;
-  const groupSiblings = tasks.filter(t => (t.parent_id || null) === (parentId || null));
-
-  if (predecessor && (predecessor.parent_id || null) === (parentId || null)) {
-    const sorted = groupSiblings.slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-    const idx = sorted.findIndex(t => t.id === predecessor.id);
-    const next = sorted[idx + 1];
-    return next
-      ? ((predecessor.sort_order || 0) + (next.sort_order || 0)) / 2
-      : (predecessor.sort_order || 0) + 1;
-  }
-
-  const maxSort = groupSiblings.reduce((m, t) => Math.max(m, Number(t.sort_order) || 0), 0);
-  return maxSort + 1;
 }
 
 export default function AddTaskDialog({ open, onOpenChange, projectId, tasks, scheduleOptions }) {
@@ -84,50 +57,19 @@ export default function AddTaskDialog({ open, onOpenChange, projectId, tasks, sc
     if (!form.name.trim() || !projectId || projectId === 'all') return;
     setSaving(true);
     try {
-      const parent = parentId ? tasks.find(t => t.id === parentId) : null;
-      const sortOrder = computeSortOrder(tasks, parentId, form.predecessor_id);
-
-      const created = await Task.create({
-        project_id: projectId,
-        name: form.name.trim(),
-        duration: form.is_milestone ? 0 : Math.max(1, Number(form.duration) || 1),
-        is_milestone: form.is_milestone,
-        start_date: form.start_date || todayStr(),
-        end_date: null,
-        parent_id: parentId,
-        level: parent ? Math.min((parent.level ?? 1) + 1, 3) : 1,
-        sort_order: sortOrder,
-        percent_complete: 0,
-        task_status: 'Not Started',
+      await createTaskInline({
+        projectId,
+        name: form.name,
+        tasks,
+        scheduleOptions,
+        parentId,
+        predecessorId: form.predecessor_id !== NONE ? form.predecessor_id : null,
+        depType: form.dep_type,
+        lagDays: form.lag_days,
+        duration: form.duration,
+        isMilestone: form.is_milestone,
+        startDate: form.start_date,
       });
-
-      // Optional predecessor: link via the service so the engine places the
-      // new task (and cascades) immediately.
-      if (form.predecessor_id !== NONE && created?.id) {
-        const lagDays = Number(form.lag_days) || 0;
-        const allTasks = [...tasks, { ...created, predecessors: [] }];
-        await updateTaskDependency(created.id, [{
-          predecessor_id: form.predecessor_id, type: form.dep_type || 'FS',
-          lag_days: lagDays, lag_hours: lagDays * 8, is_elapsed: false,
-        }], allTasks, scheduleOptions);
-      }
-
-      // WBS renumber cascade: visibleTasks sorts by WBS before sort_order, so
-      // an unnumbered insert would otherwise sort to the top of its group.
-      if (created?.id) {
-        const postInsertTasks = [...tasks, created];
-        const wbsPatches = computeWBS(postInsertTasks).filter(p => {
-          const t = postInsertTasks.find(x => x.id === p.id);
-          return t?.wbs !== p.wbs;
-        });
-        if (wbsPatches.length) {
-          try {
-            await bulkUpdateTaskWbs(wbsPatches);
-          } catch (e) {
-            toast({ title: 'WBS renumber failed', description: e.message, variant: 'destructive' });
-          }
-        }
-      }
 
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       toast({ title: 'Task added', description: form.name.trim(), duration: 2500 });

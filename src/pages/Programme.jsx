@@ -44,6 +44,7 @@ import { TaskBaselineItem } from '@/api/entities';
 import { runScheduleEngine, runScheduleEngineByProject, calendarForProgramme } from '@/lib/scheduling/scheduleEngine';
 import { countWorkingDays } from '@/lib/scheduling/calendarEngine';
 import { updateTaskStartDate, updateTaskDuration, updateTaskDependency, updateTaskFull, updateTaskProgress } from '@/lib/scheduleUpdateService';
+import { createTaskInline } from '@/lib/programme/createTask';
 import { fetchProgrammesByProject } from '@/api/programmeData';
 import { canEdit, canImport, canExport } from '@/lib/permissions';
 import { getVisibleTasks } from '@/lib/programme/visibleTasks';
@@ -296,6 +297,16 @@ export default function Programme() {
       toast({ title: 'Progress update failed', description: e.message, variant: 'destructive' });
     }
   }, [tasks, scheduleOptions, afterScheduleChange, toast]);
+
+  // "Add task…" ghost row at the bottom of the table — root-level, appended last.
+  const handleCreateInline = useCallback(async (name) => {
+    try {
+      await createTaskInline({ projectId: selectedProjectId, name, tasks, scheduleOptions });
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    } catch (e) {
+      toast({ title: 'Could not add task', description: e.message, variant: 'destructive' });
+    }
+  }, [selectedProjectId, tasks, scheduleOptions, queryClient, toast]);
 
   // Overall project span in working days (first start → last finish), for the
   // TaskList title bar — matches MS Project's summary-duration convention.
@@ -714,6 +725,7 @@ export default function Programme() {
                 onStartCommit={handleMoveTask}
                 onPredecessorsCommit={handlePredecessorsCommit}
                 onProgressCommit={handleProgressCommit}
+                onCreateTask={handleCreateInline}
                 editable={programmeEditable}
                 totalWorkingDays={totalWorkingDays}
                 scrollRef={taskScrollRef}
@@ -747,6 +759,7 @@ export default function Programme() {
                     onStartCommit={handleMoveTask}
                     onPredecessorsCommit={handlePredecessorsCommit}
                     onProgressCommit={handleProgressCommit}
+                    onCreateTask={handleCreateInline}
                     editable={programmeEditable}
                     totalWorkingDays={totalWorkingDays}
                     scrollRef={taskScrollRef}

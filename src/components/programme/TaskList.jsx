@@ -69,6 +69,7 @@ export default function TaskList({
   onStartCommit,         // (taskId, newStartDateStr) => void — Pln Start column edit
   onPredecessorsCommit,  // (taskId, preds) => void — Predecessors column edit
   onProgressCommit,      // (taskId, newPercent) => void — % column edit
+  onCreateTask,          // (name) => void — commit from the "Add task…" ghost row
   editable = false,      // whether the grid is editable
   totalWorkingDays = null, // overall project span in working days (title bar)
 }) {
@@ -80,7 +81,9 @@ export default function TaskList({
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
   // ─── Grid cursor state (local — does not need to survive tab switches) ───
-  const [cursor, setCursor] = useState(null); // { rowIdx, colKey } | null
+  // cursor is either a real row: { rowIdx: number, colKey, isGhost: false }
+  // or the trailing "Add task…" row: { rowIdx: null, colKey: 'name', isGhost: true }
+  const [cursor, setCursor] = useState(null);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
 
@@ -111,11 +114,18 @@ export default function TaskList({
   }
 
   // Clamp the cursor row when visibleTasks shrinks (collapse) — losing the
-  // precise task under the cursor after collapse is acceptable.
+  // precise task under the cursor after collapse is acceptable. Ghost-row
+  // cursor is independent of visibleTasks.length, so it's left alone.
   useEffect(() => {
-    if (!cursor) return;
+    if (!cursor || cursor.isGhost) return;
     if (cursor.rowIdx >= visibleTasks.length) {
-      setCursor(visibleTasks.length ? { rowIdx: visibleTasks.length - 1, colKey: cursor.colKey } : null);
+      if (visibleTasks.length) {
+        setCursor({ rowIdx: visibleTasks.length - 1, colKey: cursor.colKey, isGhost: false });
+      } else if (editable) {
+        setCursor({ rowIdx: null, colKey: 'name', isGhost: true });
+      } else {
+        setCursor(null);
+      }
       setEditing(false);
     }
   }, [visibleTasks.length]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -123,12 +133,13 @@ export default function TaskList({
   // Keep the cursor cell scrolled into view.
   useEffect(() => {
     if (!cursor || !scrollRef?.current) return;
-    const el = scrollRef.current.querySelector(`[data-row-idx="${cursor.rowIdx}"]`);
+    const key = cursor.isGhost ? 'ghost' : cursor.rowIdx;
+    const el = scrollRef.current.querySelector(`[data-row-idx="${key}"]`);
     el?.scrollIntoView({ block: 'nearest' });
   }, [cursor, scrollRef]);
 
-  function startEdit(rowIdx, colKey, initial) {
-    setCursor({ rowIdx, colKey });
+  function startEdit(rowIdx, colKey, initial, isGhost = false) {
+    setCursor({ rowIdx, colKey, isGhost });
     setEditValue(initial);
     setEditing(true);
   }
@@ -173,15 +184,27 @@ export default function TaskList({
 
   function commitAndMove(direction) {
     if (!cursor) return;
+    if (cursor.isGhost) {
+      const name = editValue.trim();
+      setEditing(false);
+      if (name) onCreateTask?.(name);
+      // Cursor stays on the ghost row either way, so Enter-name-Enter-name
+      // chains keep working.
+      return;
+    }
     const { rowIdx, colKey } = cursor;
     const task = visibleTasks[rowIdx];
     if (task) commitCell(colKey, task, editValue, getRowCtx(task));
     setEditing(false);
     if (direction === 'down') {
-      setCursor({ rowIdx: Math.min(visibleTasks.length - 1, rowIdx + 1), colKey });
+      if (rowIdx + 1 >= visibleTasks.length) {
+        setCursor(editable ? { rowIdx: null, colKey: 'name', isGhost: true } : { rowIdx, colKey, isGhost: false });
+      } else {
+        setCursor({ rowIdx: rowIdx + 1, colKey, isGhost: false });
+      }
     } else if (direction === 'right') {
       const colIdx = EDIT_COLS.indexOf(colKey);
-      setCursor({ rowIdx, colKey: EDIT_COLS[Math.min(EDIT_COLS.length - 1, colIdx + 1)] });
+      setCursor({ rowIdx, colKey: EDIT_COLS[Math.min(EDIT_COLS.length - 1, colIdx + 1)], isGhost: false });
     }
   }
 
@@ -192,7 +215,7 @@ export default function TaskList({
   function handleCellClick(e, rowIdx, colKey) {
     if (!editable) return;
     e.stopPropagation();
-    setCursor({ rowIdx, colKey });
+    setCursor({ rowIdx, colKey, isGhost: false });
     setEditing(false);
   }
 
@@ -202,13 +225,44 @@ export default function TaskList({
     startEdit(rowIdx, colKey, initialEditValue(colKey, task, ctx));
   }
 
+  function handleGhostClick(e) {
+    if (!editable) return;
+    e.stopPropagation();
+    setCursor({ rowIdx: null, colKey: 'name', isGhost: true });
+    setEditing(false);
+  }
+
+  function handleGhostDoubleClick(e) {
+    if (!editable) return;
+    e.stopPropagation();
+    startEdit(null, 'name', '', true);
+  }
+
   function handleContainerKeyDown(e) {
     if (!editable || editing) return;
 
     if (!cursor) {
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.key)) {
         e.preventDefault();
-        setCursor({ rowIdx: 0, colKey: EDIT_COLS[0] });
+        if (visibleTasks.length) setCursor({ rowIdx: 0, colKey: EDIT_COLS[0], isGhost: false });
+        else setCursor({ rowIdx: null, colKey: 'name', isGhost: true });
+      }
+      return;
+    }
+
+    if (cursor.isGhost) {
+      if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) {
+        e.preventDefault();
+        if (visibleTasks.length) setCursor({ rowIdx: visibleTasks.length - 1, colKey: 'name', isGhost: false });
+      } else if (e.key === 'Enter' || e.key === 'F2') {
+        e.preventDefault();
+        startEdit(null, 'name', '', true);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        setCursor(null);
+      } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        startEdit(null, 'name', e.key, true);
       }
       return;
     }
@@ -218,16 +272,17 @@ export default function TaskList({
 
     if (e.key === 'ArrowUp') {
       e.preventDefault();
-      setCursor({ rowIdx: Math.max(0, rowIdx - 1), colKey });
+      setCursor({ rowIdx: Math.max(0, rowIdx - 1), colKey, isGhost: false });
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setCursor({ rowIdx: Math.min(visibleTasks.length - 1, rowIdx + 1), colKey });
+      if (rowIdx + 1 >= visibleTasks.length) setCursor({ rowIdx: null, colKey: 'name', isGhost: true });
+      else setCursor({ rowIdx: rowIdx + 1, colKey, isGhost: false });
     } else if (e.key === 'ArrowLeft' || (e.key === 'Tab' && e.shiftKey)) {
       e.preventDefault();
-      setCursor({ rowIdx, colKey: EDIT_COLS[Math.max(0, colIdx - 1)] });
+      setCursor({ rowIdx, colKey: EDIT_COLS[Math.max(0, colIdx - 1)], isGhost: false });
     } else if (e.key === 'ArrowRight' || (e.key === 'Tab' && !e.shiftKey)) {
       e.preventDefault();
-      setCursor({ rowIdx, colKey: EDIT_COLS[Math.min(EDIT_COLS.length - 1, colIdx + 1)] });
+      setCursor({ rowIdx, colKey: EDIT_COLS[Math.min(EDIT_COLS.length - 1, colIdx + 1)], isGhost: false });
     } else if (e.key === 'Enter' || e.key === 'F2') {
       e.preventDefault();
       const task = visibleTasks[rowIdx];
@@ -255,8 +310,10 @@ export default function TaskList({
     else if (e.key === 'Escape') cancelEdit();
   };
 
-  const isCursor = (rowIdx, colKey) => editable && cursor?.rowIdx === rowIdx && cursor?.colKey === colKey;
+  const isCursor = (rowIdx, colKey) => editable && !cursor?.isGhost && cursor?.rowIdx === rowIdx && cursor?.colKey === colKey;
   const isEditingCell = (rowIdx, colKey) => editing && isCursor(rowIdx, colKey);
+  const isGhostCursor = editable && cursor?.isGhost === true;
+  const isGhostEditing = editing && isGhostCursor;
 
   const deleteMutation = useMutation({
     mutationFn: (taskId) => Task.delete(taskId),
@@ -544,10 +601,53 @@ export default function TaskList({
             </div>
           );
         })}
+        {/* "Add task…" ghost row — last stop in the cursor grid. Not part of
+            visibleTasks, so it can't desync TaskList/GanttChart row order. */}
+        {editable && (
+          <div
+            data-row-idx="ghost"
+            style={{ height: ROW_HEIGHT, gridTemplateColumns: COLS }}
+            className="grid items-center w-full border-b border-border/20 hover:bg-muted/40 transition-colors cursor-pointer px-2 border-l-2 border-l-transparent"
+          >
+            <span />
+            <div />
+            <div
+              className="px-1 min-w-0"
+              onClick={handleGhostClick}
+              onDoubleClick={handleGhostDoubleClick}
+            >
+              {isGhostEditing ? (
+                <input
+                  type="text"
+                  autoFocus
+                  value={editValue}
+                  placeholder="Add task…"
+                  className="w-full text-xs bg-background border border-primary rounded px-1"
+                  onChange={e => setEditValue(e.target.value)}
+                  onClick={e => e.stopPropagation()}
+                  onBlur={() => commitAndMove(null)}
+                  onKeyDown={editorKeyDown}
+                />
+              ) : (
+                <span className={cn(
+                  'text-xs italic text-muted-foreground truncate block',
+                  isGhostCursor && 'ring-1 ring-primary ring-inset rounded',
+                )}>
+                  Add task…
+                </span>
+              )}
+            </div>
+            <span /><span /><span /><span /><span />
+            {baselineMap && <span />}
+          </div>
+        )}
         {/* Bottom spacer — matches GanttChart's chartHeight overshoot so scroll sync
-            stays row-accurate when either pane is scrolled to its very bottom. */}
-        {visibleTasks.length > 0 && <div style={{ height: 50 }} aria-hidden="true" />}
-        {tasks.length === 0 && (
+            stays row-accurate when either pane is scrolled to its very bottom.
+            Shrunk by one row's height when the ghost row is showing. */}
+        {(visibleTasks.length > 0 || editable) && (
+          <div style={{ height: editable ? 18 : 50 }} aria-hidden="true" />
+        )}
+        {tasks.length === 0 && !editable && (
           <div className="text-center py-12 text-sm text-muted-foreground">Import a schedule to get started</div>
         )}
       </div>
