@@ -144,6 +144,8 @@ export default function Settings() {
     { key: 'tender_sub_awarded', label: 'Sub Awarded' },
     { key: 'tender_sub_unsuccessful', label: 'Sub Not Selected' },
     { key: 'user_invite', label: 'User Invite' },
+    { key: 'subcontractor_invite', label: 'Subcontractor Invite' },
+    { key: 'programme_published', label: 'Programme Published' },
     { key: 'contract_instruction', label: 'Contract Instruction Issued' },
     { key: 'tender_question_posted', label: 'Tender Question — Admin Notification' },
     { key: 'tender_question_answered', label: 'Tender Question — Answer Notification' },

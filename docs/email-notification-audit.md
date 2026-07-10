@@ -221,3 +221,31 @@ actual Deno functions have not run since they're not deployed yet.
 issue a CI on a test project, ask + answer a tender question on a test
 tender invitee row, and confirm a custom edit to the `contract_instruction`
 template in Settings shows up in the received email.
+
+---
+
+## Update 2026-07-10 — new customizable templates
+
+7. **`subcontractor_invite` added** (`src/lib/emailTemplates.js`,
+   `src/pages/Settings.jsx`, `supabase/functions/invitationService/index.ts`):
+   subcontractor invites from `ProjectSubcontractors.jsx` (action `invite`
+   with role "Subcontractor") now resolve the dedicated
+   `subcontractor_invite` template instead of the generic `user_invite`.
+   Vars: `name, business_name, trade, project_name, invited_by,
+   quote_number, quote_context, invite_link`. Falls back to a hardcoded
+   default mirroring `DEFAULT_TEMPLATES.subcontractor_invite` when no
+   custom row exists. Non-subcontractor invites (`invitePlatform`,
+   `resend`, bulk team invites) are unchanged. **Needs deploy**:
+   `invitationService`.
+
+8. **`programme_published` exposed in Settings**: the
+   `notifyProgrammePublished` edge function already resolved a custom
+   `email_templates` row by this key; the template is now editable — added
+   to `DEFAULT_TEMPLATES`/`TEMPLATE_VARIABLES` (vars `project_name,
+   sender_name, company_name`) and to `TEMPLATE_KEYS` in Settings. No
+   edge-function change needed.
+
+**Rule going forward:** every new function that sends an email notification
+must ship with a customizable template — lib default + variables, Settings
+`TEMPLATE_KEYS` entry, and an `email_templates` lookup with matching
+hardcoded fallback in the edge function.

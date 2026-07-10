@@ -60,15 +60,45 @@ function isTokenValid(invitedUser: any) {
   return new Date(invitedUser.token_expires_at) > new Date();
 }
 
-async function sendInvitationEmail({ to, toName, projectName, inviterName, branding, token, quoteRef }: any) {
+// Default template for subcontractor invites — kept in sync with
+// DEFAULT_TEMPLATES.subcontractor_invite in src/lib/emailTemplates.js.
+// Used when no customised row exists in email_templates.
+const SUBCONTRACTOR_INVITE_DEFAULT = {
+  subject: "You've been appointed to {project_name}",
+  body_html: `
+<p>Hi <strong>{name}</strong>,</p>
+<p><strong>{invited_by}</strong> has appointed you as a subcontractor on <strong>{project_name}</strong>.</p>
+<table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;">
+  <tr><td style="padding:6px 0;color:#6b7280;width:140px;">Project</td><td style="padding:6px 0;font-weight:500;">{project_name}</td></tr>
+  <tr><td style="padding:6px 0;color:#6b7280;">Company</td><td style="padding:6px 0;">{business_name}</td></tr>
+  <tr><td style="padding:6px 0;color:#6b7280;">Trade</td><td style="padding:6px 0;">{trade}</td></tr>
+</table>
+{quote_context}
+<p>Create your account to access the project details.</p>
+<p style="margin-top:24px;">
+  <a href="{invite_link}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#fff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">
+    Accept Invitation &amp; Register
+  </a>
+</p>
+<p style="font-size:13px;color:#6b7280;margin-top:8px;">
+  If you did not expect this invitation, you can safely ignore this email.
+</p>`,
+};
+
+async function sendInvitationEmail({ to, toName, projectName, inviterName, branding, token, quoteRef, role, businessName, trade }: any) {
   const resend = new Resend(Deno.env.get('RESEND_API_KEY'));
   const fromName = branding?.sender_name || branding?.company_name || 'ConstructIQ';
   // Invite-only: the register page requires this token to create an account.
   const registerUrl = token ? `${APP_URL}/register?token=${encodeURIComponent(token)}` : `${APP_URL}/register`;
   const brandColour = branding?.brand_colour || '#1a56db';
 
-  const { data: templates } = await supabaseAdmin.from('email_templates').select('*').eq('template_key', 'user_invite').limit(1);
-  const dbTemplate = templates?.[0];
+  // Subcontractor invites get their own customizable template (with quote
+  // number, trade, etc.); everyone else keeps the generic user_invite.
+  const isSubcontractor = String(role || '').trim().toLowerCase() === 'subcontractor';
+  const templateKey = isSubcontractor ? 'subcontractor_invite' : 'user_invite';
+
+  const { data: templates } = await supabaseAdmin.from('email_templates').select('*').eq('template_key', templateKey).limit(1);
+  const dbTemplate = templates?.[0] || (isSubcontractor ? SUBCONTRACTOR_INVITE_DEFAULT : null);
 
   const quoteContext = quoteContextHtml(quoteRef);
 
@@ -76,6 +106,10 @@ async function sendInvitationEmail({ to, toName, projectName, inviterName, brand
     const vars: Record<string, string> = {
       name: escapeHtml(toName || to),
       invited_by: escapeHtml(inviterName || 'A team member'),
+      business_name: escapeHtml(businessName || ''),
+      trade: escapeHtml(trade || ''),
+      project_name: escapeHtml(projectName || ''),
+      quote_number: escapeHtml(String(quoteRef || '').trim()),
       project_context: projectName ? `<p>You've been invited to collaborate on <strong>${escapeHtml(projectName)}</strong>.</p>` : '',
       quote_context: quoteContext,
       invite_link: registerUrl,
@@ -338,7 +372,7 @@ Deno.serve(async (req) => {
       }
 
       if (isNewInvite || !activeAssignment) {
-        sendInvitationEmail({ to: normalEmail, toName: fullName, projectName, inviterName: user.full_name || user.email, branding, token: invitedUser?.token, quoteRef }).catch((e: any) => {
+        sendInvitationEmail({ to: normalEmail, toName: fullName, projectName, inviterName: user.full_name || user.email, branding, token: invitedUser?.token, quoteRef, role: projectRole || role, businessName, trade }).catch((e: any) => {
           console.error('[invitationService] Email failed:', e.message);
           supabaseAdmin.from('audit_logs').insert({
             action: 'Email Failed',

@@ -205,6 +205,36 @@ export const DEFAULT_TEMPLATES = {
 <p style="font-size:13px;color:#6b7280;margin-top:8px;">Note: Attachments can be viewed by logging into the project portal.</p>
 <p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br>{sender_name}</p>`,
   },
+  subcontractor_invite: {
+    name: 'Subcontractor Invite',
+    subject: "You've been appointed to {project_name}",
+    body_html: `
+<p>Hi <strong>{name}</strong>,</p>
+<p><strong>{invited_by}</strong> has appointed you as a subcontractor on <strong>{project_name}</strong>.</p>
+<table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;">
+  <tr><td style="padding:6px 0;color:#6b7280;width:140px;">Project</td><td style="padding:6px 0;font-weight:500;">{project_name}</td></tr>
+  <tr><td style="padding:6px 0;color:#6b7280;">Company</td><td style="padding:6px 0;">{business_name}</td></tr>
+  <tr><td style="padding:6px 0;color:#6b7280;">Trade</td><td style="padding:6px 0;">{trade}</td></tr>
+</table>
+{quote_context}
+<p>Create your account to access the project details.</p>
+<p style="margin-top:24px;">
+  <a href="{invite_link}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#fff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">
+    Accept Invitation &amp; Register
+  </a>
+</p>
+<p style="font-size:13px;color:#6b7280;margin-top:8px;">
+  If you did not expect this invitation, you can safely ignore this email.
+</p>`,
+  },
+  programme_published: {
+    name: 'Programme Published',
+    subject: 'Updated Programme Published — {project_name}',
+    body_html: `<p>Hi,</p>
+<p>The construction programme for <strong>{project_name}</strong> has just been published by {sender_name}.</p>
+<p>The schedule is now locked — please refer to it for current dates and let us know if you have any questions.</p>
+<p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br>{sender_name}<br>{company_name}</p>`,
+  },
   user_invite: {
     name: 'User Invite to ConstructIQ',
     subject: "You've been invited to ConstructIQ",
@@ -350,6 +380,21 @@ export const TEMPLATE_VARIABLES = {
     { key: 'attachments_note', desc: 'Optional paragraph about attachments' },
     { key: 'url', desc: 'Link to the project' },
     { key: 'sender_name', desc: 'Name of the person issuing' },
+  ],
+  subcontractor_invite: [
+    { key: 'name', desc: 'Subcontractor name (or email if no name)' },
+    { key: 'business_name', desc: 'Subcontractor business/company name' },
+    { key: 'trade', desc: 'Subcontractor trade' },
+    { key: 'project_name', desc: 'Project name' },
+    { key: 'invited_by', desc: 'Name of the person sending the invite' },
+    { key: 'quote_number', desc: 'Accepted quote reference e.g. Q-1042 (empty if none entered)' },
+    { key: 'quote_context', desc: 'Optional accepted-quote paragraph (only when a quote ref was entered)' },
+    { key: 'invite_link', desc: 'Registration link' },
+  ],
+  programme_published: [
+    { key: 'project_name', desc: 'Project name' },
+    { key: 'sender_name', desc: 'Name of the person who published the programme' },
+    { key: 'company_name', desc: 'Your company name' },
   ],
   user_invite: [
     { key: 'name', desc: 'Invitee full name or email' },
