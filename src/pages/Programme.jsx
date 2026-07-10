@@ -53,9 +53,8 @@ import { getVisibleTasks } from '@/lib/programme/visibleTasks';
 import { bulkOperationState } from '@/lib/bulkOperationState';
 import { retry429 } from '@/lib/retry429';
 import TaskInlineEditor from '@/components/programme/TaskInlineEditor';
-import ProgrammePrintView from '@/components/programme/ProgrammePrintView';
+import { exportProgrammePdf } from '@/lib/programme/pdfExport';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { createPortal } from 'react-dom';
 
 const ZOOM_LEVELS = ['year', 'quarter', 'month', 'week', 'day'];
 const DELETE_CHUNK = 150;
@@ -94,7 +93,7 @@ export default function Programme() {
   const [showCriticalPath, setShowCriticalPath] = useState(false); // critical-only filter
   const [showAddTask, setShowAddTask] = useState(false);
   const [selectedBaselineId, setSelectedBaselineId] = useState(null); // baseline overlay
-  const [isPrinting, setIsPrinting] = useState(false);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
 
   const queryClient = useQueryClient();
   const taskScrollRef = useRef(null);
@@ -552,45 +551,28 @@ export default function Programme() {
     toast({ title: 'Exported', description: 'MS Project XML downloaded — opens via File → Open in Microsoft Project.', duration: 4000 });
   };
 
-  // ─── Print ───────────────────────────────────────────────────────────────────
+  // ─── Print (multi-page vector PDF, MS-Project-style tiling) ────────────────
   const handlePrint = useCallback(() => {
-    setIsPrinting(true);
-  }, []);
-
-  useEffect(() => {
-    if (!isPrinting) return undefined;
-    document.body.classList.add('printing-programme');
-
-    // Double-rAF: the print view mounts on this same render, and its
-    // useLayoutEffect measures DOM rects for the dependency-arrow overlay —
-    // one rAF can still fire before that layout paints, printing stale (empty)
-    // arrows. Two rAFs guarantee a full paint has happened first.
-    let timeout;
-    const raf1 = requestAnimationFrame(() => {
-      const raf2 = requestAnimationFrame(() => {
-        window.print();
-      });
-      timeout = raf2;
-    });
-
-    const onAfterPrint = () => setIsPrinting(false);
-    window.addEventListener('afterprint', onAfterPrint);
-
-    // Safety net: `afterprint` can be missed (some browsers skip it if the
-    // print dialog is cancelled quickly) — fall back to polling the print
-    // media query so isPrinting can't get stuck true.
-    const mql = window.matchMedia('print');
-    const onMediaChange = (e) => { if (!e.matches) setIsPrinting(false); };
-    mql.addEventListener('change', onMediaChange);
-
-    return () => {
-      cancelAnimationFrame(raf1);
-      if (timeout) cancelAnimationFrame(timeout);
-      document.body.classList.remove('printing-programme');
-      window.removeEventListener('afterprint', onAfterPrint);
-      mql.removeEventListener('change', onMediaChange);
-    };
-  }, [isPrinting]);
+    setIsExportingPdf(true);
+    // Defer to next tick so the disabled/spinner state paints before the
+    // synchronous (and, for large schedules, non-trivial) PDF draw loop runs.
+    setTimeout(() => {
+      try {
+        exportProgrammePdf({
+          tasks,
+          scheduledMap,
+          programme,
+          projectName: selectedProjectName,
+          baselineMap,
+          criticalOnly: showCriticalPath,
+        });
+      } catch (err) {
+        toast({ title: 'PDF export failed', description: err.message, variant: 'destructive' });
+      } finally {
+        setIsExportingPdf(false);
+      }
+    }, 0);
+  }, [tasks, scheduledMap, programme, selectedProjectName, baselineMap, showCriticalPath, toast]);
 
   const handleExportExcel = () => {
     downloadProgrammeExcel(tasks, scheduledMap, selectedProjectName);
@@ -780,7 +762,7 @@ export default function Programme() {
             <Button variant="outline" size="sm" onClick={collapseAll} title="Collapse all" className="gap-1.5 text-xs h-9"><ChevronsDownUp className="w-3.5 h-3.5" />Collapse</Button>
             <Button variant="outline" size="icon" onClick={() => cycleZoom('out')} title={`Zoom out (${zoom})`}><ZoomOut className="w-4 h-4" /></Button>
             <Button variant="outline" size="icon" onClick={() => cycleZoom('in')} title={`Zoom in (${zoom})`}><ZoomIn className="w-4 h-4" /></Button>
-            <Button variant="outline" size="icon" onClick={handlePrint} disabled={selectedProjectId === 'all' || tasks.length === 0} title="Print"><Printer className="w-4 h-4" /></Button>
+            <Button variant="outline" size="icon" onClick={handlePrint} disabled={isExportingPdf || selectedProjectId === 'all' || tasks.length === 0} title="Export PDF"><Printer className={`w-4 h-4 ${isExportingPdf ? 'animate-pulse' : ''}`} /></Button>
             {canImportExport && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -1052,20 +1034,6 @@ export default function Programme() {
         </DialogContent>
       </Dialog>
 
-      {/* Print view — rendered into a portal, shown only during print */}
-      {isPrinting && createPortal(
-        <div className="programme-print-portal">
-          <ProgrammePrintView
-            tasks={tasks}
-            scheduledMap={scheduledMap}
-            programme={programme}
-            projectName={selectedProjectName}
-            baselineMap={baselineMap}
-            criticalOnly={showCriticalPath}
-          />
-        </div>,
-        document.body
-      )}
     </div>
   );
 }
