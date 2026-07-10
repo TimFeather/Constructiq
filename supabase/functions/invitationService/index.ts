@@ -41,6 +41,14 @@ async function getSystemRoleFromDb(projectRoleName: string) {
 
 function generateToken() { return crypto.randomUUID(); }
 
+// Optional accepted-quote paragraph for add/invite emails. Empty string when no
+// quote ref was entered so templates render unchanged.
+function quoteContextHtml(quoteRef: string) {
+  const ref = String(quoteRef || '').trim();
+  if (!ref) return '';
+  return `<p>This appointment relates to your quote <strong>${escapeHtml(ref)}</strong>, which we have accepted.</p>`;
+}
+
 function tokenExpiryDate() {
   const d = new Date();
   d.setDate(d.getDate() + TOKEN_EXPIRY_DAYS);
@@ -52,7 +60,7 @@ function isTokenValid(invitedUser: any) {
   return new Date(invitedUser.token_expires_at) > new Date();
 }
 
-async function sendInvitationEmail({ to, toName, projectName, inviterName, branding, token }: any) {
+async function sendInvitationEmail({ to, toName, projectName, inviterName, branding, token, quoteRef }: any) {
   const resend = new Resend(Deno.env.get('RESEND_API_KEY'));
   const fromName = branding?.sender_name || branding?.company_name || 'ConstructIQ';
   // Invite-only: the register page requires this token to create an account.
@@ -62,15 +70,21 @@ async function sendInvitationEmail({ to, toName, projectName, inviterName, brand
   const { data: templates } = await supabaseAdmin.from('email_templates').select('*').eq('template_key', 'user_invite').limit(1);
   const dbTemplate = templates?.[0];
 
+  const quoteContext = quoteContextHtml(quoteRef);
+
   if (dbTemplate) {
     const vars: Record<string, string> = {
       name: escapeHtml(toName || to),
       invited_by: escapeHtml(inviterName || 'A team member'),
       project_context: projectName ? `<p>You've been invited to collaborate on <strong>${escapeHtml(projectName)}</strong>.</p>` : '',
+      quote_context: quoteContext,
       invite_link: registerUrl,
     };
     let subject = dbTemplate.subject || '';
     let bodyHtml = dbTemplate.body_html || dbTemplate.body || '';
+    // Customised DB templates may predate {quote_context}; append the quote
+    // paragraph so an entered quote ref is never silently dropped.
+    if (quoteContext && !bodyHtml.includes('{quote_context}')) bodyHtml += quoteContext;
     for (const [key, val] of Object.entries(vars)) {
       const re = new RegExp(`\\{${key}\\}`, 'g');
       subject = subject.replace(re, val ?? '');
@@ -112,6 +126,7 @@ async function sendInvitationEmail({ to, toName, projectName, inviterName, brand
 <h2 style="margin:0 0 16px;font-size:22px;color:#1a202c;">You've been invited to ConstructIQ</h2>
 <p style="margin:0 0 12px;color:#4a5568;line-height:1.6;">Hi ${escapeHtml(toName || to)},</p>
 <p style="margin:0 0 12px;color:#4a5568;line-height:1.6;"><strong>${escapeHtml(inviterName || 'A team member')}</strong> has invited you to join <strong>${projectName ? `the project "${escapeHtml(projectName)}"` : 'ConstructIQ'}</strong>.</p>
+${quoteContext}
 <p style="margin:0 0 24px;color:#4a5568;line-height:1.6;">Create your account to get started.</p>
 <a href="${registerUrl}" style="display:inline-block;background:${brandColour};color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:600;font-size:15px;">Create Your Account →</a>
 </td></tr></table></td></tr></table></body></html>`;
@@ -246,7 +261,7 @@ Deno.serve(async (req) => {
 
     // ── invite ───────────────────────────────────────────────────────────────
     if (action === 'invite') {
-      const { email, fullName, businessName, phone, trade, projectId, projectName, role, appRole, projectRole } = body;
+      const { email, fullName, businessName, phone, trade, projectId, projectName, role, appRole, projectRole, quoteRef } = body;
       if (!email || !projectId || !role) {
         return Response.json({ error: 'email, projectId, role required' }, { status: 400, headers: corsHeaders });
       }
@@ -323,7 +338,7 @@ Deno.serve(async (req) => {
       }
 
       if (isNewInvite || !activeAssignment) {
-        sendInvitationEmail({ to: normalEmail, toName: fullName, projectName, inviterName: user.full_name || user.email, branding, token: invitedUser?.token }).catch((e: any) => {
+        sendInvitationEmail({ to: normalEmail, toName: fullName, projectName, inviterName: user.full_name || user.email, branding, token: invitedUser?.token, quoteRef }).catch((e: any) => {
           console.error('[invitationService] Email failed:', e.message);
           supabaseAdmin.from('audit_logs').insert({
             action: 'Email Failed',
@@ -430,7 +445,7 @@ Deno.serve(async (req) => {
 
     // ── addExistingUser ──────────────────────────────────────────────────────
     if (action === 'addExistingUser') {
-      const { targetUserId, projectId, role, fullName, businessName, phone, trade } = body;
+      const { targetUserId, projectId, role, fullName, businessName, phone, trade, quoteRef } = body;
       if (!targetUserId || !projectId || !role) {
         return Response.json({ error: 'targetUserId, projectId, role required' }, { status: 400, headers: corsHeaders });
       }
@@ -462,6 +477,7 @@ Deno.serve(async (req) => {
           phone: phone || targetUserData.phone || '',
           role,
           trade: trade || '',
+          quote_ref: quoteRef || '',
         });
         await supabaseAdmin.from('projects').update({ team }).eq('id', projectId);
       }
@@ -483,19 +499,25 @@ Deno.serve(async (req) => {
           body_html: `
 <p>Hi <strong>{name}</strong>,</p>
 <p>You have been added to the project <strong>{project_name}</strong> as <strong>{role}</strong>.</p>
+{quote_context}
 <p>Please log in to view your project details and get started.</p>
 <p style="margin-top:24px;color:#6b7280;font-size:13px;">Best regards,<br>ConstructIQ</p>`,
         };
         const branding = brandings?.[0] || {};
 
+        const quoteContext = quoteContextHtml(quoteRef);
         const vars: Record<string, string> = {
           name: escapeHtml(memberName),
           project_name: escapeHtml(projectData.name || ''),
           role: escapeHtml(role),
+          quote_context: quoteContext,
         };
 
         let subject = template.subject || '';
         let bodyHtml = template.body_html || template.body || '';
+        // Customised DB templates may predate {quote_context}; append the quote
+        // paragraph so an entered quote ref is never silently dropped.
+        if (quoteContext && !bodyHtml.includes('{quote_context}')) bodyHtml += quoteContext;
         for (const [key, val] of Object.entries(vars)) {
           const re = new RegExp(`\\{${key}\\}`, 'g');
           subject = subject.replace(re, val ?? '');

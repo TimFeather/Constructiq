@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Trash2, HardHat, Building2, Mail, Phone, UserCheck, Loader2, Pencil } from 'lucide-react';
+import { Plus, Trash2, HardHat, Building2, Mail, Phone, UserCheck, Loader2, Pencil, FileText } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { normalizeEmail } from '@/lib/normalizeEmail';
 import { isUserDeactivated } from '@/lib/userStatus';
@@ -21,7 +21,7 @@ const TRADES = [
   'Concrete', 'Steel Erection', 'Glazing', 'Fire Protection',
 ];
 
-const emptyForm = { user_email: '', full_name: '', business_name: '', phone: '', trade: '' };
+const emptyForm = { user_email: '', full_name: '', business_name: '', phone: '', trade: '', quote_ref: '' };
 
 /**
  * ProjectSubcontractors — combined Subcontractors tab.
@@ -94,6 +94,7 @@ export default function ProjectSubcontractors({ project, linkedTenderId }) {
     setAdding(true);
     try {
       const trade = form.trade === 'custom' ? customTrade : form.trade;
+      const quoteRef = form.quote_ref.trim();
       const member = {
         user_email: normalizeEmail(form.user_email),
         full_name: form.full_name,
@@ -101,6 +102,7 @@ export default function ProjectSubcontractors({ project, linkedTenderId }) {
         phone: form.phone,
         role: 'Subcontractor',
         trade: trade || '',
+        quote_ref: quoteRef,
       };
 
       // Detect whether this email is already a user (mirrors TeamManager).
@@ -124,6 +126,7 @@ export default function ProjectSubcontractors({ project, linkedTenderId }) {
           businessName: member.business_name,
           phone: member.phone,
           trade: member.trade,
+          quoteRef,
         });
         toast({ title: `${member.full_name} added to project` });
       } else if (member.user_email) {
@@ -135,6 +138,7 @@ export default function ProjectSubcontractors({ project, linkedTenderId }) {
           businessName: member.business_name,
           phone: member.phone,
           trade: member.trade,
+          quoteRef,
           projectId: project.id,
           projectName: project.name,
           role: 'Subcontractor',
@@ -222,6 +226,11 @@ export default function ProjectSubcontractors({ project, linkedTenderId }) {
                 <Phone className="w-3 h-3" /> {sub.phone}
               </div>
             )}
+            {sub.quote_ref && (
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <FileText className="w-3 h-3" /> Accepted quote: {sub.quote_ref}
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-1.5 flex-wrap pt-1">
             {fromTender && <Badge variant="outline" className="text-xs">From Tender</Badge>}
@@ -272,6 +281,7 @@ export default function ProjectSubcontractors({ project, linkedTenderId }) {
               <div><Label className="text-xs">Full Name</Label><Input className="h-8" value={editValues.full_name || ''} onChange={e => setEditValues(v => ({ ...v, full_name: e.target.value }))} /></div>
               <div><Label className="text-xs">Business Name</Label><Input className="h-8" value={editValues.business_name || ''} onChange={e => setEditValues(v => ({ ...v, business_name: e.target.value }))} /></div>
               <div><Label className="text-xs">Phone</Label><Input className="h-8" value={editValues.phone || ''} onChange={e => setEditValues(v => ({ ...v, phone: e.target.value }))} /></div>
+              <div><Label className="text-xs">Accepted Quote</Label><Input className="h-8" value={editValues.quote_ref || ''} onChange={e => setEditValues(v => ({ ...v, quote_ref: e.target.value }))} placeholder="e.g. Q-1042" /></div>
               <div>
                 <Label className="text-xs">Trade</Label>
                 <Select value={editValues.trade || ''} onValueChange={val => setEditValues(v => ({ ...v, trade: val }))}>
@@ -327,6 +337,10 @@ export default function ProjectSubcontractors({ project, linkedTenderId }) {
             <div>
               <Label className="text-xs">Phone</Label>
               <Input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="Phone" />
+            </div>
+            <div className="sm:col-span-2">
+              <Label className="text-xs">Accepted Quote</Label>
+              <Input value={form.quote_ref} onChange={e => setForm({ ...form, quote_ref: e.target.value })} placeholder="e.g. Q-1042 — included in the email so they know which quote was accepted (optional)" autoComplete="off" />
             </div>
           </div>
           <Button onClick={addSubcontractor} disabled={!form.full_name || adding} className="gap-2">

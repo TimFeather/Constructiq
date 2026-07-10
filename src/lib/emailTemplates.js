@@ -39,6 +39,7 @@ export const DEFAULT_TEMPLATES = {
     body_html: `
 <p>Hi <strong>{name}</strong>,</p>
 <p>You have been added to the project <strong>{project_name}</strong> as <strong>{role}</strong>.</p>
+{quote_context}
 <p>Please log in to view your project details and get started.</p>
 <p style="margin-top:24px;color:#6b7280;font-size:13px;">Best regards,<br>ConstructIQ</p>`,
   },
@@ -211,6 +212,7 @@ export const DEFAULT_TEMPLATES = {
 <p>Hi <strong>{name}</strong>,</p>
 <p>You have been invited to join <strong>ConstructIQ</strong> by <strong>{invited_by}</strong>.</p>
 {project_context}
+{quote_context}
 <p style="margin-top:24px;">
   <a href="{invite_link}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#fff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">
     Accept Invitation &amp; Register
@@ -245,6 +247,7 @@ export const TEMPLATE_VARIABLES = {
     { key: 'name', desc: 'Team member name' },
     { key: 'project_name', desc: 'Project name' },
     { key: 'role', desc: 'Their role on the project' },
+    { key: 'quote_context', desc: 'Optional accepted-quote paragraph (subcontractors added with a quote ref)' },
   ],
   tender_invitation: [
     { key: 'invitee_name', desc: 'Subcontractor name' },
@@ -352,6 +355,7 @@ export const TEMPLATE_VARIABLES = {
     { key: 'name', desc: 'Invitee full name or email' },
     { key: 'invited_by', desc: 'Name of the person sending the invite' },
     { key: 'project_context', desc: 'Optional project name paragraph' },
+    { key: 'quote_context', desc: 'Optional accepted-quote paragraph (subcontractors added with a quote ref)' },
     { key: 'invite_link', desc: 'Registration link' },
   ],
 };
