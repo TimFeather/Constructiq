@@ -181,4 +181,22 @@ export async function upsertProgramme(projectId, fields) {
   return Programme.create({ project_id: projectId, ...fields });
 }
 
+/**
+ * Publish a project's programme — locks the schedule (dates, duration,
+ * hierarchy, dependencies) for non-admins; progress tracking stays open.
+ * Throws if the caller lacks admin/internal/pricing role.
+ */
+export async function publishProgramme(projectId) {
+  const { data, error } = await supabase.rpc('publish_programme', { p_project_id: projectId });
+  if (error) throw error;
+  return data;
+}
+
+/** Unpublish (unlock) a project's programme. Admin only. */
+export async function unpublishProgramme(projectId) {
+  const { data, error } = await supabase.rpc('unpublish_programme', { p_project_id: projectId });
+  if (error) throw error;
+  return data;
+}
+
 export { TaskDependency };

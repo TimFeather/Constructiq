@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Project, Task } from '@/api/entities';
-import { fetchProgrammeTasks, fetchProgramme, bulkUpdateTaskWbs } from '@/api/programmeData';
+import { fetchProgrammeTasks, fetchProgramme, bulkUpdateTaskWbs, publishProgramme, unpublishProgramme } from '@/api/programmeData';
+import { invokeFunction } from '@/api/supabaseClient';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -16,7 +17,7 @@ import {
 import {
   PanelLeftClose, PanelLeftOpen, Upload, Printer, ZoomIn, ZoomOut,
   Trash2, Target, Calendar, LayoutDashboard, CalendarDays,
-  ChevronsDownUp, ChevronsUpDown, Download, Plus,
+  ChevronsDownUp, ChevronsUpDown, Download, Plus, Lock, Unlock,
 } from 'lucide-react';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -219,10 +220,47 @@ export default function Programme() {
     dataDate: selectedProjectId !== 'all' ? (programme?.data_date || null) : null,
   }), [user?.id, projectStart, programme, tasks, selectedProjectId]);
 
-  const programmeEditable = canEdit(user, 'programme') && selectedProjectId !== 'all';
-  const canDeleteTasks = ['admin', 'pricing', 'internal'].includes(user?.role);
-  const taskEditable = canEdit(user, 'programme');
+  // Publish freezes the schedule for non-admins; admin can always edit/unpublish.
+  const programmeLocked = programme?.status === 'published';
+  const lockedForMe = programmeLocked && !isAdmin;
+  const programmeEditable = canEdit(user, 'programme') && selectedProjectId !== 'all' && !lockedForMe;
+  const canDeleteTasks = ['admin', 'pricing', 'internal'].includes(user?.role) && !lockedForMe;
+  const taskEditable = canEdit(user, 'programme') && !lockedForMe;
   const canImportExport = canImport(user, 'programme') && canExport(user, 'programme');
+  const canPublish = ['admin', 'internal', 'pricing'].includes(user?.role) && selectedProjectId !== 'all';
+
+  const [isPublishing, setIsPublishing] = useState(false);
+
+  const handlePublish = useCallback(async () => {
+    if (!selectedProjectId || selectedProjectId === 'all') return;
+    setIsPublishing(true);
+    try {
+      await publishProgramme(selectedProjectId);
+      queryClient.invalidateQueries({ queryKey: ['programme', selectedProjectId] });
+      queryClient.invalidateQueries({ queryKey: ['programmes'] });
+      toast({ title: 'Programme published', description: 'The schedule is now locked for editing.', duration: 3500 });
+      invokeFunction('notifyProgrammePublished', { projectId: selectedProjectId }).catch(() => {});
+    } catch (e) {
+      toast({ title: 'Publish failed', description: e.message, variant: 'destructive' });
+    } finally {
+      setIsPublishing(false);
+    }
+  }, [selectedProjectId, queryClient, toast]);
+
+  const handleUnpublish = useCallback(async () => {
+    if (!selectedProjectId || selectedProjectId === 'all') return;
+    setIsPublishing(true);
+    try {
+      await unpublishProgramme(selectedProjectId);
+      queryClient.invalidateQueries({ queryKey: ['programme', selectedProjectId] });
+      queryClient.invalidateQueries({ queryKey: ['programmes'] });
+      toast({ title: 'Programme unpublished', description: 'The schedule is unlocked for editing.', duration: 3500 });
+    } catch (e) {
+      toast({ title: 'Unpublish failed', description: e.message, variant: 'destructive' });
+    } finally {
+      setIsPublishing(false);
+    }
+  }, [selectedProjectId, queryClient, toast]);
 
   // ─── Authoring handlers (Gantt drag + editors → scheduling service) ──────────
   const afterScheduleChange = useCallback((patchCount) => {
@@ -688,6 +726,25 @@ export default function Programme() {
                 onClick={() => setShowCriticalPath(v => !v)}>
                 <Target className="w-3 h-3" />{criticalTaskCount} critical
               </Badge>
+            )}
+
+            {selectedProjectId !== 'all' && programmeLocked && (
+              <Badge variant="outline" className="gap-1 border-amber-400 text-amber-700 bg-amber-50">
+                <Lock className="w-3 h-3" /> Published
+              </Badge>
+            )}
+
+            {canPublish && !programmeLocked && (
+              <Button variant="outline" size="sm" onClick={handlePublish} disabled={isPublishing || tasks.length === 0}
+                className="gap-1.5 text-xs h-9" title="Lock the schedule and notify the team">
+                <Lock className="w-3.5 h-3.5" /> Publish
+              </Button>
+            )}
+            {isAdmin && programmeLocked && selectedProjectId !== 'all' && (
+              <Button variant="outline" size="sm" onClick={handleUnpublish} disabled={isPublishing}
+                className="gap-1.5 text-xs h-9" title="Unlock the schedule for editing">
+                <Unlock className="w-3.5 h-3.5" /> Unpublish
+              </Button>
             )}
 
             {programmeEditable && (
