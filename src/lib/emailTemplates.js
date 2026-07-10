@@ -227,6 +227,37 @@ export const DEFAULT_TEMPLATES = {
   If you did not expect this invitation, you can safely ignore this email.
 </p>`,
   },
+  subcontractor_invite_quote: {
+    name: 'Subcontractor Invite — Quote Accepted',
+    subject: "You've been appointed to {project_name} — Quote {quote_number} Accepted",
+    body_html: `
+<p>Hi <strong>{name}</strong>,</p>
+<p><strong>{invited_by}</strong> has appointed you as a subcontractor on <strong>{project_name}</strong>, following acceptance of your quote <strong>{quote_number}</strong>.</p>
+<table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;">
+  <tr><td style="padding:6px 0;color:#6b7280;width:140px;">Project</td><td style="padding:6px 0;font-weight:500;">{project_name}</td></tr>
+  <tr><td style="padding:6px 0;color:#6b7280;">Company</td><td style="padding:6px 0;">{business_name}</td></tr>
+  <tr><td style="padding:6px 0;color:#6b7280;">Trade</td><td style="padding:6px 0;">{trade}</td></tr>
+  <tr><td style="padding:6px 0;color:#6b7280;">Accepted Quote</td><td style="padding:6px 0;font-weight:500;">{quote_number}</td></tr>
+</table>
+<p>Create your account to access the project details.</p>
+<p style="margin-top:24px;">
+  <a href="{invite_link}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#fff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">
+    Accept Invitation &amp; Register
+  </a>
+</p>
+<p style="font-size:13px;color:#6b7280;margin-top:8px;">
+  If you did not expect this invitation, you can safely ignore this email.
+</p>`,
+  },
+  team_added_quote: {
+    name: 'Added to Project — Quote Accepted',
+    subject: "You've been added to {project_name} — Quote {quote_number} Accepted",
+    body_html: `
+<p>Hi <strong>{name}</strong>,</p>
+<p>You have been added to the project <strong>{project_name}</strong> as <strong>{role}</strong>, following acceptance of your quote <strong>{quote_number}</strong>.</p>
+<p>Please log in to view your project details and get started.</p>
+<p style="margin-top:24px;color:#6b7280;font-size:13px;">Best regards,<br>ConstructIQ</p>`,
+  },
   programme_published: {
     name: 'Programme Published',
     subject: 'Updated Programme Published — {project_name}',
@@ -390,6 +421,21 @@ export const TEMPLATE_VARIABLES = {
     { key: 'quote_number', desc: 'Accepted quote reference e.g. Q-1042 (empty if none entered)' },
     { key: 'quote_context', desc: 'Optional accepted-quote paragraph (only when a quote ref was entered)' },
     { key: 'invite_link', desc: 'Registration link' },
+  ],
+  subcontractor_invite_quote: [
+    { key: 'name', desc: 'Subcontractor name (or email if no name)' },
+    { key: 'business_name', desc: 'Subcontractor business/company name' },
+    { key: 'trade', desc: 'Subcontractor trade' },
+    { key: 'project_name', desc: 'Project name' },
+    { key: 'invited_by', desc: 'Name of the person sending the invite' },
+    { key: 'quote_number', desc: 'Accepted quote reference e.g. Q-1042' },
+    { key: 'invite_link', desc: 'Registration link' },
+  ],
+  team_added_quote: [
+    { key: 'name', desc: 'Team member name' },
+    { key: 'project_name', desc: 'Project name' },
+    { key: 'role', desc: 'Their role on the project' },
+    { key: 'quote_number', desc: 'Accepted quote reference e.g. Q-1042' },
   ],
   programme_published: [
     { key: 'project_name', desc: 'Project name' },

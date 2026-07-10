@@ -85,6 +85,31 @@ const SUBCONTRACTOR_INVITE_DEFAULT = {
 </p>`,
 };
 
+// Subcontractor invite where a quote ref was entered — announces the
+// accepted quote instead of a generic appointment. Kept in sync with
+// DEFAULT_TEMPLATES.subcontractor_invite_quote in src/lib/emailTemplates.js.
+const SUBCONTRACTOR_INVITE_QUOTE_DEFAULT = {
+  subject: "You've been appointed to {project_name} — Quote {quote_number} Accepted",
+  body_html: `
+<p>Hi <strong>{name}</strong>,</p>
+<p><strong>{invited_by}</strong> has appointed you as a subcontractor on <strong>{project_name}</strong>, following acceptance of your quote <strong>{quote_number}</strong>.</p>
+<table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;">
+  <tr><td style="padding:6px 0;color:#6b7280;width:140px;">Project</td><td style="padding:6px 0;font-weight:500;">{project_name}</td></tr>
+  <tr><td style="padding:6px 0;color:#6b7280;">Company</td><td style="padding:6px 0;">{business_name}</td></tr>
+  <tr><td style="padding:6px 0;color:#6b7280;">Trade</td><td style="padding:6px 0;">{trade}</td></tr>
+  <tr><td style="padding:6px 0;color:#6b7280;">Accepted Quote</td><td style="padding:6px 0;font-weight:500;">{quote_number}</td></tr>
+</table>
+<p>Create your account to access the project details.</p>
+<p style="margin-top:24px;">
+  <a href="{invite_link}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#fff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">
+    Accept Invitation &amp; Register
+  </a>
+</p>
+<p style="font-size:13px;color:#6b7280;margin-top:8px;">
+  If you did not expect this invitation, you can safely ignore this email.
+</p>`,
+};
+
 async function sendInvitationEmail({ to, toName, projectName, inviterName, branding, token, quoteRef, role, businessName, trade }: any) {
   const resend = new Resend(Deno.env.get('RESEND_API_KEY'));
   const fromName = branding?.sender_name || branding?.company_name || 'ConstructIQ';
@@ -93,12 +118,15 @@ async function sendInvitationEmail({ to, toName, projectName, inviterName, brand
   const brandColour = branding?.brand_colour || '#1a56db';
 
   // Subcontractor invites get their own customizable template (with quote
-  // number, trade, etc.); everyone else keeps the generic user_invite.
+  // number, trade, etc.); a separate variant fires when a quote ref was
+  // entered. Everyone else keeps the generic user_invite.
   const isSubcontractor = String(role || '').trim().toLowerCase() === 'subcontractor';
-  const templateKey = isSubcontractor ? 'subcontractor_invite' : 'user_invite';
+  const hasQuote = isSubcontractor && !!String(quoteRef || '').trim();
+  const templateKey = hasQuote ? 'subcontractor_invite_quote' : isSubcontractor ? 'subcontractor_invite' : 'user_invite';
+  const defaultTemplate = hasQuote ? SUBCONTRACTOR_INVITE_QUOTE_DEFAULT : isSubcontractor ? SUBCONTRACTOR_INVITE_DEFAULT : null;
 
   const { data: templates } = await supabaseAdmin.from('email_templates').select('*').eq('template_key', templateKey).limit(1);
-  const dbTemplate = templates?.[0] || (isSubcontractor ? SUBCONTRACTOR_INVITE_DEFAULT : null);
+  const dbTemplate = templates?.[0] || defaultTemplate;
 
   const quoteContext = quoteContextHtml(quoteRef);
 
@@ -117,8 +145,9 @@ async function sendInvitationEmail({ to, toName, projectName, inviterName, brand
     let subject = dbTemplate.subject || '';
     let bodyHtml = dbTemplate.body_html || dbTemplate.body || '';
     // Customised DB templates may predate {quote_context}; append the quote
-    // paragraph so an entered quote ref is never silently dropped.
-    if (quoteContext && !bodyHtml.includes('{quote_context}')) bodyHtml += quoteContext;
+    // paragraph so an entered quote ref is never silently dropped. Skipped
+    // for the dedicated quote template — it already states {quote_number} inline.
+    if (quoteContext && templateKey !== 'subcontractor_invite_quote' && !bodyHtml.includes('{quote_context}')) bodyHtml += quoteContext;
     for (const [key, val] of Object.entries(vars)) {
       const re = new RegExp(`\\{${key}\\}`, 'g');
       subject = subject.replace(re, val ?? '');
@@ -522,13 +551,22 @@ Deno.serve(async (req) => {
       let emailSent = false;
       if (!alreadyMember) try {
         const memberName = fullName || targetUserData.full_name || targetUserData.email;
+        const hasQuote = !!String(quoteRef || '').trim();
+        const teamTemplateKey = hasQuote ? 'team_added_quote' : 'team_added';
 
         const [{ data: templates }, { data: brandings }] = await Promise.all([
-          supabaseAdmin.from('email_templates').select('*').eq('template_key', 'team_added').limit(1),
+          supabaseAdmin.from('email_templates').select('*').eq('template_key', teamTemplateKey).limit(1),
           supabaseAdmin.from('email_branding').select('*').limit(1),
         ]);
 
-        const template = templates?.[0] || {
+        const template = templates?.[0] || (hasQuote ? {
+          subject: "You've been added to {project_name} — Quote {quote_number} Accepted",
+          body_html: `
+<p>Hi <strong>{name}</strong>,</p>
+<p>You have been added to the project <strong>{project_name}</strong> as <strong>{role}</strong>, following acceptance of your quote <strong>{quote_number}</strong>.</p>
+<p>Please log in to view your project details and get started.</p>
+<p style="margin-top:24px;color:#6b7280;font-size:13px;">Best regards,<br>ConstructIQ</p>`,
+        } : {
           subject: "You've been added to project: {project_name}",
           body_html: `
 <p>Hi <strong>{name}</strong>,</p>
@@ -536,7 +574,7 @@ Deno.serve(async (req) => {
 {quote_context}
 <p>Please log in to view your project details and get started.</p>
 <p style="margin-top:24px;color:#6b7280;font-size:13px;">Best regards,<br>ConstructIQ</p>`,
-        };
+        });
         const branding = brandings?.[0] || {};
 
         const quoteContext = quoteContextHtml(quoteRef);
@@ -544,14 +582,16 @@ Deno.serve(async (req) => {
           name: escapeHtml(memberName),
           project_name: escapeHtml(projectData.name || ''),
           role: escapeHtml(role),
+          quote_number: escapeHtml(String(quoteRef || '').trim()),
           quote_context: quoteContext,
         };
 
         let subject = template.subject || '';
         let bodyHtml = template.body_html || template.body || '';
         // Customised DB templates may predate {quote_context}; append the quote
-        // paragraph so an entered quote ref is never silently dropped.
-        if (quoteContext && !bodyHtml.includes('{quote_context}')) bodyHtml += quoteContext;
+        // paragraph so an entered quote ref is never silently dropped. Skipped
+        // for the dedicated quote template — it already states {quote_number} inline.
+        if (quoteContext && teamTemplateKey !== 'team_added_quote' && !bodyHtml.includes('{quote_context}')) bodyHtml += quoteContext;
         for (const [key, val] of Object.entries(vars)) {
           const re = new RegExp(`\\{${key}\\}`, 'g');
           subject = subject.replace(re, val ?? '');

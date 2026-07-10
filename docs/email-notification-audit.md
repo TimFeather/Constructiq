@@ -249,3 +249,26 @@ template in Settings shows up in the received email.
 must ship with a customizable template — lib default + variables, Settings
 `TEMPLATE_KEYS` entry, and an `email_templates` lookup with matching
 hardcoded fallback in the edge function.
+
+---
+
+## Update 2026-07-10 (2) — quote-accepted template variants
+
+9. **`subcontractor_invite_quote` and `team_added_quote` added**: when a
+   subcontractor is added/invited with a quote reference filled in, the
+   invite now uses a dedicated template instead of the base
+   `subcontractor_invite` / `team_added` with an appended paragraph.
+   - New-user path (`invitationService` `sendInvitationEmail()`): resolves
+     `subcontractor_invite_quote` when role is Subcontractor and `quoteRef`
+     is non-empty; vars add `quote_number`. Falls back to
+     `SUBCONTRACTOR_INVITE_QUOTE_DEFAULT` when no custom row exists.
+   - Existing-user path (`invitationService` action `addExistingUser`):
+     resolves `team_added_quote` when `quoteRef` is non-empty; vars add
+     `quote_number`. Falls back to a hardcoded default mirroring
+     `DEFAULT_TEMPLATES.team_added_quote`.
+   - Both quote templates state the quote number inline via
+     `{quote_number}` rather than the generic `{quote_context}` paragraph,
+     so the auto-append-if-missing fallback logic is skipped for these two
+     keys specifically (it would otherwise double up the quote mention).
+   - Both added to `TEMPLATE_KEYS` in Settings for independent editing.
+   **Needs deploy**: `invitationService`.
