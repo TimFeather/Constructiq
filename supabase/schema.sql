@@ -33,6 +33,7 @@ create table public.users (
   construction_role text check (construction_role in ('Architect','Client','External Project Manager','Internal Project Manager','Site Manager','Quantity Surveyor','Subcontractor')),
   notify_rfis       boolean default true,
   notify_documents  boolean default true,
+  disabled          boolean not null default false,
   created_at        timestamptz default now(),
   updated_at        timestamptz default now()
 );
@@ -308,8 +309,8 @@ create table public.tenders (
   closing_date             text,  -- ISO datetime string
   award_date               date,
   estimated_value          numeric,
-  project_id               uuid references public.projects(id),
-  converted_project_id     uuid references public.projects(id),
+  project_id               uuid references public.projects(id) on delete set null,
+  converted_project_id     uuid references public.projects(id) on delete set null,
   created_by_user_id       uuid references public.users(id),
   created_by_name          text,
   created_by_email         text,
@@ -560,7 +561,7 @@ create policy "invited_users_delete" on public.invited_users for delete using (
 create table public.pending_project_assignments (
   id              uuid primary key default gen_random_uuid(),
   email           text not null,
-  project_id      uuid references public.projects(id),
+  project_id      uuid references public.projects(id) on delete cascade,
   role            text,
   project_role    text,
   permission_role text,

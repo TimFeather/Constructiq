@@ -1,11 +1,11 @@
 export function isUserActive(user) {
   if (!user) return false;
-  return user.data?.disabled !== true;
+  return user.disabled !== true;
 }
 
 export function isUserDeactivated(user) {
   if (!user) return false;
-  return user.data?.disabled === true;
+  return user.disabled === true;
 }
 
 export function filterActiveUsers(users) {

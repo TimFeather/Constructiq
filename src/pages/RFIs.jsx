@@ -84,14 +84,19 @@ export default function RFIs() {
       ? p.status === 'Archived'
       : ACTIVE_STATUSES.includes(p.status)
   );
+  const activeProjectIds = new Set(projects.filter(p => ACTIVE_STATUSES.includes(p.status)).map(p => p.id));
+  const archivedProjectIds = new Set(projects.filter(p => p.status === 'Archived').map(p => p.id));
 
   const projectIds = new Set(projects.map(p => p.id));
   const allVisibleRfis = allRfis.filter(r => projectIds.has(r.project_id));
   const rfis = viewMode === 'archived'
-    ? allVisibleRfis.filter(r => r.archived)
-    : allVisibleRfis.filter(r => !r.archived);
-  const activeRfiCount = allVisibleRfis.filter(r => !r.archived).length;
-  const archivedRfiCount = allVisibleRfis.filter(r => r.archived).length;
+    ? allVisibleRfis.filter(r => r.archived && archivedProjectIds.has(r.project_id))
+    : allVisibleRfis.filter(r => !r.archived && activeProjectIds.has(r.project_id));
+  // Counts use the same "parent project status" criterion as the grid below,
+  // not just the RFI's own archived flag, so the tab counts never disagree
+  // with what's actually shown (see HANDOVER 2026-07-01 for the two-cache-key gotcha).
+  const activeRfiCount = allVisibleRfis.filter(r => !r.archived && activeProjectIds.has(r.project_id)).length;
+  const archivedRfiCount = allVisibleRfis.filter(r => r.archived && archivedProjectIds.has(r.project_id)).length;
   const projectMap = Object.fromEntries(projects.map(p => [p.id, p.name]));
 
   // Build per-project sequential RFI numbers

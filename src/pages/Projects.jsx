@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { useToast } from '@/components/ui/use-toast';
 import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
 import EmptyState from '@/components/shared/EmptyState';
@@ -32,6 +33,7 @@ export default function Projects() {
   const [archiveId, setArchiveId]   = useState(null);
   const [deleteId, setDeleteId]     = useState(null);
   const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const { data: allProjects = [], isLoading } = useQuery({
     queryKey: ['projects'],
@@ -90,8 +92,15 @@ export default function Projects() {
   const deleteMutation = useMutation({
     mutationFn: (id) => Project.delete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      invalidateProjectChildren();
       setDeleteId(null);
+    },
+    onError: (error) => {
+      toast({
+        variant: 'destructive',
+        title: 'Could not delete project',
+        description: error?.message || 'Something went wrong. Please try again.',
+      });
     },
   });
 

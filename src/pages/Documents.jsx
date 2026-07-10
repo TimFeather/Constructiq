@@ -66,15 +66,21 @@ export default function Documents() {
     ? allProjects
     : allProjects.filter(p => p.team?.some(m => normalizeEmail(m.user_email) === normalizeEmail(user?.email)));
 
+  const ACTIVE_STATUSES = ['Active', 'On Hold', 'Complete'];
+  const activeProjectIds = new Set(projects.filter(p => ACTIVE_STATUSES.includes(p.status)).map(p => p.id));
+  const archivedProjectIds = new Set(projects.filter(p => p.status === 'Archived').map(p => p.id));
+
   const projectIds = new Set(projects.map(p => p.id));
   const allVisibleDocs = allDocuments.filter(d => projectIds.has(d.project_id));
   const documents = viewMode === 'archived'
-    ? allVisibleDocs.filter(d => d.archived)
-    : allVisibleDocs.filter(d => !d.archived);
-  const activeDocCount = allVisibleDocs.filter(d => !d.archived).length;
-  const archivedDocCount = allVisibleDocs.filter(d => d.archived).length;
+    ? allVisibleDocs.filter(d => d.archived && archivedProjectIds.has(d.project_id))
+    : allVisibleDocs.filter(d => !d.archived && activeProjectIds.has(d.project_id));
+  // Counts use the same "parent project status" criterion as the grid below,
+  // not just the document's own archived flag, so the tab counts never disagree
+  // with what's actually shown (see HANDOVER 2026-07-01 for the two-cache-key gotcha).
+  const activeDocCount = allVisibleDocs.filter(d => !d.archived && activeProjectIds.has(d.project_id)).length;
+  const archivedDocCount = allVisibleDocs.filter(d => d.archived && archivedProjectIds.has(d.project_id)).length;
 
-  const ACTIVE_STATUSES = ['Active', 'On Hold', 'Complete'];
   const viewProjects = projects.filter(p =>
     viewMode === 'archived'
       ? p.status === 'Archived'
