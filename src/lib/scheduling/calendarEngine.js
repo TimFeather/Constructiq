@@ -14,6 +14,9 @@ export const CALENDAR_TYPES = {
 
 export const WORK_HOURS_PER_DAY = 8;
 
+/** Max days any working-day search may scan before we declare the calendar broken. */
+export const MAX_CALENDAR_SCAN_DAYS = 10000; // ~27 years
+
 /**
  * Default 5-day calendar (Mon–Fri)
  */
@@ -57,7 +60,11 @@ export function isWorkingDay(date, calendar = DEFAULT_CALENDAR) {
 export function nextWorkingDay(date, calendar = DEFAULT_CALENDAR) {
   let d = new Date(date);
   d.setHours(0, 0, 0, 0);
+  let scanned = 0;
   while (!isWorkingDay(d, calendar)) {
+    if (++scanned > MAX_CALENDAR_SCAN_DAYS) {
+      throw new Error(`Calendar has no working day within ${MAX_CALENDAR_SCAN_DAYS} days of ${toDateStr(d)} — check holidays/shutdown ranges.`);
+    }
     d.setDate(d.getDate() + 1);
   }
   return d;
@@ -69,7 +76,11 @@ export function nextWorkingDay(date, calendar = DEFAULT_CALENDAR) {
 export function prevWorkingDay(date, calendar = DEFAULT_CALENDAR) {
   let d = new Date(date);
   d.setHours(0, 0, 0, 0);
+  let scanned = 0;
   while (!isWorkingDay(d, calendar)) {
+    if (++scanned > MAX_CALENDAR_SCAN_DAYS) {
+      throw new Error(`Calendar has no working day within ${MAX_CALENDAR_SCAN_DAYS} days of ${toDateStr(d)} — check holidays/shutdown ranges.`);
+    }
     d.setDate(d.getDate() - 1);
   }
   return d;
@@ -84,8 +95,12 @@ export function addWorkingDays(startDate, days, calendar = DEFAULT_CALENDAR) {
   d.setHours(0, 0, 0, 0);
   const sign = days > 0 ? 1 : -1;
   let remaining = Math.abs(days);
+  let scanned = 0;
 
   while (remaining > 0) {
+    if (++scanned > MAX_CALENDAR_SCAN_DAYS) {
+      throw new Error(`Calendar has no working day within ${MAX_CALENDAR_SCAN_DAYS} days of ${toDateStr(d)} — check holidays/shutdown ranges.`);
+    }
     d.setDate(d.getDate() + sign);
     if (isWorkingDay(d, calendar)) {
       remaining--;
@@ -213,4 +228,45 @@ export function toDateStr(date) {
 export function parseDate(str) {
   if (!str) return null;
   return new Date(str + 'T00:00:00');
+}
+
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_SHUTDOWN_DAYS = 400;
+
+/**
+ * Returns a list of human-readable problems with a calendar config, [] if fine.
+ * Checks: shutdown ranges with end < start; shutdown ranges longer than 400 days;
+ * holidays/shutdown dates that fail /^\d{4}-\d{2}-\d{2}$/.
+ */
+export function validateCalendar(calendar) {
+  const problems = [];
+  if (!calendar) return problems;
+
+  for (const holiday of (calendar.holidays || [])) {
+    if (!ISO_DATE_RE.test(holiday)) {
+      problems.push(`Holiday date "${holiday}" is not in yyyy-MM-dd format`);
+    }
+  }
+
+  for (const shutdown of (calendar.shutdowns || [])) {
+    const { start, end } = shutdown;
+    if (!ISO_DATE_RE.test(start)) {
+      problems.push(`Shutdown start date "${start}" is not in yyyy-MM-dd format`);
+      continue;
+    }
+    if (!ISO_DATE_RE.test(end)) {
+      problems.push(`Shutdown end date "${end}" is not in yyyy-MM-dd format`);
+      continue;
+    }
+    if (end < start) {
+      problems.push(`Shutdown range ${start} – ${end} ends before it starts`);
+      continue;
+    }
+    const days = (parseDate(end) - parseDate(start)) / 86400000;
+    if (days > MAX_SHUTDOWN_DAYS) {
+      problems.push(`Shutdown range ${start} – ${end} is longer than ${MAX_SHUTDOWN_DAYS} days`);
+    }
+  }
+
+  return problems;
 }

@@ -19,6 +19,7 @@
 
 import { runScheduleEngine, wouldCreateCycle } from './scheduling/scheduleEngine.js';
 import { validateLink } from './scheduling/dependencyGraph.js';
+import { validateCalendar } from './scheduling/calendarEngine.js';
 import { Task, TaskChangeLog } from '@/api/entities';
 import { bulkUpdateSchedule, setTaskDependencies } from '@/api/programmeData';
 
@@ -332,9 +333,15 @@ export async function updateTaskFull(taskId, newData, allTasks, options = {}) {
  * Validate schedule integrity across a task list.
  * Returns { valid: boolean, errors: string[] }
  */
-export function validateScheduleIntegrity(tasks) {
+export function validateScheduleIntegrity(tasks, calendar) {
   const errors = [];
   const taskMap = new Map(tasks.map(t => [t.id, t]));
+
+  if (calendar) {
+    for (const problem of validateCalendar(calendar)) {
+      errors.push(problem);
+    }
+  }
 
   for (const task of tasks) {
     // Negative or zero duration (non-milestone)
