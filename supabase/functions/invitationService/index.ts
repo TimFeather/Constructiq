@@ -1,6 +1,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { Resend } from 'npm:resend@4.0.0';
 import { escapeHtml } from '../_shared/escapeHtml.ts';
+import { upsertTenderContact } from '../_shared/upsertTenderContact.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz',
@@ -257,6 +258,10 @@ Deno.serve(async (req) => {
       const normalEmail = normalizeEmail(email);
       const now = new Date().toISOString();
 
+      // Non-fatal write-back into the shared people directory so this person
+      // shows up as a suggestion next time (e.g. in InviteeManager).
+      upsertTenderContact(supabaseAdmin, { fullName, businessName, email: normalEmail, phone, trade }).catch(() => {});
+
       const { data: brandings } = await supabaseAdmin.from('email_branding').select('*').limit(1);
       const branding = brandings?.[0] || {};
 
@@ -437,6 +442,15 @@ Deno.serve(async (req) => {
 
       if (!projectData) return Response.json({ error: 'Project not found' }, { status: 404, headers: corsHeaders });
       if (!targetUserData) return Response.json({ error: 'User not found' }, { status: 404, headers: corsHeaders });
+
+      // Non-fatal write-back into the shared people directory.
+      upsertTenderContact(supabaseAdmin, {
+        fullName: fullName || targetUserData.full_name || '',
+        businessName: businessName || targetUserData.business_name || '',
+        email: normalizeEmail(targetUserData.email),
+        phone: phone || targetUserData.phone || '',
+        trade,
+      }).catch(() => {});
 
       const team = projectData.team || [];
       const alreadyMember = team.some((m: any) => normalizeEmail(m.user_email) === normalizeEmail(targetUserData.email));

@@ -1,6 +1,6 @@
 import { invokeFunction } from '@/api/supabaseClient';
 import React, { useState, useCallback } from 'react';
-import { Project, ProjectRole, TenderContact, User } from '@/api/entities';
+import { Project, ProjectRole, User } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -8,12 +8,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Plus, Trash2, Users, UserCheck, Building2, Pencil, Loader2 } from 'lucide-react';
+import { Plus, Trash2, Users, UserCheck, Pencil, Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/components/ui/use-toast';
-import { isUserDeactivated, filterActiveUsers } from '@/lib/userStatus';
+import { isUserDeactivated } from '@/lib/userStatus';
 import { normalizeEmail } from '@/lib/normalizeEmail';
 import { logProjectActivity } from '@/lib/activityLog';
+import PersonAutocomplete from '@/components/shared/PersonAutocomplete';
 
 // Fallback roles if ProjectRole entity is empty
 const FALLBACK_ROLES = [
@@ -63,7 +64,6 @@ export default function TeamManager({ project }) {
   const [customRole, setCustomRole] = useState('');
   const [customTrade, setCustomTrade] = useState('');
   const [emailInput, setEmailInput] = useState('');
-  const [suggestions, setSuggestions] = useState([]);
   const [editingIndex, setEditingIndex] = useState(null);
   const [editValues, setEditValues] = useState({});
   const [emailStatus, setEmailStatus] = useState(null); // 'existing_user' | 'pending' | 'new' | null
@@ -75,12 +75,6 @@ export default function TeamManager({ project }) {
   const { data: allUsers = [] } = useQuery({
     queryKey: ['users'],
     queryFn: () => User.list(),
-    enabled: isAllowed,
-  });
-
-  const { data: contacts = [] } = useQuery({
-    queryKey: ['tenderContacts'],
-    queryFn: () => TenderContact.list('-created_at', 500).catch(() => []),
     enabled: isAllowed,
   });
 
@@ -131,33 +125,9 @@ export default function TeamManager({ project }) {
     setEmailInput(val);
     setNewMember(prev => ({ ...prev, user_email: val }));
     setEmailStatus(null);
-    if (val.length >= 2) {
-      const q = val.toLowerCase();
-      // Registered platform users — only active ones
-      const userMatches = filterActiveUsers(allUsers).filter(u =>
-        u.email?.toLowerCase().includes(q) ||
-        u.full_name?.toLowerCase().includes(q)
-      ).map(u => ({ kind: 'user', id: u.id, email: u.email, full_name: u.full_name, phone: u.phone, business_name: u.business_name }));
-
-      // Company-wide contacts (subcontractors etc. not necessarily registered users yet)
-      const userEmails = new Set(userMatches.map(u => u.email?.toLowerCase()).filter(Boolean));
-      const contactMatches = contacts.filter(c =>
-        !userEmails.has(c.email?.toLowerCase()) && (
-          c.full_name?.toLowerCase().includes(q) ||
-          c.business_name?.toLowerCase().includes(q) ||
-          c.email?.toLowerCase().includes(q) ||
-          c.trade?.toLowerCase().includes(q)
-        )
-      ).map(c => ({ kind: 'contact', id: c.id, email: c.email, full_name: c.full_name, phone: c.phone, business_name: c.business_name, trade: c.trade }));
-
-      setSuggestions([...userMatches, ...contactMatches].slice(0, 8));
-    } else {
-      setSuggestions([]);
-    }
   };
 
   const handleEmailBlur = () => {
-    setSuggestions([]);
     if (emailInput && emailInput.includes('@')) {
       detectEmail(emailInput);
     }
@@ -173,7 +143,6 @@ export default function TeamManager({ project }) {
       business_name: u.business_name || prev.business_name,
       trade: u.trade || prev.trade,
     }));
-    setSuggestions([]);
     if (u.email) detectEmail(u.email);
   };
 
@@ -485,35 +454,14 @@ export default function TeamManager({ project }) {
                 {detectingEmail && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />}
                 {emailStatus && !detectingEmail && <EmailStatusBadge status={emailStatus} />}
               </Label>
-              <Input
-                type="email"
+              <PersonAutocomplete
                 value={emailInput}
-                onChange={e => handleEmailInput(e.target.value)}
+                onChange={handleEmailInput}
+                onSelect={selectSuggestion}
                 onBlur={handleEmailBlur}
+                includeUsers
                 placeholder="Email (type to search or detect status)"
-                autoComplete="off"
               />
-              {suggestions.length > 0 && (
-                <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-card border rounded-md shadow-lg max-h-40 overflow-y-auto">
-                  {suggestions.map(u => (
-                    <button
-                      key={`${u.kind}-${u.id}`}
-                      type="button"
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-muted/60 flex items-center gap-2"
-                      onClick={() => selectSuggestion(u)}
-                    >
-                      {u.kind === 'user' ? (
-                        <UserCheck className="w-3.5 h-3.5 text-green-600 flex-shrink-0" />
-                      ) : (
-                        <Building2 className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-                      )}
-                      <span className="font-medium">{u.full_name}</span>
-                      {u.trade && <span className="text-muted-foreground text-xs">({u.trade})</span>}
-                      <span className="text-muted-foreground text-xs">{u.email}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
               {emailStatus === 'pending' && (
                 <p className="text-xs text-amber-600 mt-1">An invitation already exists for this email. Adding this project will reuse it — no duplicate will be sent.</p>
               )}

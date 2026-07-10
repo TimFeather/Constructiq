@@ -16,8 +16,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { Users, Plus, Trash2, Send, UserCheck, Search, RefreshCw, Archive, Link } from 'lucide-react';
+import { Users, Plus, Trash2, Send, Search, RefreshCw, Archive, Link } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
+import PersonAutocomplete from '@/components/shared/PersonAutocomplete';
 
 const DEFAULT_TRADES = [
   'Electrical', 'Plumbing', 'HVAC', 'Carpentry', 'Masonry',
@@ -51,8 +52,6 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
 
   const [form, setForm]             = useState(emptyForm);
   const [nameSearch, setNameSearch] = useState('');
-  const [nameSuggestions, setNameSuggestions] = useState([]);
-  const nameDebounce = useRef(null);
 
   const [showSearch, setShowSearch]       = useState(false);
   const [searchQ, setSearchQ]             = useState('');
@@ -124,27 +123,11 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
   const handleNameInput = (val) => {
     setNameSearch(val);
     setForm(f => ({ ...f, full_name: val }));
-    clearTimeout(nameDebounce.current);
-    nameDebounce.current = setTimeout(() => {
-      if (val.length >= 2) {
-        const q = val.toLowerCase();
-        setNameSuggestions(
-          contacts.filter(c =>
-            c.full_name?.toLowerCase().includes(q) ||
-            c.business_name?.toLowerCase().includes(q) ||
-            c.email?.toLowerCase().includes(q)
-          ).slice(0, 6)
-        );
-      } else {
-        setNameSuggestions([]);
-      }
-    }, 300);
   };
 
   const selectSuggestion = (c) => {
     setForm({ full_name: c.full_name || '', business_name: c.business_name || '', email: c.email || '', phone: c.phone || '', trade: c.trade || '' });
     setNameSearch(c.full_name || '');
-    setNameSuggestions([]);
   };
 
   // ── Subcontractor search ──────────────────────────────────────────────────
@@ -462,24 +445,14 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
           {!showSearch && (
             <div className="border rounded-lg p-4 space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="relative sm:col-span-2">
+                <div className="sm:col-span-2">
                   <Label className="text-xs">Full Name *</Label>
-                  <Input value={nameSearch} onChange={e => handleNameInput(e.target.value)}
-                    placeholder="Search contacts or enter name…" autoComplete="off" />
-                  {nameSuggestions.length > 0 && (
-                    <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-card border rounded-md shadow-lg max-h-44 overflow-y-auto">
-                      {nameSuggestions.map(c => (
-                        <button key={c.id} type="button"
-                          className="w-full text-left px-3 py-2 text-sm hover:bg-muted/60 flex items-center gap-2"
-                          onClick={() => selectSuggestion(c)}>
-                          <UserCheck className="w-3.5 h-3.5 text-green-600 flex-shrink-0" />
-                          <span className="font-medium">{c.full_name}</span>
-                          {c.business_name && <span className="text-muted-foreground text-xs">{c.business_name}</span>}
-                          {c.email && <span className="text-muted-foreground text-xs ml-auto">{c.email}</span>}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                  <PersonAutocomplete
+                    value={nameSearch}
+                    onChange={handleNameInput}
+                    onSelect={selectSuggestion}
+                    placeholder="Search contacts or enter name…"
+                  />
                 </div>
                 <div>
                   <Label className="text-xs">Business Name</Label>

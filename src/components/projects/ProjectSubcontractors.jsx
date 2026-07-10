@@ -13,6 +13,7 @@ import { Plus, Trash2, HardHat, Building2, Mail, Phone, UserCheck, Loader2, Penc
 import { useToast } from '@/components/ui/use-toast';
 import { normalizeEmail } from '@/lib/normalizeEmail';
 import { isUserDeactivated } from '@/lib/userStatus';
+import PersonAutocomplete from '@/components/shared/PersonAutocomplete';
 
 const TRADES = [
   'Electrical', 'Plumbing', 'HVAC', 'Carpentry', 'Masonry',
@@ -76,6 +77,17 @@ export default function ProjectSubcontractors({ project, linkedTenderId }) {
     (acc[trade] = acc[trade] || []).push(s);
     return acc;
   }, {});
+
+  const selectSuggestion = (p) => {
+    setForm(f => ({
+      ...f,
+      full_name: p.full_name || f.full_name,
+      user_email: p.email || f.user_email,
+      phone: p.phone || f.phone,
+      business_name: p.business_name || f.business_name,
+      trade: p.trade || f.trade,
+    }));
+  };
 
   const addSubcontractor = async () => {
     if (!form.full_name) return;
@@ -283,7 +295,13 @@ export default function ProjectSubcontractors({ project, linkedTenderId }) {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <Label className="text-xs">Full Name *</Label>
-              <Input value={form.full_name} onChange={e => setForm({ ...form, full_name: e.target.value })} placeholder="Full name" />
+              <PersonAutocomplete
+                value={form.full_name}
+                onChange={val => setForm(f => ({ ...f, full_name: val }))}
+                onSelect={selectSuggestion}
+                includeUsers
+                placeholder="Search contacts or enter name…"
+              />
             </div>
             <div>
               <Label className="text-xs">Trade</Label>
