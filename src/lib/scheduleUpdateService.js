@@ -18,6 +18,7 @@
  */
 
 import { runScheduleEngine, wouldCreateCycle } from './scheduling/scheduleEngine.js';
+import { validateLink } from './scheduling/dependencyGraph.js';
 import { Task, TaskChangeLog } from '@/api/entities';
 import { bulkUpdateSchedule, setTaskDependencies } from '@/api/programmeData';
 
@@ -212,15 +213,30 @@ export async function updateTaskDependency(taskId, predecessors, allTasks, optio
   const tasksWithNewDep = allTasks.map(t =>
     t.id === taskId ? { ...t, predecessors } : t
   );
+  const taskName = allTasks.find(t => t.id === taskId)?.name || taskId;
+
   for (const pred of predecessors) {
     const pid = pred.predecessor_id || pred.task_id;
-    if (pid === taskId) {
-      throw new Error('A task cannot depend on itself.');
-    }
-    if (pid && wouldCreateCycle(tasksWithNewDep, pid, taskId)) {
-      const predName = allTasks.find(t => t.id === pid)?.name || pid;
-      const taskName = allTasks.find(t => t.id === taskId)?.name || taskId;
-      throw new Error(`Circular dependency: "${taskName}" already leads to "${predName}" — this link would create a loop.`);
+    const existingPredecessors = predecessors.filter(p => p !== pred);
+    const result = validateLink(tasksWithNewDep, pid, taskId, existingPredecessors);
+    if (result.ok) continue;
+
+    const predName = allTasks.find(t => t.id === pid)?.name || pid;
+    switch (result.reason) {
+      case 'self':
+        throw new Error('A task cannot depend on itself.');
+      case 'missing-task':
+        throw new Error('Predecessor task not found.');
+      case 'link-to-ancestor':
+        throw new Error(`"${predName}" is a summary task that contains "${taskName}" — a task cannot depend on its own summary.`);
+      case 'link-to-descendant':
+        throw new Error(`"${predName}" is inside "${taskName}" — a summary cannot depend on its own subtask.`);
+      case 'duplicate':
+        throw new Error(`"${taskName}" is already linked to "${predName}".`);
+      case 'cycle':
+        throw new Error(`Circular dependency: "${taskName}" already leads to "${predName}" — this link would create a loop.`);
+      default:
+        throw new Error('Invalid dependency link.');
     }
   }
 
@@ -346,6 +362,22 @@ export function validateScheduleIntegrity(tasks) {
       if (wouldCreateCycle(tasks, pid, task.id)) {
         errors.push(`Circular dependency detected involving task "${task.name}"`);
         break;
+      }
+    }
+
+    // Hierarchy-aware link checks (ancestor/descendant links, duplicates)
+    const taskPreds = task.predecessors || [];
+    for (const pred of taskPreds) {
+      const pid = pred.predecessor_id || pred.task_id;
+      if (!pid || !taskMap.has(pid)) continue;
+      const existingPredecessors = taskPreds.filter(p => p !== pred);
+      const result = validateLink(tasks, pid, task.id, existingPredecessors);
+      if (result.ok) continue;
+      const predName = taskMap.get(pid)?.name || pid;
+      if (result.reason === 'link-to-ancestor' || result.reason === 'link-to-descendant') {
+        errors.push(`Task "${task.name}" is linked to its own summary/subtask "${predName}"`);
+      } else if (result.reason === 'duplicate') {
+        errors.push(`Task "${task.name}" has duplicate link to "${predName}"`);
       }
     }
   }

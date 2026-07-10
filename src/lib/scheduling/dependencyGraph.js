@@ -120,6 +120,61 @@ export function topoSort(tasks, graph) {
 }
 
 /**
+ * True if `ancestorId` is an ancestor of `taskId` via parent_id links.
+ * Guards against corrupt parent_id cycles with a visited set.
+ */
+export function isAncestorOf(tasks, ancestorId, taskId) {
+  const parentOf = new Map(tasks.map(t => [t.id, t.parent_id ?? null]));
+  const visited = new Set();
+  let current = parentOf.get(taskId) ?? null;
+  while (current != null) {
+    if (current === ancestorId) return true;
+    if (visited.has(current)) return false;
+    visited.add(current);
+    current = parentOf.get(current) ?? null;
+  }
+  return false;
+}
+
+/**
+ * Validate a proposed dependency link predecessorId → successorId.
+ * Returns { ok: true } or { ok: false, reason: <string code> }.
+ * Reason codes: 'self', 'missing-task', 'link-to-ancestor', 'link-to-descendant',
+ *               'duplicate', 'cycle'.
+ * `existingPredecessors` = the successor's predecessor array EXCLUDING the link being
+ * added/edited (used for duplicate detection).
+ */
+export function validateLink(tasks, predecessorId, successorId, existingPredecessors = []) {
+  if (predecessorId === successorId) {
+    return { ok: false, reason: 'self' };
+  }
+
+  const taskMap = new Map(tasks.map(t => [t.id, t]));
+  if (!taskMap.has(predecessorId) || !taskMap.has(successorId)) {
+    return { ok: false, reason: 'missing-task' };
+  }
+
+  if (isAncestorOf(tasks, predecessorId, successorId)) {
+    return { ok: false, reason: 'link-to-ancestor' };
+  }
+
+  if (isAncestorOf(tasks, successorId, predecessorId)) {
+    return { ok: false, reason: 'link-to-descendant' };
+  }
+
+  const isDuplicate = existingPredecessors.some(p => (p.predecessor_id || p.task_id) === predecessorId);
+  if (isDuplicate) {
+    return { ok: false, reason: 'duplicate' };
+  }
+
+  if (wouldCreateCycle(tasks, predecessorId, successorId)) {
+    return { ok: false, reason: 'cycle' };
+  }
+
+  return { ok: true };
+}
+
+/**
  * Detect circular dependencies using DFS.
  * Returns true if adding fromId → toId would create a cycle.
  */

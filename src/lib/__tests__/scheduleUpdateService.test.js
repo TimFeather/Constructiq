@@ -112,6 +112,21 @@ describe('updateTaskDependency', () => {
       updateTaskDependency('A', [{ predecessor_id: 'A', type: 'FS', lag_hours: 0 }], tasks, OPTS)
     ).rejects.toThrow(/cannot depend on itself/);
   });
+
+  it('rejects linking a task to its own parent summary', async () => {
+    const tasks = makeTasks();
+    tasks.push({
+      id: 'S', project_id: 'p1', name: 'Summary', parent_id: null,
+      start_date: '2026-01-05', end_date: '2026-01-13', duration: 7,
+      predecessors: [], percent_complete: 0, actual_start: null, actual_finish: null, constraint: null,
+    });
+    tasks.find(t => t.id === 'A').parent_id = 'S';
+
+    await expect(
+      updateTaskDependency('A', [{ predecessor_id: 'S', type: 'FS', lag_hours: 0 }], tasks, OPTS)
+    ).rejects.toThrow(/summary task/);
+    expect(Task.update).not.toHaveBeenCalled();
+  });
 });
 
 describe('updateTaskProgress', () => {
