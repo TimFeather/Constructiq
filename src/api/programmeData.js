@@ -6,7 +6,7 @@
  * Dependencies live in the normalized task_dependencies table (migration
  * 006). This module re-attaches them to each task as the `predecessors`
  * array shape the scheduling engine and Gantt renderer already consume:
- *   [{ predecessor_id, type, lag_hours, lag_days, is_elapsed }]
+ *   [{ predecessor_id, type, lag_hours, lag_days, is_elapsed, is_disabled }]
  * It also maps the DB column `constraint_data` onto `task.constraint`,
  * which is the key the engine reads.
  *
@@ -27,6 +27,7 @@ function attachEngineShape(tasks, depsBySuccessor) {
       : (task.predecessors || []).map(p => ({
           ...p,
           predecessor_id: p.predecessor_id || p.task_id,
+          is_disabled: p.is_disabled || false,
         })),
   }));
 }
@@ -62,6 +63,7 @@ export async function fetchProgrammeTasks(projectId) {
       lag_days: Number(d.lag_days) || 0,
       lag_hours: (Number(d.lag_days) || 0) * 8,
       is_elapsed: !!d.is_elapsed,
+      is_disabled: !!d.is_disabled,
       _depId: d.id,
     });
   }
@@ -90,6 +92,7 @@ export async function setTaskDependencies(taskId, projectId, preds) {
       type: ['FS', 'SS', 'FF', 'SF'].includes(p.type) ? p.type : 'FS',
       lag_days: p.lag_days ?? ((p.lag_hours ?? 0) / 8),
       is_elapsed: !!p.is_elapsed,
+      is_disabled: !!p.is_disabled,
     }));
 
   if (rows.length) {

@@ -19,6 +19,7 @@ export function buildDependencyGraph(tasks) {
 
   for (const task of tasks) {
     for (const dep of (task.predecessors || [])) {
+      if (dep.is_disabled) continue;
       const predId = dep.predecessor_id || dep.task_id;
       if (!predId) continue;
 
@@ -183,6 +184,7 @@ export function wouldCreateCycle(tasks, fromId, toId) {
   const forward = new Map(tasks.map(t => [t.id, []]));
   for (const task of tasks) {
     for (const dep of (task.predecessors || [])) {
+      if (dep.is_disabled) continue;
       const pid = dep.predecessor_id || dep.task_id;
       if (!pid) continue;
       if (!forward.has(pid)) forward.set(pid, []);

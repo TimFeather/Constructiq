@@ -80,6 +80,21 @@ describe('FS chain', () => {
   });
 });
 
+describe('disabled dependencies', () => {
+  it('is ignored by the engine: B schedules at project start, A has no successors', () => {
+    const a = makeTask({ id: 'A', start_date: '2026-01-05', duration: 5 });
+    const b = makeTask({
+      id: 'B', duration: 2,
+      predecessors: [{ predecessor_id: 'A', type: 'FS', lag_hours: 0, is_elapsed: false, is_disabled: true }],
+    });
+    const r = run([a, b]);
+
+    expect(r.get('B').startStr).toBe('2026-01-05'); // project start, not after A
+    expect(r.get('B').isCritical).toBe(false);
+    expect(r.get('B').freeFloat).toBeGreaterThan(0); // unconstrained by A — disabled link doesn't pin it
+  });
+});
+
 describe('SS with lag', () => {
   it('offsets the successor start from the predecessor start', () => {
     const a = makeTask({ id: 'A', start_date: '2026-01-05', duration: 5 });

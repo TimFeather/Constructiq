@@ -100,3 +100,37 @@ describe('validateLink', () => {
     expect(validateLink(tasks, 'A', 'B')).toEqual({ ok: true });
   });
 });
+
+describe('disabled dependencies', () => {
+  function taskWithDisabled(id, links) {
+    return {
+      id,
+      predecessors: links.map(([p, disabled]) => ({ predecessor_id: p, type: 'FS', lag_hours: 0, is_disabled: disabled })),
+    };
+  }
+
+  it('buildDependencyGraph yields no edge for a disabled link', () => {
+    const tasks = [taskWithDisabled('A', []), taskWithDisabled('B', [['A', true]])];
+    const graph = buildDependencyGraph(tasks);
+    expect(getPredecessorsIds(graph, 'B')).toEqual([]);
+    expect(getSuccessorsIds(graph, 'A')).toEqual([]);
+  });
+
+  it('wouldCreateCycle allows the reverse link when the existing one is disabled', () => {
+    const tasks = [taskWithDisabled('A', []), taskWithDisabled('B', [['A', true]])];
+    expect(wouldCreateCycle(tasks, 'B', 'A')).toBe(false);
+  });
+
+  it('validateLink still flags a duplicate when the existing link is disabled', () => {
+    const tasks = [taskWithDisabled('A', []), taskWithDisabled('B', [])];
+    const existing = [{ predecessor_id: 'A', type: 'FS', is_disabled: true }];
+    expect(validateLink(tasks, 'A', 'B', existing)).toEqual({ ok: false, reason: 'duplicate' });
+  });
+});
+
+function getPredecessorsIds(graph, id) {
+  return (graph.predecessors.get(id) || []).map(p => p.id);
+}
+function getSuccessorsIds(graph, id) {
+  return (graph.successors.get(id) || []).map(s => s.id);
+}
