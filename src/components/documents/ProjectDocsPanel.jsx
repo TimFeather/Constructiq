@@ -1,4 +1,4 @@
-import { uploadFile, sendEmail, removeFile } from '@/api/supabaseClient';
+import { uploadFile, sendEmail, removeFile, getSignedUrl, isStoredUrl } from '@/api/supabaseClient';
 import { logDocumentEvent } from '@/lib/auditLog';
 import { logProjectActivity } from '@/lib/activityLog';
 import { useToast } from '@/components/ui/use-toast';
@@ -15,8 +15,10 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import StatusBadge from '@/components/shared/StatusBadge';
-import { Upload, ExternalLink, FileText, Folder, FolderOpen, GripVertical, ChevronDown, ChevronRight, FolderPlus, Trash2, Eye, Archive, RefreshCw, Search, X, CheckSquare, History, Users, Lock } from 'lucide-react';
+import { Upload, Download, ExternalLink, FileText, Folder, FolderOpen, GripVertical, ChevronDown, ChevronRight, FolderPlus, Trash2, Eye, Archive, RefreshCw, Search, X, CheckSquare, History, Users, Lock, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
 
 function getFileType(name) {
   if (!name) return 'Other';
@@ -24,6 +26,25 @@ function getFileType(name) {
   const map = { pdf: 'PDF', doc: 'DOCX', docx: 'DOCX', xls: 'Excel', xlsx: 'Excel',
     png: 'Image', jpg: 'Image', jpeg: 'Image', gif: 'Image', dwg: 'CAD', dxf: 'CAD' };
   return map[ext] || 'Other';
+}
+
+const FILE_TYPE_EXT = { PDF: 'pdf', DOCX: 'docx', Excel: 'xlsx', Image: 'jpg', CAD: 'dwg' };
+
+// Resolve a stored file value to a fetchable URL: legacy public URLs are used as-is,
+// private-bucket storage paths are signed on demand (short-lived, single use here).
+async function resolveDownloadUrl(doc) {
+  if (!doc.file_url) return null;
+  if (isStoredUrl(doc.file_url)) return doc.file_url;
+  return getSignedUrl('project-files', doc.file_url);
+}
+
+// Best-effort filename with extension, for the browser's Save As dialog / zip entry.
+function downloadFilename(doc) {
+  const raw = (doc.file_url || '').split('?')[0];
+  const dot = raw.lastIndexOf('.');
+  const ext = dot > -1 ? raw.slice(dot + 1) : (FILE_TYPE_EXT[doc.file_type] || '');
+  const base = doc.name || 'document';
+  return ext && !base.toLowerCase().endsWith(`.${ext.toLowerCase()}`) ? `${base}.${ext}` : base;
 }
 
 const UNFILED = '__unfiled__';
@@ -59,6 +80,8 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
   const [search, setSearch] = useState('');
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkMoveFolder, setBulkMoveFolder] = useState(null); // folder name pending bulk-move confirmation
+  const [downloadingId, setDownloadingId] = useState(null);
+  const [downloadingAll, setDownloadingAll] = useState(false);
   const dropZoneRef = useRef(null);
   // Controllers abort the in-flight network transfer when a dialog is closed mid-upload.
   // The *AbortRef flags are belt-and-braces: if the upload finished in the instant before
@@ -298,6 +321,68 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
   });
   const bulkBusy = bulkStatusMutation.isPending || bulkMoveMutation.isPending || bulkDeleteMutation.isPending;
   const [showBulkDelete, setShowBulkDelete] = useState(false);
+
+  const handleDownload = async (doc) => {
+    setDownloadingId(doc.id);
+    try {
+      const url = await resolveDownloadUrl(doc);
+      if (!url) throw new Error('File not available');
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Download failed');
+      const blob = await res.blob();
+      saveAs(blob, downloadFilename(doc));
+    } catch (err) {
+      toast({ title: 'Download failed', description: err?.message || 'Please try again.', variant: 'destructive' });
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  // Zips every currently-visible document (respects the active/archived scope and the
+  // search filter, same set the grid shows) preserving folder structure.
+  const handleDownloadAll = async () => {
+    const targets = visibleDocs.filter(d => d.file_url);
+    if (!targets.length) return;
+    setDownloadingAll(true);
+    try {
+      const zip = new JSZip();
+      const usedPaths = new Set();
+      let anySucceeded = false;
+      for (const doc of targets) {
+        try {
+          const url = await resolveDownloadUrl(doc);
+          if (!url) continue;
+          const res = await fetch(url);
+          if (!res.ok) continue;
+          const blob = await res.blob();
+          let filename = downloadFilename(doc);
+          let filePath = doc.folder ? `${doc.folder}/${filename}` : filename;
+          if (usedPaths.has(filePath)) {
+            const dot = filename.lastIndexOf('.');
+            const base = dot > -1 ? filename.slice(0, dot) : filename;
+            const ext = dot > -1 ? filename.slice(dot) : '';
+            let i = 2;
+            let candidate;
+            do {
+              candidate = doc.folder ? `${doc.folder}/${base} (${i})${ext}` : `${base} (${i})${ext}`;
+              i++;
+            } while (usedPaths.has(candidate));
+            filePath = candidate;
+          }
+          usedPaths.add(filePath);
+          zip.file(filePath, blob);
+          anySucceeded = true;
+        } catch (_) { /* skip this file, continue zipping the rest */ }
+      }
+      if (!anySucceeded) throw new Error('None of the files could be downloaded.');
+      const content = await zip.generateAsync({ type: 'blob' });
+      saveAs(content, `${project.name || 'Documents'}.zip`);
+    } catch (err) {
+      toast({ title: 'Download all failed', description: err?.message || 'Please try again.', variant: 'destructive' });
+    } finally {
+      setDownloadingAll(false);
+    }
+  };
 
   const handleUpload = async (file, folder) => {
     const f = file || uploadForm.file;
@@ -556,6 +641,16 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
           <SecureFileLink value={doc.file_url} className="flex-shrink-0" title="Open file">
             <ExternalLink className="w-3.5 h-3.5 text-muted-foreground hover:text-primary" />
           </SecureFileLink>
+          <button
+            onClick={(e) => { e.stopPropagation(); handleDownload(doc); }}
+            disabled={downloadingId === doc.id}
+            title="Download"
+            className="flex-shrink-0 p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
+          >
+            {downloadingId === doc.id
+              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              : <Download className="w-3.5 h-3.5" />}
+          </button>
           {isInternal && (
             <button
               className="flex-shrink-0 text-xs text-muted-foreground hover:text-primary transition-colors px-1 py-0.5 rounded border border-transparent hover:border-border"
@@ -661,6 +756,12 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
           {showArchived ? `${archivedCount} archived document${archivedCount !== 1 ? 's' : ''}` : `${visibleDocs.length} document${visibleDocs.length !== 1 ? 's' : ''}`}
         </p>
         <div className="flex items-center gap-2">
+          {visibleDocs.length > 0 && (
+            <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs" disabled={downloadingAll} onClick={handleDownloadAll}>
+              {downloadingAll ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+              {downloadingAll ? 'Preparing…' : `Download All (${visibleDocs.length})`}
+            </Button>
+          )}
           {isInternal && archivedCount > 0 && (
             <Button size="sm" variant={showArchived ? 'secondary' : 'outline'}
               className="gap-1.5 h-8 text-xs"
