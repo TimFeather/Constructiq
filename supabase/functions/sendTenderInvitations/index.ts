@@ -96,7 +96,9 @@ Deno.serve(async (req: Request) => {
     const fromEmail   = `${fromName} <${senderEmail}>`;
     const resend      = new Resend(RESEND_API_KEY);
     const tpl         = templates.find((t: any) => t.template_key === 'tender_invitation');
-    const defaultBody = `You have been invited to submit pricing for {title}.\n\nPlease click the link below to view the tender documents and submit your pricing:\n\n{submission_link}\n\nClosing Date: {closing_date}\n\nRegards,\n{sender_name}`;
+    // Plain-text fallback mirroring lib/emailTemplates.js tender_invitation content
+    // (kept as text so the email's text variant stays clean; DB template overrides this)
+    const defaultBody = `Dear {invitee_name},\n\n{company_name} invites you to submit a tender for the following project:\n\nTender Number: {tender_number}\nProject: {title}\nLocation: {location}\nClosing Date: {closing_date}\nTrade Package(s): {trade_packages}\n\nScope:\n{description}\n\nView the tender and submit pricing: {submission_link}\n\nRegards,\n{sender_name}\n{sender_email}\n{company_name}`;
     const sentDate    = new Date().toISOString();
 
     let sent = 0, failed = 0;

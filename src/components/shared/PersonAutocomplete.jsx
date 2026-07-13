@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input';
 import { TenderContact, User } from '@/api/entities';
 import { UserCheck, Building2 } from 'lucide-react';
 import { filterActiveUsers } from '@/lib/userStatus';
+import { contactMatchesQuery } from '@/lib/contactFilter';
 
 /**
  * PersonAutocomplete
@@ -58,12 +59,7 @@ export default function PersonAutocomplete({
         : [];
       const userEmails = new Set(userMatches.map(u => u.email?.toLowerCase()).filter(Boolean));
       const contactMatches = contacts.filter(c =>
-        !userEmails.has(c.email?.toLowerCase()) && (
-          c.full_name?.toLowerCase().includes(q) ||
-          c.business_name?.toLowerCase().includes(q) ||
-          c.email?.toLowerCase().includes(q) ||
-          c.trade?.toLowerCase().includes(q)
-        )
+        !userEmails.has(c.email?.toLowerCase()) && contactMatchesQuery(c, q)
       ).map(c => ({ kind: 'contact', id: c.id, email: c.email, full_name: c.full_name, phone: c.phone, business_name: c.business_name, trade: c.trade }));
 
       setSuggestions([...userMatches, ...contactMatches].slice(0, 8));

@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Label } from '@/components/ui/label';
 import { Plus, Search, Pencil, Trash2, Upload, Download } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
+import { filterContacts } from '@/lib/contactFilter';
 
 const DEFAULT_TRADES = [
   'Electrical', 'Plumbing', 'HVAC', 'Carpentry', 'Masonry',
@@ -111,10 +112,7 @@ export default function SubcontractorDirectory() {
     e.target.value = '';
   };
 
-  const filtered = contacts.filter(c => {
-    const q = search.toLowerCase();
-    return !q || c.full_name?.toLowerCase().includes(q) || c.business_name?.toLowerCase().includes(q) || c.trade?.toLowerCase().includes(q) || c.email?.toLowerCase().includes(q);
-  });
+  const filtered = search ? filterContacts(contacts, search) : contacts;
 
   return (
     <div className="space-y-4">

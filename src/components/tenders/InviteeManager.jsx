@@ -19,6 +19,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Users, Plus, Trash2, Send, Search, RefreshCw, Archive, Link } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import PersonAutocomplete from '@/components/shared/PersonAutocomplete';
+import { filterContacts } from '@/lib/contactFilter';
 
 const DEFAULT_TRADES = [
   'Electrical', 'Plumbing', 'HVAC', 'Carpentry', 'Masonry',
@@ -136,15 +137,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
     clearTimeout(searchDebounce.current);
     searchDebounce.current = setTimeout(() => {
       if (val.length >= 1) {
-        const q = val.toLowerCase();
-        setSearchResults(
-          contacts.filter(c =>
-            c.full_name?.toLowerCase().includes(q) ||
-            c.business_name?.toLowerCase().includes(q) ||
-            c.email?.toLowerCase().includes(q) ||
-            c.trade?.toLowerCase().includes(q)
-          ).slice(0, 20)
-        );
+        setSearchResults(filterContacts(contacts, val).slice(0, 20));
       } else {
         setSearchResults([]);
       }
