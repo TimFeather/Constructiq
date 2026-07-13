@@ -1,39 +1,35 @@
-**Welcome to your Base44 project** 
+# ConstructIQ
 
-**About**
+Construction project management app for THS: project programmes (Gantt scheduling engine with dependencies, calendars, critical path), tenders (invitations, submissions, Q&A, awards), RFIs, documents, and subcontractor management.
 
-View and Edit  your app on [Base44.com](http://Base44.com) 
+## Stack
 
-This project contains everything you need to run your app locally.
+- **Frontend:** Vite + React SPA (`react-router-dom`), Tailwind CSS + shadcn/ui components
+- **Backend:** Supabase (Postgres, Auth, Storage, Edge Functions in `supabase/functions/`)
+- **Email:** Resend, with customizable templates (defaults in `src/lib/emailTemplates.js`, overrides stored in the `email_templates` table, editable in Settings)
+- **Hosting:** Vercel
 
-**Edit the code in your local development environment**
+## Local development
 
-Any change pushed to the repo will also be reflected in the Base44 Builder.
-
-**Prerequisites:** 
-
-1. Clone the repository using the project's Git URL 
-2. Navigate to the project directory
-3. Install dependencies: `npm install`
-4. Create an `.env.local` file and set the right environment variables
-
-```
-VITE_BASE44_APP_ID=your_app_id
-VITE_BASE44_APP_BASE_URL=your_backend_url
-
-e.g.
-VITE_BASE44_APP_ID=cbef744a8545c389ef439ea6
-VITE_BASE44_APP_BASE_URL=https://my-to-do-list-81bfaad7.base44.app
+```bash
+npm install
+npm run dev
 ```
 
-Run the app: `npm run dev`
+Requires a `.env.local` with the Supabase project URL and anon key (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`).
 
-**Publish your changes**
+## Key directories
 
-Open [Base44.com](http://Base44.com) and click on Publish.
+- `src/pages/` — route-level page components
+- `src/components/` — domain-organized UI (programme, tenders, rfis, projects, documents, settings, shared, ui)
+- `src/lib/scheduling/` — the programme scheduling engine (single source of truth; `src/lib/schedulingEngine.js` is a legacy re-export shim)
+- `supabase/migrations/` — numbered SQL migrations, run manually in the Supabase SQL Editor
+- `supabase/functions/` — Deno edge functions (email sending, tender workflow, cron reminders)
 
-**Docs & Support**
+## Database changes
 
-Documentation: [https://docs.base44.com/Integrations/Using-GitHub](https://docs.base44.com/Integrations/Using-GitHub)
+Migrations are applied manually: paste the SQL from `supabase/migrations/NNN_*.sql` into the Supabase SQL Editor. `supabase/schema.sql` mirrors the live schema as documentation.
 
-Support: [https://app.base44.com/support](https://app.base44.com/support)
+## History
+
+Originally built on the Base44 platform; fully migrated to Supabase in June 2026.
