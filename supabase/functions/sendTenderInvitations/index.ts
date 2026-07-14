@@ -17,6 +17,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { Resend } from 'npm:resend@4.0.0';
 import { escapeHtml } from '../_shared/escapeHtml.ts';
+import { sanitizeHtmlForEmail } from '../_shared/sanitizeHtml.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz',
@@ -182,7 +183,12 @@ Deno.serve(async (req: Request) => {
         location:        escapeHtml(tenderInfo.location || ''),
         closing_date:    escapeHtml(tenderInfo.closing_date || ''),
         trade_packages:  escapeHtml((tenderInfo.trade_packages || []).join(', ')),
-        description:     escapeHtml(tenderInfo.description || ''),
+        // description is HTML authored via RichTextEditor — sanitize (don't escape)
+        // so formatting survives while script/event-handler vectors are stripped.
+        description:     sanitizeHtmlForEmail(tenderInfo.description || ''),
+        client_name:          escapeHtml(tenderInfo.client_name          || ''),
+        architect_name:       escapeHtml(tenderInfo.architect_name       || ''),
+        project_manager_name: escapeHtml(tenderInfo.project_manager_name || ''),
         submission_link: submissionLink,
         sender_name:     escapeHtml(branding.sender_name || branding.company_name || 'ConstructIQ'),
         sender_email:    escapeHtml(senderEmail),

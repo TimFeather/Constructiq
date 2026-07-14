@@ -24,6 +24,7 @@ import { Upload, Download, FileText, Loader2, FolderOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import DocTable from './DocTable';
 import UploadProgressModal from './UploadProgressModal';
+import FilePreviewModal from '@/components/shared/FilePreviewModal';
 import {
   walkEntry,
   extractUploadPackage,
@@ -46,6 +47,7 @@ const INITIAL_STATE = {
   successDocs: [],
   duplicates: [],
   pendingPackage: null,   // { folders, files } waiting for duplicate decision
+  pendingCategory: undefined, // category to apply once the pending package uploads
   duplicateAction: 'version',
   errorMessage: '',
 };
@@ -53,17 +55,18 @@ const INITIAL_STATE = {
 export default function TenderDocuments({ tender, onUpdate, canManage }) {
   const [uploadState, setUploadState] = useState(INITIAL_STATE);
   const [showUpload, setShowUpload] = useState(false);
-  const [uploadForm, setUploadForm] = useState({ name: '', category: 'Plans', file: null });
+  const [uploadForm, setUploadForm] = useState({ name: '', category: 'Plans', files: [] });
   const [singleUploading, setSingleUploading] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [downloadingAll, setDownloadingAll] = useState(false);
+  const [previewDoc, setPreviewDoc] = useState(null); // { name, file_url } | null
 
   const folderInputRef = useRef(null);
   const docs = tender.documents || [];
 
   // ── Core upload pipeline ────────────────────────────────────────────────
 
-  async function startUpload(pkg, duplicateAction) {
+  async function startUpload(pkg, duplicateAction, category) {
     const { folders, files } = pkg;
     const batchId = `batch_${Date.now()}`;
 
@@ -96,6 +99,7 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
       batchId,
       duplicateAction,
       existingDocs: docs,
+      category,
       onProgress: ({ uploaded, failedCount, current }) => {
         setUploadState(s => ({
           ...s,
@@ -120,8 +124,10 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
     setUploadState(s => ({ ...s, phase: 'complete', successDocs, failedFiles }));
   }
 
-  // Entry point for both drag-drop and folder picker
-  async function handleFilesCollected(filesWithRelPaths) {
+  // Entry point for both drag-drop, folder picker, and the multi-file Upload
+  // dialog. `category` is optional — only the Upload dialog supplies one
+  // (drag-drop/folder-select default to 'Other', same as before).
+  async function handleFilesCollected(filesWithRelPaths, category) {
     const pkg = extractUploadPackage(filesWithRelPaths);
     if (!pkg.files.length) return;
 
@@ -133,11 +139,12 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
         phase: 'confirm-duplicates',
         duplicates: dups,
         pendingPackage: pkg,
+        pendingCategory: category,
         filesTotal: pkg.files.length,
         foldersTotal: pkg.folders.length,
       });
     } else {
-      await startUpload(pkg, 'version');
+      await startUpload(pkg, 'version', category);
     }
   }
 
@@ -188,7 +195,7 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
   async function handleDuplicateAction(action) {
     const pkg = uploadState.pendingPackage;
     if (!pkg) return;
-    await startUpload(pkg, action);
+    await startUpload(pkg, action, uploadState.pendingCategory);
   }
 
   // ── Retry failed files (Phase 10) ────────────────────────────────────────
@@ -198,30 +205,46 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
     await startUpload(pkg, uploadState.duplicateAction || 'version');
   }
 
-  // ── Single file upload ───────────────────────────────────────────────────
-  async function handleSingleUpload() {
-    if (!uploadForm.file || !uploadForm.name) return;
-    setSingleUploading(true);
-    try {
-      // Tender packages are downloaded by unauthenticated suppliers on the public
-      // portal — keep them in the public Documents bucket (permanent public URL).
-      const { file_url } = await uploadFile(uploadForm.file, 'Documents');
-      const newDoc = {
-        name:        uploadForm.name,
-        file_url,
-        file_type:   uploadForm.file.name.split('.').pop()?.toUpperCase() || 'File',
-        category:    uploadForm.category,
-        folder_path: '',
-        uploaded_at: new Date().toISOString(),
-      };
-      await onUpdate({ documents: [...docs, newDoc] });
-      setShowUpload(false);
-      setUploadForm({ name: '', category: 'Plans', file: null });
-    } catch (err) {
-      alert(`Upload failed: ${err.message || 'Please try again'}`);
-    } finally {
-      setSingleUploading(false);
+  // ── Upload dialog submit ─────────────────────────────────────────────────
+  // Single file with a custom name keeps the original named-upload behaviour.
+  // Multiple files (or a single file left unnamed) route through the same
+  // batch pipeline drag-drop/folder-select use, so they benefit from
+  // duplicate detection, retry, and progress reporting for free.
+  async function handleDialogUpload() {
+    const files = uploadForm.files;
+    if (!files.length) return;
+
+    if (files.length === 1 && uploadForm.name.trim()) {
+      setSingleUploading(true);
+      try {
+        // Tender packages are downloaded by unauthenticated suppliers on the public
+        // portal — keep them in the public Documents bucket (permanent public URL).
+        const { file_url } = await uploadFile(files[0], 'Documents');
+        const newDoc = {
+          name:        uploadForm.name,
+          file_url,
+          file_type:   files[0].name.split('.').pop()?.toUpperCase() || 'File',
+          category:    uploadForm.category,
+          folder_path: '',
+          uploaded_at: new Date().toISOString(),
+        };
+        await onUpdate({ documents: [...docs, newDoc] });
+        setShowUpload(false);
+        setUploadForm({ name: '', category: 'Plans', files: [] });
+      } catch (err) {
+        alert(`Upload failed: ${err.message || 'Please try again'}`);
+      } finally {
+        setSingleUploading(false);
+      }
+      return;
     }
+
+    // Multi-file path — batch pipeline (progress shown via UploadProgressModal)
+    setShowUpload(false);
+    const category = uploadForm.category;
+    const filesWithRelPaths = files.map(file => ({ file, relativePath: file.name }));
+    setUploadForm({ name: '', category: 'Plans', files: [] });
+    await handleFilesCollected(filesWithRelPaths, category);
   }
 
   async function handleDelete(idx) {
@@ -230,6 +253,28 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
 
   async function handleCategoryChange(idx, category) {
     await onUpdate({ documents: docs.map((d, i) => i === idx ? { ...d, category } : d) });
+  }
+
+  // ── Move a document between folders (Phase 7) ───────────────────────────
+  // Tender documents live as a flat JSONB array with a `folder_path` string;
+  // moving a file just rewrites that string (+ relative_path for consistency)
+  // and re-saves the whole array. Best-effort keep `folder_id` in sync by
+  // reusing another doc's folder_id for the same target path — display never
+  // depends on it, only on folder_path.
+  async function handleMove(idx, targetPath) {
+    const normalizedTarget = (targetPath || '').replace(/\/+$/, '');
+    const matchingFolderId = docs.find(d => (d.folder_path || '') === normalizedTarget)?.folder_id ?? null;
+    const updatedDocs = docs.map((d, i) => {
+      if (i !== idx) return d;
+      const fileName = d.relative_path ? d.relative_path.split('/').pop() : d.name;
+      return {
+        ...d,
+        folder_path: normalizedTarget,
+        relative_path: normalizedTarget ? `${normalizedTarget}/${fileName}` : fileName,
+        folder_id: normalizedTarget ? matchingFolderId : null,
+      };
+    });
+    await onUpdate({ documents: updatedDocs });
   }
 
   // ── Download all as ZIP ──────────────────────────────────────────────────
@@ -349,8 +394,18 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
           canManage={canManage}
           onCategoryChange={handleCategoryChange}
           onDelete={handleDelete}
+          onPreview={doc => setPreviewDoc(doc)}
+          onMove={handleMove}
         />
       )}
+
+      {/* Document quick-look preview */}
+      <FilePreviewModal
+        url={previewDoc?.file_url}
+        name={previewDoc?.name}
+        open={!!previewDoc}
+        onClose={() => setPreviewDoc(null)}
+      />
 
       {/* Upload progress / duplicate resolution modal */}
       <UploadProgressModal
@@ -360,20 +415,38 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
         onClose={() => setUploadState(INITIAL_STATE)}
       />
 
-      {/* Single file upload dialog */}
+      {/* Upload File dialog — supports single (custom name) or multiple files */}
       <Dialog open={showUpload} onOpenChange={setShowUpload}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Upload Document</DialogTitle>
+            <DialogTitle>Upload Document{uploadForm.files.length > 1 ? 's' : ''}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label>Document Name *</Label>
+              <Label>File{uploadForm.files.length > 1 ? 's' : ''} *</Label>
+              <Input
+                type="file"
+                multiple
+                accept=".pdf,.doc,.docx,.xls,.xlsx,.dwg,.dxf,.png,.jpg,.jpeg,.zip"
+                onChange={e => setUploadForm(f => ({ ...f, files: Array.from(e.target.files || []) }))}
+              />
+              {uploadForm.files.length > 1 && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  {uploadForm.files.length} files selected — each will keep its own filename.
+                </p>
+              )}
+            </div>
+            <div>
+              <Label>Document Name {uploadForm.files.length <= 1 ? '*' : ''}</Label>
               <Input
                 value={uploadForm.name}
                 onChange={e => setUploadForm(f => ({ ...f, name: e.target.value }))}
                 placeholder="e.g. Architectural Plans Rev A"
+                disabled={uploadForm.files.length > 1}
               />
+              {uploadForm.files.length > 1 && (
+                <p className="text-xs text-muted-foreground mt-1">Not used for multi-file uploads.</p>
+              )}
             </div>
             <div>
               <Label>Category</Label>
@@ -387,20 +460,12 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
                 </SelectContent>
               </Select>
             </div>
-            <div>
-              <Label>File *</Label>
-              <Input
-                type="file"
-                accept=".pdf,.doc,.docx,.xls,.xlsx,.dwg,.dxf,.png,.jpg,.jpeg,.zip"
-                onChange={e => setUploadForm(f => ({ ...f, file: e.target.files?.[0] || null }))}
-              />
-            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowUpload(false)}>Cancel</Button>
             <Button
-              onClick={handleSingleUpload}
-              disabled={singleUploading || !uploadForm.file || !uploadForm.name}
+              onClick={handleDialogUpload}
+              disabled={singleUploading || !uploadForm.files.length || (uploadForm.files.length === 1 && !uploadForm.name.trim())}
             >
               {singleUploading ? 'Uploading…' : 'Upload'}
             </Button>

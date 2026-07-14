@@ -307,6 +307,7 @@ create table public.tenders (
   status                   text default 'Draft' check (status in ('Draft','Issued','Submitted','Awarded','Unsuccessful','Archived','On Hold','Cancelled','Converted')),
   issue_date               date,
   closing_date             text,  -- ISO datetime string
+  ths_rft_closing_date     date,  -- second, invitee-visible closing date
   award_date               date,
   estimated_value          numeric,
   project_id               uuid references public.projects(id) on delete set null,

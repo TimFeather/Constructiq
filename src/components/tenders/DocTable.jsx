@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Download, Trash2, FolderOpen, FolderClosed, ChevronRight, ChevronDown } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Download, Trash2, FolderOpen, FolderClosed, ChevronRight, ChevronDown, Eye, FolderInput } from 'lucide-react';
 import { format } from 'date-fns';
 
 const CATEGORIES = ['Plans', 'Specifications', 'Bill of Quantities', 'Schedule', 'Contract', 'Other'];
+const PREVIEWABLE_RE = /\.(pdf|png|jpe?g|gif|webp|svg)$/i;
 
 const FILE_ICONS = {
   pdf: '📄', doc: '📝', docx: '📝', xls: '📊', xlsx: '📊',
@@ -47,7 +49,10 @@ function buildTree(docs) {
   return root;
 }
 
-function DocRow({ doc, idx, canManage, onCategoryChange, onDelete, depth }) {
+function DocRow({ doc, idx, canManage, onCategoryChange, onDelete, onPreview, onMove, folderPaths, depth }) {
+  const isPreviewable = PREVIEWABLE_RE.test(doc.name || '') || PREVIEWABLE_RE.test(doc.file_url || '');
+  const currentFolder = doc.folder_path || '';
+
   return (
     <tr className="hover:bg-muted/30 transition-colors">
       <td className="px-4 py-2.5">
@@ -80,11 +85,37 @@ function DocRow({ doc, idx, canManage, onCategoryChange, onDelete, depth }) {
       </td>
       <td className="px-4 py-2.5">
         <div className="flex items-center gap-1 justify-end">
+          {isPreviewable && (
+            <Button variant="ghost" size="icon" className="h-7 w-7" title="Preview"
+              onClick={() => onPreview(doc)}>
+              <Eye className="w-3.5 h-3.5" />
+            </Button>
+          )}
           <a href={doc.file_url} target="_blank" rel="noopener noreferrer">
             <Button variant="ghost" size="icon" className="h-7 w-7" title="Download">
               <Download className="w-3.5 h-3.5" />
             </Button>
           </a>
+          {canManage && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-7 w-7" title="Move to…">
+                  <FolderInput className="w-3.5 h-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {folderPaths.map(({ path, label }) => (
+                  <DropdownMenuItem
+                    key={path}
+                    disabled={path === currentFolder}
+                    onClick={() => onMove(idx, path)}
+                  >
+                    {label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           {canManage && (
             <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
               onClick={() => onDelete(idx)}>
@@ -103,7 +134,7 @@ function countAllFiles(node) {
   return n;
 }
 
-function FolderNode({ node, depth, canManage, onCategoryChange, onDelete }) {
+function FolderNode({ node, depth, canManage, onCategoryChange, onDelete, onPreview, onMove, folderPaths }) {
   const [open, setOpen] = useState(true);
   const total = countAllFiles(node);
   const childKeys = [...node.children.keys()].sort();
@@ -142,6 +173,9 @@ function FolderNode({ node, depth, canManage, onCategoryChange, onDelete }) {
               canManage={canManage}
               onCategoryChange={onCategoryChange}
               onDelete={onDelete}
+              onPreview={onPreview}
+              onMove={onMove}
+              folderPaths={folderPaths}
             />
           ))}
           {/* Sub-folders */}
@@ -153,6 +187,9 @@ function FolderNode({ node, depth, canManage, onCategoryChange, onDelete }) {
               canManage={canManage}
               onCategoryChange={onCategoryChange}
               onDelete={onDelete}
+              onPreview={onPreview}
+              onMove={onMove}
+              folderPaths={folderPaths}
             />
           ))}
         </>
@@ -161,9 +198,30 @@ function FolderNode({ node, depth, canManage, onCategoryChange, onDelete }) {
   );
 }
 
-export default function DocTable({ docs, canManage, onCategoryChange, onDelete }) {
+// Build the "Move to…" option list: every distinct folder_path present in
+// this tender's documents, plus root. Used identically for every row so the
+// destination set always reflects the tender's current folder structure.
+function buildFolderPathOptions(docs) {
+  const paths = new Set();
+  docs.forEach(d => {
+    const fp = (d.folder_path || '').replace(/\/+$/, '');
+    if (!fp) return;
+    // Include every ancestor too, so nested folders are reachable even if no
+    // file lives directly at the intermediate level.
+    const parts = fp.split('/').filter(Boolean);
+    for (let i = 1; i <= parts.length; i++) paths.add(parts.slice(0, i).join('/'));
+  });
+  const sorted = [...paths].sort();
+  return [
+    { path: '', label: 'Root (no folder)' },
+    ...sorted.map(p => ({ path: p, label: p })),
+  ];
+}
+
+export default function DocTable({ docs, canManage, onCategoryChange, onDelete, onPreview, onMove }) {
   const tree = buildTree(docs);
   const folderKeys = [...tree.children.keys()].sort();
+  const folderPaths = buildFolderPathOptions(docs);
 
   return (
     <div className="border rounded-lg overflow-hidden">
@@ -188,6 +246,9 @@ export default function DocTable({ docs, canManage, onCategoryChange, onDelete }
               canManage={canManage}
               onCategoryChange={onCategoryChange}
               onDelete={onDelete}
+              onPreview={onPreview}
+              onMove={onMove}
+              folderPaths={folderPaths}
             />
           ))}
           {/* Folder tree */}
@@ -199,6 +260,9 @@ export default function DocTable({ docs, canManage, onCategoryChange, onDelete }
               canManage={canManage}
               onCategoryChange={onCategoryChange}
               onDelete={onDelete}
+              onPreview={onPreview}
+              onMove={onMove}
+              folderPaths={folderPaths}
             />
           ))}
         </tbody>

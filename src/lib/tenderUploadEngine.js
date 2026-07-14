@@ -187,6 +187,7 @@ export async function runBatchUpload({
   duplicateAction,
   existingDocs,
   onProgress,
+  category,
 }) {
   const successDocs = [];
   const failedFiles = [];
@@ -234,7 +235,7 @@ export async function runBatchUpload({
         name: finalName,
         file_url: fileUrl,
         file_type: (fileName.split('.').pop() || 'File').toUpperCase(),
-        category: 'Other',
+        category: category || 'Other',
         folder_path: folderPath,
         relative_path: relativePath,
         folder_id: folderId,

@@ -35,7 +35,7 @@ Deno.serve(async (req) => {
 
     const ALLOWED_FIELDS = new Set([
       'title', 'description', 'status', 'location',
-      'issue_date', 'site_visit_date', 'questions_date', 'closing_date',
+      'issue_date', 'site_visit_date', 'questions_date', 'closing_date', 'ths_rft_closing_date',
       'estimated_value', 'trade_packages',
       'tender_lead_user_id', 'tender_lead_name', 'tender_lead_email',
       'client_name', 'client_contact', 'client_email',

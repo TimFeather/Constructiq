@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import SanitizedHtml from '@/components/shared/SanitizedHtml';
 import {
   HardHat, Calendar, MapPin, Download, CheckCircle2,
   AlertCircle, Mail, Phone, Building2, FileText, Bell, MessageSquare, X,
@@ -397,6 +398,9 @@ export default function TenderSubmit() {
                   <InfoField label="Address / Location" value={tender.location} />
                   <InfoField label="Tender due date" value={fmtDate(tender.closing_date)}
                     highlight={isOverdue ? 'red' : null} />
+                  {tender.ths_rft_closing_date && (
+                    <InfoField label="THS RFT closing date" value={fmtDate(tender.ths_rft_closing_date)} />
+                  )}
                   {tender.site_visit_date && (
                     <InfoField label="Site Visit Date" value={fmtDate(tender.site_visit_date)} />
                   )}
@@ -448,7 +452,7 @@ export default function TenderSubmit() {
                 {tender.description && (
                   <div>
                     <h4 className="font-medium text-sm mb-2">Project Description</h4>
-                    <p className="text-sm text-muted-foreground whitespace-pre-wrap">{tender.description}</p>
+                    <SanitizedHtml html={tender.description} className="text-muted-foreground" />
                   </div>
                 )}
               </div>
@@ -459,16 +463,17 @@ export default function TenderSubmit() {
                 {issuer?.name && (
                   <ContactCard name={issuer.name} email={issuer.email} phone={issuer.phone} label="Issued By" />
                 )}
-                {tender.client_name && (
-                  <ContactCard
-                    name={tender.client_name}
-                    email={tender.client_email}
-                    label="Client"
-                  />
-                )}
-                {tender.client_contact && tender.client_contact !== tender.client_name && (
-                  <ContactCard name={tender.client_contact} email={tender.client_email} />
-                )}
+                {(tender.additional_contacts || []).map((contact, i) => (
+                  contact.name && (
+                    <ContactCard
+                      key={i}
+                      name={contact.name}
+                      email={contact.email}
+                      phone={contact.phone}
+                      label={contact.role || undefined}
+                    />
+                  )
+                ))}
                 <div className="pt-2 border-t text-xs text-muted-foreground">
                   <p className="font-medium mb-1">Your invitation</p>
                   <p>{invitee?.full_name}</p>

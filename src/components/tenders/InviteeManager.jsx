@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Users, Plus, Trash2, Send, Search, RefreshCw, Archive, Link } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
+import { deriveLegacyContactNames } from '@/lib/tenderContacts';
 import PersonAutocomplete from '@/components/shared/PersonAutocomplete';
 import { filterContacts } from '@/lib/contactFilter';
 
@@ -302,9 +303,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
           closing_date:         tender.closing_date         || '',
           description:          tender.description          || '',
           trade_packages:       tender.trade_packages       || [],
-          client_name:          tender.client_name          || '',
-          architect_name:       tender.architect_name       || '',
-          project_manager_name: tender.project_manager_name || '',
+          ...deriveLegacyContactNames(tender),
         },
         appUrl: window.location.origin,
       });

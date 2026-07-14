@@ -13,6 +13,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
 import { logProjectActivity } from '@/lib/activityLog';
+import { stripHtml } from '@/lib/emailTemplates';
 
 export default function ConvertToProjectModal({ tender, open, onOpenChange }) {
   const navigate = useNavigate();
@@ -71,8 +72,16 @@ export default function ConvertToProjectModal({ tender, open, onOpenChange }) {
       // Build team
       const team = [];
       if (includeContacts) {
-        if (tender.architect_name) team.push({ full_name: tender.architect_name, user_email: tender.architect_email || '', role: 'Architect', business_name: '', phone: '' });
-        if (tender.project_manager_name) team.push({ full_name: tender.project_manager_name, user_email: tender.project_manager_email || '', role: 'Internal Project Manager', business_name: '', phone: '' });
+        (tender.additional_contacts || []).forEach(contact => {
+          if (!contact.name) return;
+          team.push({
+            full_name:     contact.name,
+            user_email:    contact.email || '',
+            role:          contact.role || 'Contact',
+            business_name: '',
+            phone:         contact.phone || '',
+          });
+        });
       }
       if (includeSubs) {
         console.log(`[ConvertToProject] Total submissions: ${allSubmissions.length}`);
@@ -97,7 +106,10 @@ export default function ConvertToProjectModal({ tender, open, onOpenChange }) {
         team,
       };
       if (includeDesc && tender.description) {
-        projectData.description = tender.description;
+        // Tender description is rich-text HTML (RichTextEditor); the project
+        // description field is plain text elsewhere in the app, so strip tags
+        // rather than carrying raw markup into it.
+        projectData.description = stripHtml(tender.description);
       }
 
       const newProject = await Project.create(projectData);
@@ -256,10 +268,10 @@ export default function ConvertToProjectModal({ tender, open, onOpenChange }) {
             </div>
 
             <div className="flex items-center gap-2">
-              <Checkbox checked={includeContacts} onCheckedChange={setIncludeContacts} id="inc-contacts" disabled={!tender.architect_name && !tender.project_manager_name} />
+              <Checkbox checked={includeContacts} onCheckedChange={setIncludeContacts} id="inc-contacts" disabled={!(tender.additional_contacts || []).some(c => c.name)} />
               <Label htmlFor="inc-contacts" className="text-sm font-normal cursor-pointer">
-                Key contacts (Architect, Project Manager) → Project team
-                {!tender.architect_name && !tender.project_manager_name && <span className="text-muted-foreground ml-1">(none set)</span>}
+                Key contacts → Project team
+                {!(tender.additional_contacts || []).some(c => c.name) && <span className="text-muted-foreground ml-1">(none set)</span>}
               </Label>
             </div>
 

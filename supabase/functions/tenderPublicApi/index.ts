@@ -349,6 +349,7 @@ Deno.serve(async (req: Request) => {
           title:           tender.title,
           description:     tender.description,
           closing_date:    tender.closing_date,
+          ths_rft_closing_date: tender.ths_rft_closing_date || '',
           site_visit_date: tender.site_visit_date || null,
           questions_date:  tender.questions_date  || null,
           trade_packages:  tender.trade_packages  || [],
@@ -359,6 +360,7 @@ Deno.serve(async (req: Request) => {
           client_name:     tender.client_name     || '',
           client_contact:  tender.client_contact  || '',
           client_email:    tender.client_email    || '',
+          additional_contacts: tender.additional_contacts || [],
           notices:         issuedNotices,
         },
         invitee: {

@@ -23,6 +23,7 @@ import TenderHealthPanel from '@/components/tenders/TenderHealthPanel.jsx';
 import TenderInvitationStats from '@/components/tenders/TenderInvitationStats';
 import TenderActivityFeed from '@/components/tenders/TenderActivityFeed';
 import TenderNTTPanel from '@/components/tenders/TenderNTTPanel';
+import RichTextEditor from '@/components/shared/RichTextEditor';
 
 const DEFAULT_TRADES = [
   'Electrical', 'Plumbing', 'HVAC', 'Carpentry', 'Masonry',
@@ -225,7 +226,7 @@ export default function TenderDetail() {
   // Detect unsaved changes
   useEffect(() => {
     if (!tender || !form) return;
-    const textFields = ['title', 'description', 'status', 'location', 'issue_date', 'site_visit_date', 'questions_date', 'notes', 'client_name', 'client_email', 'architect_name', 'architect_email', 'project_manager_name', 'project_manager_email', 'tender_lead_user_id'];
+    const textFields = ['title', 'description', 'status', 'location', 'issue_date', 'site_visit_date', 'questions_date', 'notes', 'tender_lead_user_id', 'ths_rft_closing_date'];
     const textChanged = textFields.some(key => String(form[key] ?? '') !== String(tender[key] ?? ''));
     const valueChanged = String(form.estimated_value ?? '') !== String(tender.estimated_value ?? '');
     const tradeChanged = JSON.stringify(form.trade_packages ?? []) !== JSON.stringify(tender.trade_packages ?? []);
@@ -295,20 +296,12 @@ export default function TenderDetail() {
       site_visit_date: form.site_visit_date || null,
       questions_date: form.questions_date || null,
       closing_date: buildClosingDatetime(),
+      ths_rft_closing_date: form.ths_rft_closing_date || null,
       estimated_value: form.estimated_value ? Number(form.estimated_value) : null,
       trade_packages: form.trade_packages || [],
       tender_lead_user_id: form.tender_lead_user_id || null,
       tender_lead_name: form.tender_lead_name || null,
       tender_lead_email: form.tender_lead_email || null,
-      client_name: form.client_name,
-      client_contact: form.client_contact,
-      client_email: form.client_email,
-      architect_name: form.architect_name,
-      architect_contact: form.architect_contact,
-      architect_email: form.architect_email,
-      project_manager_name: form.project_manager_name,
-      project_manager_contact: form.project_manager_contact,
-      project_manager_email: form.project_manager_email,
       additional_contacts: form.additional_contacts || [],
       notes: form.notes,
       });
@@ -460,7 +453,8 @@ export default function TenderDetail() {
             </div>
             <div className="sm:col-span-2">
               <Label className="text-xs">Description</Label>
-              <Textarea value={form.description || ''} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} rows={4} disabled={!canManage} placeholder="Scope of work, overview..." />
+              <p className="text-xs text-muted-foreground mb-1">Shown to invitees on the tender portal.</p>
+              <RichTextEditor value={form.description || ''} onChange={html => setForm(f => ({ ...f, description: html }))} disabled={!canManage} placeholder="Scope of work, overview..." />
             </div>
             <div>
               <Label className="text-xs">Location</Label>
@@ -486,6 +480,11 @@ export default function TenderDetail() {
             <div>
               <Label className="text-xs">Closing Time</Label>
               <Input type="time" value={form.closing_time || '17:00'} onChange={e => setForm(f => ({ ...f, closing_time: e.target.value }))} disabled={!canManage} />
+            </div>
+            <div>
+              <Label className="text-xs">THS RFT Closing Date</Label>
+              <Input type="date" value={form.ths_rft_closing_date || ''} onChange={e => setForm(f => ({ ...f, ths_rft_closing_date: e.target.value }))} disabled={!canManage} />
+              <p className="text-xs text-muted-foreground mt-0.5">Shown to invitees alongside the tender closing date.</p>
             </div>
             <div>
               <Label className="text-xs">Site Visit Date</Label>
@@ -590,49 +589,9 @@ export default function TenderDetail() {
 
           {/* Key Contacts */}
           <div className="space-y-4">
-            <h3 className="text-sm font-semibold">Key Contacts</h3>
-            {[
-              { label: 'Client', prefix: 'client' },
-              { label: 'Architect', prefix: 'architect' },
-              { label: 'Project Manager', prefix: 'project_manager' },
-            ].map(({ label, prefix }) => (
-              <div key={prefix} className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 border rounded-lg">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium">{label}</p>
-                  {canManage && (form[`${prefix}_name`] || form[`${prefix}_email`] || form[`${prefix}_contact`]) && (
-                    <button
-                      type="button"
-                      className="text-xs text-muted-foreground hover:text-destructive transition-colors"
-                      onClick={() => setForm(f => ({
-                        ...f,
-                        [`${prefix}_name`]: '',
-                        [`${prefix}_contact`]: '',
-                        [`${prefix}_email`]: '',
-                      }))}
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
-                <div>
-                  <Label className="text-xs">Name</Label>
-                  <Input value={form[`${prefix}_name`] || ''} onChange={e => setForm(f => ({ ...f, [`${prefix}_name`]: e.target.value }))} disabled={!canManage} placeholder={`${label} name`} className="h-8 text-sm" />
-                </div>
-                <div>
-                  <Label className="text-xs">Contact Person</Label>
-                  <Input value={form[`${prefix}_contact`] || ''} onChange={e => setForm(f => ({ ...f, [`${prefix}_contact`]: e.target.value }))} disabled={!canManage} placeholder="Contact person" className="h-8 text-sm" />
-                </div>
-                <div className="sm:col-start-2 sm:col-span-2">
-                  <Label className="text-xs">Email</Label>
-                  <Input type="email" value={form[`${prefix}_email`] || ''} onChange={e => setForm(f => ({ ...f, [`${prefix}_email`]: e.target.value }))} disabled={!canManage} placeholder="email@example.com" className="h-8 text-sm" />
-                </div>
-              </div>
-            ))}
-
-            {/* Additional contacts */}
             <div>
               <div className="flex items-center justify-between mb-2">
-                <p className="text-sm font-medium text-muted-foreground">Additional Contacts</p>
+                <h3 className="text-sm font-semibold">Key Contacts</h3>
                 {canManage && (
                   <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
                     onClick={() => setForm(f => ({ ...f, additional_contacts: [...(f.additional_contacts || []), { role: '', name: '', email: '', phone: '' }] }))}>
@@ -685,15 +644,16 @@ export default function TenderDetail() {
                 </div>
               ))}
               {(!form.additional_contacts?.length) && (
-                <p className="text-xs text-muted-foreground">No additional contacts.</p>
+                <p className="text-xs text-muted-foreground">No contacts added yet.</p>
               )}
             </div>
           </div>
 
           {/* Notes */}
           <div>
-            <Label className="text-xs">Notes</Label>
-            <Textarea value={form.notes || ''} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={3} disabled={!canManage} />
+            <Label className="text-xs">Internal Notes</Label>
+            <p className="text-xs text-muted-foreground mb-1">Internal only — never shown to invitees.</p>
+            <RichTextEditor value={form.notes || ''} onChange={html => setForm(f => ({ ...f, notes: html }))} disabled={!canManage} />
           </div>
 
           {effectiveCanManage && (
