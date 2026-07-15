@@ -259,11 +259,11 @@ export const DEFAULT_TEMPLATES = {
 <p style="margin-top:24px;color:#6b7280;font-size:13px;">Best regards,<br>ConstructIQ</p>`,
   },
   programme_published: {
-    name: 'Programme Published',
-    subject: 'Updated Programme Published — {project_name}',
+    name: 'Programme Update Notification',
+    subject: 'Programme Updated — {project_name}',
     body_html: `<p>Hi,</p>
-<p>The construction programme for <strong>{project_name}</strong> has just been published by {sender_name}.</p>
-<p>The schedule is now locked — please refer to it for current dates and let us know if you have any questions.</p>
+<p>The construction programme for <strong>{project_name}</strong> has been updated by {sender_name}.</p>
+<p>Please refer to the latest schedule for current dates, and let us know if you have any questions.</p>
 <p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br>{sender_name}<br>{company_name}</p>`,
   },
   user_invite: {

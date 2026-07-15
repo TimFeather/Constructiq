@@ -147,7 +147,7 @@ export default function Settings() {
     { key: 'subcontractor_invite', label: 'Subcontractor Invite' },
     { key: 'subcontractor_invite_quote', label: 'Subcontractor Invite — Quote Accepted' },
     { key: 'team_added_quote', label: 'Added to Project — Quote Accepted' },
-    { key: 'programme_published', label: 'Programme Published' },
+    { key: 'programme_published', label: 'Programme Update Notification' },
     { key: 'contract_instruction', label: 'Contract Instruction Issued' },
     { key: 'tender_question_posted', label: 'Tender Question — Admin Notification' },
     { key: 'tender_question_answered', label: 'Tender Question — Answer Notification' },

@@ -21,10 +21,10 @@ const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
 const DEFAULT_TEMPLATE = {
-  subject: 'Updated Programme Published — {project_name}',
+  subject: 'Programme Updated — {project_name}',
   body_html: `<p>Hi,</p>
-<p>The construction programme for <strong>{project_name}</strong> has just been published by {sender_name}.</p>
-<p>The schedule is now locked — please refer to it for current dates and let us know if you have any questions.</p>
+<p>The construction programme for <strong>{project_name}</strong> has been updated by {sender_name}.</p>
+<p>Please refer to the latest schedule for current dates, and let us know if you have any questions.</p>
 <p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br>{sender_name}<br>{company_name}</p>`,
 };
 
@@ -166,7 +166,7 @@ Deno.serve(async (req: Request) => {
         event_type:  'programme_published',
         actor_name:  sender.full_name || 'System',
         actor_email: sender.email || '',
-        description: `Programme published — notified ${sent}/${recipients.length} team member(s)`,
+        description: `Programme update published — notified ${sent}/${recipients.length} team member(s)`,
         metadata:    { sent, failed, total: recipients.length },
         occurred_at: new Date().toISOString(),
       });

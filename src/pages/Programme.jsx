@@ -17,7 +17,7 @@ import {
 import {
   PanelLeftClose, PanelLeftOpen, Upload, Printer, ZoomIn, ZoomOut,
   Trash2, Target, Calendar, LayoutDashboard, CalendarDays,
-  ChevronsDownUp, ChevronsUpDown, Download, Plus, Lock, Unlock,
+  ChevronsDownUp, ChevronsUpDown, Download, Plus, Lock, Unlock, Send,
 } from 'lucide-react';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -228,38 +228,63 @@ export default function Programme() {
   const canImportExport = canImport(user, 'programme') && canExport(user, 'programme');
   const canPublish = ['admin', 'internal', 'pricing'].includes(user?.role) && selectedProjectId !== 'all';
 
-  const [isPublishing, setIsPublishing] = useState(false);
+  const [isLocking, setIsLocking] = useState(false);
+  const [isNotifying, setIsNotifying] = useState(false);
 
-  const handlePublish = useCallback(async () => {
+  // Lock the schedule — freezes dates/hierarchy/dependencies for non-admins.
+  // No email is sent; use Publish to notify the team of an update.
+  const handleLock = useCallback(async () => {
     if (!selectedProjectId || selectedProjectId === 'all') return;
-    setIsPublishing(true);
+    setIsLocking(true);
     try {
       await publishProgramme(selectedProjectId);
       queryClient.invalidateQueries({ queryKey: ['programme', selectedProjectId] });
       queryClient.invalidateQueries({ queryKey: ['programmes'] });
-      toast({ title: 'Programme published', description: 'The schedule is now locked for editing.', duration: 3500 });
-      invokeFunction('notifyProgrammePublished', { projectId: selectedProjectId }).catch(() => {});
+      toast({ title: 'Programme locked', description: 'The schedule is frozen — unlock it to make changes.', duration: 3500 });
     } catch (e) {
-      toast({ title: 'Publish failed', description: e.message, variant: 'destructive' });
+      toast({ title: 'Lock failed', description: e.message, variant: 'destructive' });
     } finally {
-      setIsPublishing(false);
+      setIsLocking(false);
     }
   }, [selectedProjectId, queryClient, toast]);
 
-  const handleUnpublish = useCallback(async () => {
+  // Unlock the schedule for editing. Admin only.
+  const handleUnlock = useCallback(async () => {
     if (!selectedProjectId || selectedProjectId === 'all') return;
-    setIsPublishing(true);
+    setIsLocking(true);
     try {
       await unpublishProgramme(selectedProjectId);
       queryClient.invalidateQueries({ queryKey: ['programme', selectedProjectId] });
       queryClient.invalidateQueries({ queryKey: ['programmes'] });
-      toast({ title: 'Programme unpublished', description: 'The schedule is unlocked for editing.', duration: 3500 });
+      toast({ title: 'Programme unlocked', description: 'The schedule is open for editing.', duration: 3500 });
     } catch (e) {
-      toast({ title: 'Unpublish failed', description: e.message, variant: 'destructive' });
+      toast({ title: 'Unlock failed', description: e.message, variant: 'destructive' });
     } finally {
-      setIsPublishing(false);
+      setIsLocking(false);
     }
   }, [selectedProjectId, queryClient, toast]);
+
+  // Publish = notify every team member & subcontractor that the programme has
+  // been updated. Does not change the lock state — lock the schedule first.
+  const handlePublish = useCallback(async () => {
+    if (!selectedProjectId || selectedProjectId === 'all') return;
+    setIsNotifying(true);
+    try {
+      const { data } = await invokeFunction('notifyProgrammePublished', { projectId: selectedProjectId });
+      const sent = data?.sent ?? 0;
+      toast({
+        title: 'Update published',
+        description: sent > 0
+          ? `Notified ${sent} team member${sent === 1 ? '' : 's'} & subcontractor(s).`
+          : 'No team members with an email address to notify.',
+        duration: 3500,
+      });
+    } catch (e) {
+      toast({ title: 'Publish failed', description: e.message, variant: 'destructive' });
+    } finally {
+      setIsNotifying(false);
+    }
+  }, [selectedProjectId, toast]);
 
   // ─── Authoring handlers (Gantt drag + editors → scheduling service) ──────────
   const afterScheduleChange = useCallback((patchCount) => {
@@ -712,20 +737,26 @@ export default function Programme() {
 
             {selectedProjectId !== 'all' && programmeLocked && (
               <Badge variant="outline" className="gap-1 border-amber-400 text-amber-700 bg-amber-50">
-                <Lock className="w-3 h-3" /> Published
+                <Lock className="w-3 h-3" /> Locked
               </Badge>
             )}
 
             {canPublish && !programmeLocked && (
-              <Button variant="outline" size="sm" onClick={handlePublish} disabled={isPublishing || tasks.length === 0}
-                className="gap-1.5 text-xs h-9" title="Lock the schedule and notify the team">
-                <Lock className="w-3.5 h-3.5" /> Publish
+              <Button variant="outline" size="sm" onClick={handleLock} disabled={isLocking || tasks.length === 0}
+                className="gap-1.5 text-xs h-9" title="Freeze the schedule so no changes can be made">
+                <Lock className="w-3.5 h-3.5" /> Lock
               </Button>
             )}
             {isAdmin && programmeLocked && selectedProjectId !== 'all' && (
-              <Button variant="outline" size="sm" onClick={handleUnpublish} disabled={isPublishing}
+              <Button variant="outline" size="sm" onClick={handleUnlock} disabled={isLocking}
                 className="gap-1.5 text-xs h-9" title="Unlock the schedule for editing">
-                <Unlock className="w-3.5 h-3.5" /> Unpublish
+                <Unlock className="w-3.5 h-3.5" /> Unlock
+              </Button>
+            )}
+            {canPublish && programmeLocked && (
+              <Button variant="default" size="sm" onClick={handlePublish} disabled={isNotifying}
+                className="gap-1.5 text-xs h-9" title="Email the team & subcontractors that the programme has been updated">
+                <Send className="w-3.5 h-3.5" /> {isNotifying ? 'Publishing…' : 'Publish'}
               </Button>
             )}
 
