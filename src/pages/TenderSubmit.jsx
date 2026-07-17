@@ -13,7 +13,7 @@ import SanitizedHtml from '@/components/shared/SanitizedHtml';
 import {
   HardHat, Calendar, MapPin, Download, CheckCircle2,
   AlertCircle, Mail, Phone, Building2, FileText, Bell, MessageSquare, X,
-  Plus, Loader2, RefreshCw,
+  Plus, Loader2, RefreshCw, FolderOpen, FolderClosed, ChevronRight, ChevronDown,
 } from 'lucide-react';
 import { format, parseISO, isPast } from 'date-fns';
 
@@ -40,7 +40,8 @@ function DownloadAllButton({ documents, tenderTitle }) {
         const ext = doc.file_url.split('?')[0].split('.').pop() || '';
         const fileName = doc.name || `document-${i + 1}`;
         const safeName = fileName.includes('.') ? fileName : `${fileName}.${ext}`;
-        zip.file(safeName, blob);
+        const folderPath = (doc.folder_path || '').replace(/\/+$/, '');
+        zip.file(folderPath ? `${folderPath}/${safeName}` : safeName, blob);
         setProgress(Math.round(((i + 1) / documents.length) * 100));
       }
       const zipBlob = await zip.generateAsync({ type: 'blob' });
@@ -129,6 +130,10 @@ export default function TenderSubmit() {
       })
       .catch(e => setError(e?.response?.data?.error || 'Invalid or expired link'))
       .finally(() => setLoading(false));
+    // Load questions up front so the tab count is visible without clicking in
+    invokeFunction('tenderPublicApi', { action: 'listQuestions', token })
+      .then(res => { setQuestions(res.data.questions || []); setQuestionsLoaded(true); })
+      .catch(() => { /* fail silently — tab click will retry */ });
   }, [token]);
 
   const handleUpdateIntent = async (intent) => {
@@ -497,17 +502,7 @@ export default function TenderSubmit() {
                   <DownloadAllButton documents={tender.documents} tenderTitle={tender.title} />
                 </div>
                 <div className="divide-y">
-                  {tender.documents.map((doc, i) => (
-                    <a key={i} href={doc.file_url} target="_blank" rel="noopener noreferrer"
-                       className="flex items-center gap-3 px-4 py-3 hover:bg-muted/40 transition-colors">
-                      <FileText className="w-4 h-4 text-primary flex-shrink-0" />
-                      <span className="flex-1 text-sm font-medium">{doc.name}</span>
-                      {doc.category && (
-                        <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">{doc.category}</span>
-                      )}
-                      <Download className="w-4 h-4 text-muted-foreground" />
-                    </a>
-                  ))}
+                  <DocTree docs={tender.documents} />
                 </div>
               </div>
             )}
@@ -803,6 +798,90 @@ export default function TenderSubmit() {
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
+
+// Build a recursive tree from flat docs with folder_path strings
+// (same shape as the admin-side DocTable: { name, files, children: Map }).
+function buildDocTree(docs) {
+  const root = { name: '', files: [], children: new Map() };
+  docs.forEach((doc, idx) => {
+    const fp = (doc.folder_path || '').replace(/\/+$/, '');
+    if (!fp) { root.files.push({ doc, idx }); return; }
+    const parts = fp.split('/').filter(Boolean);
+    let node = root;
+    for (const part of parts) {
+      if (!node.children.has(part)) {
+        node.children.set(part, { name: part, files: [], children: new Map() });
+      }
+      node = node.children.get(part);
+    }
+    node.files.push({ doc, idx });
+  });
+  return root;
+}
+
+function DocFileRow({ doc, depth }) {
+  return (
+    <a href={doc.file_url} target="_blank" rel="noopener noreferrer"
+       className="flex items-center gap-3 px-4 py-3 hover:bg-muted/40 transition-colors"
+       style={{ paddingLeft: `${16 + depth * 20}px` }}>
+      <FileText className="w-4 h-4 text-primary flex-shrink-0" />
+      <span className="flex-1 text-sm font-medium truncate">{doc.name}</span>
+      {doc.category && (
+        <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded hidden sm:inline">{doc.category}</span>
+      )}
+      <Download className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+    </a>
+  );
+}
+
+function countFiles(node) {
+  let n = node.files.length;
+  for (const child of node.children.values()) n += countFiles(child);
+  return n;
+}
+
+function DocFolderNode({ node, depth }) {
+  const [open, setOpen] = useState(true);
+  const total = countFiles(node);
+  return (
+    <div>
+      <button type="button" onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-2 px-4 py-2.5 hover:bg-muted/40 transition-colors text-left"
+        style={{ paddingLeft: `${16 + depth * 20}px` }}>
+        {open ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+              : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />}
+        {open ? <FolderOpen className="w-4 h-4 text-amber-500 flex-shrink-0" />
+              : <FolderClosed className="w-4 h-4 text-amber-500 flex-shrink-0" />}
+        <span className="text-sm font-medium truncate">{node.name}</span>
+        <span className="text-xs text-muted-foreground">({total})</span>
+      </button>
+      {open && (
+        <div>
+          {[...node.children.values()].map(child => (
+            <DocFolderNode key={child.name} node={child} depth={depth + 1} />
+          ))}
+          {node.files.map(({ doc, idx }) => (
+            <DocFileRow key={idx} doc={doc} depth={depth + 1} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DocTree({ docs }) {
+  const tree = buildDocTree(docs || []);
+  return (
+    <>
+      {[...tree.children.values()].map(child => (
+        <DocFolderNode key={child.name} node={child} depth={0} />
+      ))}
+      {tree.files.map(({ doc, idx }) => (
+        <DocFileRow key={idx} doc={doc} depth={0} />
+      ))}
+    </>
+  );
+}
 
 function PortalHeader({ tender, invitee, isOverdue, branding, onSubmitClick, showSubmitBtn }) {
   return (
