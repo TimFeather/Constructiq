@@ -77,12 +77,6 @@ export async function fetchProgrammeTasks(projectId) {
  * Delete-then-insert; RLS restricts to admin/pricing/internal.
  */
 export async function setTaskDependencies(taskId, projectId, preds) {
-  const { error: delError } = await supabase
-    .from('task_dependencies')
-    .delete()
-    .eq('successor_task_id', taskId);
-  if (delError) throw delError;
-
   const rows = (preds || [])
     .filter(p => (p.predecessor_id || p.task_id) && (p.predecessor_id || p.task_id) !== taskId)
     .map(p => ({
@@ -94,6 +88,26 @@ export async function setTaskDependencies(taskId, projectId, preds) {
       is_elapsed: !!p.is_elapsed,
       is_disabled: !!p.is_disabled,
     }));
+
+  const { data, error } = await supabase.rpc('set_task_dependencies', {
+    p_successor_task_id: taskId,
+    p_project_id: projectId,
+    p_deps: rows.map(({ predecessor_task_id, type, lag_days, is_elapsed, is_disabled }) => ({
+      predecessor_task_id,
+      type,
+      lag_days,
+      is_elapsed,
+      is_disabled,
+    })),
+  });
+  if (!error) return data;
+
+  console.warn('set_task_dependencies RPC unavailable, falling back to delete+insert:', error.message);
+  const { error: delError } = await supabase
+    .from('task_dependencies')
+    .delete()
+    .eq('successor_task_id', taskId);
+  if (delError) throw delError;
 
   if (rows.length) {
     const { error: insError } = await supabase.from('task_dependencies').insert(rows);
