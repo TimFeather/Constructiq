@@ -386,3 +386,53 @@ describe('summary rollup', () => {
     expect(r.get('S').durationDays).toBe(10); // working days, not 12 calendar days
   });
 });
+
+describe('unplaceable predecessors (dangling ids, cycles)', () => {
+  it('falls back to the stored start date when a predecessor id does not exist', () => {
+    const a = makeTask({ id: 'A', start_date: '2026-01-05', duration: 5 });
+    const b = makeTask({ id: 'B', duration: 2, predecessors: [fs('GHOST')], start_date: '2026-02-02' });
+    const r = run([a, b]);
+    // Dangling id must NOT snap B to the project anchor (2026-01-05)
+    expect(r.get('B').startStr).toBe('2026-02-02');
+  });
+
+  it('keeps a persisted dependency cycle on stored dates instead of the anchor day', () => {
+    // A→B→C→A cycle, stored dates consistent with the (broken) chain
+    const a = makeTask({ id: 'A', duration: 1, start_date: '2026-02-02', predecessors: [fs('C')] });
+    const b = makeTask({ id: 'B', duration: 1, start_date: '2026-02-03', predecessors: [fs('A')] });
+    const c = makeTask({ id: 'C', duration: 1, start_date: '2026-02-04', predecessors: [fs('B')] });
+    const r = run([a, b, c]);
+    // No task collapses onto the project anchor day
+    for (const id of ['A', 'B', 'C']) {
+      expect(r.get(id).startStr).not.toBe('2026-01-05');
+    }
+    expect(r.get('A').startStr).toBe('2026-02-02');
+    expect(r.get('B').startStr).toBe('2026-02-03');
+    expect(r.get('C').startStr).toBe('2026-02-04');
+  });
+});
+
+describe('ALAP does not move started work', () => {
+  it('leaves a completed ALAP task pinned to its actuals', () => {
+    const long = makeTask({ id: 'LONG', start_date: '2026-01-05', duration: 20 });
+    const done = makeTask({
+      id: 'DONE', duration: 2, constraint: { type: 'ALAP' },
+      percent_complete: 100, actual_start: '2026-01-05', actual_finish: '2026-01-06',
+      start_date: '2026-01-05', end_date: '2026-01-06',
+    });
+    const r = run([long, done]);
+    expect(r.get('DONE').startStr).toBe('2026-01-05');
+    expect(r.get('DONE').finishStr).toBe('2026-01-06');
+  });
+
+  it('leaves an in-progress ALAP task pinned to its actual start', () => {
+    const long = makeTask({ id: 'LONG', start_date: '2026-01-05', duration: 20 });
+    const wip = makeTask({
+      id: 'WIP', duration: 4, constraint: { type: 'ALAP' },
+      percent_complete: 50, actual_start: '2026-01-06',
+      start_date: '2026-01-06', end_date: '2026-01-09',
+    });
+    const r = run([long, wip]);
+    expect(r.get('WIP').startStr).toBe('2026-01-06');
+  });
+});

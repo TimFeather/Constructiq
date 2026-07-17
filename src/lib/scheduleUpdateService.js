@@ -288,8 +288,11 @@ export async function updateTaskProgress(taskId, percent_complete, allTasks, opt
     && (changes.actual_finish || task.actual_finish)
     && (changes.actual_finish || task.actual_finish) !== task.end_date;
   const startSlipped = changes.actual_start && changes.actual_start !== task.start_date;
+  // Un-completing clears actual_finish, which unpins the task — its computed
+  // finish (and every successor) can move, so the cascade must run.
+  const uncompleted = 'actual_finish' in changes && changes.actual_finish === null;
 
-  if (finishSlipped || startSlipped) {
+  if (finishSlipped || startSlipped || uncompleted) {
     // Real slip (or early finish): cascade through the network
     return applyScheduleUpdate(taskId, changes, allTasks, options);
   }

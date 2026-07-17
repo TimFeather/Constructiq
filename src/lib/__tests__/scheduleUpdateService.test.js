@@ -161,4 +161,24 @@ describe('updateTaskProgress', () => {
     expect(payload.percent_complete).toBe(25);
     expect(payload.actual_start).toBe('2026-01-05'); // planned start, not today
   });
+
+  it('cascades when un-completing a task (actual_finish cleared unpins the finish)', async () => {
+    const tasks = makeTasks();
+    // A finished early on Wed 7 Jan; B was cascaded in behind it.
+    tasks[0].percent_complete = 100;
+    tasks[0].actual_start = '2026-01-05';
+    tasks[0].actual_finish = '2026-01-07';
+    tasks[0].end_date = '2026-01-07';
+    tasks[1].start_date = '2026-01-08';
+    tasks[1].end_date = '2026-01-09';
+
+    await updateTaskProgress('A', 50, tasks, OPTS);
+
+    // Un-pinning A pushes its computed finish back to Fri 9 Jan -> B must move
+    const payload = Task.update.mock.calls[0][1];
+    expect(payload.actual_finish).toBeNull();
+    expect(bulkUpdateSchedule).toHaveBeenCalled();
+    const patched = bulkUpdateSchedule.mock.calls[0][0];
+    expect(patched.some(p => p.id === 'B')).toBe(true);
+  });
 });

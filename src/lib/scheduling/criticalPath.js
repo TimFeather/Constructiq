@@ -316,8 +316,11 @@ export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALEND
     // ── Not-started tasks: true CPM ───────────────────────────────────────────
     // Tasks WITH predecessors derive purely from the network (can be pulled
     // earlier as well as pushed later). Tasks with no predecessors anchor to
-    // their stored start date.
-    let es_h = preds.length
+    // their stored start date. If NO predecessor could be placed (dangling id,
+    // or a dependency cycle left the preds unsorted), fall back to the stored
+    // start date — never the project anchor.
+    const netBoundary_h = networkBoundary_h(preds, durationHours);
+    let es_h = (preds.length && netBoundary_h !== -Infinity)
       ? 0
       : (task.start_date ? dh(task.start_date) : 0);
 
@@ -333,7 +336,6 @@ export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALEND
     }
 
     // 2. Dependency boundaries (max across all predecessors)
-    const netBoundary_h = networkBoundary_h(preds, durationHours);
     if (netBoundary_h > es_h) es_h = netBoundary_h;
     const dependencyDrivenES_h = es_h;
 
@@ -397,6 +399,9 @@ export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALEND
     if (constraint.type !== 'ALAP') continue;
     const succs = graph.successors.get(task.id) || [];
     if (succs.length > 0) continue;
+    // Never move tasks pinned to actuals: completed or in-progress work stays put.
+    if (pinnedComplete.has(task.id)) continue;
+    if ((Number(task.percent_complete) || 0) > 0) continue;
     const durationHours = (task.duration || 1) * WORK_HOURS_PER_DAY;
     const isMilestone = task.is_milestone || task.duration === 0;
     const newEF_h = projectEnd_h;
