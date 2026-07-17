@@ -22,7 +22,7 @@ Requires a `.env.local` with the Supabase project URL and anon key (`VITE_SUPABA
 
 - `src/pages/` — route-level page components
 - `src/components/` — domain-organized UI (programme, tenders, rfis, projects, documents, settings, shared, ui)
-- `src/lib/scheduling/` — the programme scheduling engine (single source of truth; `src/lib/schedulingEngine.js` is a legacy re-export shim)
+- `src/lib/scheduling/` — the programme scheduling engine (single source of truth)
 - `supabase/migrations/` — numbered SQL migrations, run manually in the Supabase SQL Editor
 - `supabase/functions/` — Deno edge functions (email sending, tender workflow, cron reminders)
 

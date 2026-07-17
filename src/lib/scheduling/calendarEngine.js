@@ -113,16 +113,6 @@ export function addWorkingDays(startDate, days, calendar = DEFAULT_CALENDAR) {
 }
 
 /**
- * Add working hours to a date (calendar-aware)
- * Positive = forward, negative = backward
- */
-export function addWorkingHours(startDate, hours, calendar = DEFAULT_CALENDAR) {
-  if (hours === 0) return new Date(startDate);
-  const days = hours / WORK_HOURS_PER_DAY;
-  return addWorkingDays(startDate, days, calendar);
-}
-
-/**
  * Add elapsed (24/7) hours to a date
  */
 export function addElapsedHours(startDate, hours) {
@@ -184,8 +174,7 @@ export function workingHoursToDate(hours, anchor, calendar = DEFAULT_CALENDAR) {
 /**
  * Add fractional working hours to a date, honouring the calendar and the
  * intra-day 8h clock, returning the calendar day the resulting instant lands on.
- * Unlike the legacy addWorkingHours (which divides by 8 and delegates to whole
- * days), this respects sub-day packing via the working-hour timeline.
+ * Respects sub-day packing via the working-hour timeline.
  */
 export function addWorkingHoursExact(startDate, hours, calendar = DEFAULT_CALENDAR) {
   const anchor = nextWorkingDay(startDate, calendar);
