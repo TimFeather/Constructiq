@@ -185,6 +185,7 @@ export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALEND
   if (!tasks.length) return new Map();
 
   const taskMap = new Map(tasks.map(t => [t.id, t]));
+  const summaryIds = new Set(tasks.filter(t => t.parent_id).map(t => t.parent_id));
   const sorted = topoSort(tasks, graph);
   const fallbackStart = parseDate(projectStartDate) || nextWorkingDay(new Date(), calendar);
   // Anchor for the working-hour timeline: hour 0 ≡ start (08:00) of this day.
@@ -410,8 +411,13 @@ export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALEND
   }
 
   // ─── Project End (hours) ─────────────────────────────────────────────────────
+  // Summary tasks carry stale rolled-up dates from the PREVIOUS engine run (they
+  // schedule through CPM as ordinary tasks using stored start/duration), so they
+  // must not anchor project end for THIS run. Fall back to the all-task max only
+  // if the programme somehow contains nothing but summaries.
   let projectEnd_h = -Infinity;
-  efMap.forEach(ef => { if (ef > projectEnd_h) projectEnd_h = ef; });
+  efMap.forEach((ef, id) => { if (!summaryIds.has(id) && ef > projectEnd_h) projectEnd_h = ef; });
+  if (projectEnd_h === -Infinity) efMap.forEach(ef => { if (ef > projectEnd_h) projectEnd_h = ef; });
   if (projectEnd_h === -Infinity) projectEnd_h = 0;
 
   // ─── ALAP: push tasks with no successors to end of project ──────────────────

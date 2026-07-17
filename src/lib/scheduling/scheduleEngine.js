@@ -129,15 +129,25 @@ function rollupSummaryTasks(tasks, resolvedMap, summaryIds, calendar = DEFAULT_C
     children.get(task.parent_id).push(task.id);
   }
 
-  // Process summaries in reverse depth order (deepest first)
+  // Process summaries in reverse depth order (deepest first). Depth comes from
+  // the parent_id chain, not the WBS string — a missing/stale wbs (rows created
+  // before a renumber run) must not make a parent roll up from a child
+  // summary's un-rolled CPM dates.
   const summaryList = tasks.filter(t => summaryIds.has(t.id));
 
-  // Sort by WBS depth descending (deeper = more dots in WBS)
-  summaryList.sort((a, b) => {
-    const depthA = (a.wbs || '').split('.').length;
-    const depthB = (b.wbs || '').split('.').length;
-    return depthB - depthA;
-  });
+  const byId = new Map(tasks.map(t => [t.id, t]));
+  const depthOf = (t) => {
+    let d = 0;
+    const seen = new Set();
+    let cur = t.parent_id;
+    while (cur != null && byId.has(cur) && !seen.has(cur)) {
+      seen.add(cur);
+      d++;
+      cur = byId.get(cur).parent_id;
+    }
+    return d;
+  };
+  summaryList.sort((a, b) => depthOf(b) - depthOf(a));
 
   for (const summary of summaryList) {
     const childIds = children.get(summary.id) || [];
@@ -145,14 +155,14 @@ function rollupSummaryTasks(tasks, resolvedMap, summaryIds, calendar = DEFAULT_C
 
     const childStarts = [];
     const childFinishes = [];
-    let allCritical = true;
+    let anyCritical = false;
 
     for (const cid of childIds) {
       const r = resolvedMap.get(cid);
       if (!r) continue;
       childStarts.push(r.start || r.earlyStart);
       childFinishes.push(r.finish || r.earlyFinish);
-      if (!r.isCritical) allCritical = false;
+      if (r.isCritical) anyCritical = true;
     }
 
     if (!childStarts.length) continue;
@@ -184,7 +194,7 @@ function rollupSummaryTasks(tasks, resolvedMap, summaryIds, calendar = DEFAULT_C
       startStr: toDateStr(minStart),
       finishStr: toDateStr(maxFinish),
       durationDays,
-      isCritical: allCritical,
+      isCritical: anyCritical,
       totalFloat: 0,
       freeFloat: 0,
       rolledProgress,

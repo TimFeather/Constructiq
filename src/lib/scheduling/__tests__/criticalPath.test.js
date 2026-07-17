@@ -505,3 +505,53 @@ describe('ALAP does not move started work', () => {
     expect(r.get('WIP').startStr).toBe('2026-01-06');
   });
 });
+
+describe('summary tasks do not hold project end out with stale stored dates', () => {
+  it('a leaf finishing after all children is critical, unheld by the summary own stale finish', () => {
+    // S is a summary whose OWN stored start/duration reach into March — stale
+    // from a previous run — while its children finish in January.
+    const s = makeTask({ id: 'S', parent_id: null, start_date: '2026-01-05', duration: 40 });
+    const c1 = makeTask({ id: 'C1', parent_id: 'S', start_date: '2026-01-05', duration: 3 });
+    const c2 = makeTask({ id: 'C2', parent_id: 'S', start_date: '2026-01-12', duration: 2 });
+    // Independent leaf finishing 2026-01-30 (20 working days after the Mon 5th anchor)
+    const leaf = makeTask({ id: 'LEAF', start_date: '2026-01-05', duration: 20 });
+    const r = run([s, c1, c2, leaf]);
+
+    expect(r.get('LEAF').finishStr).toBe('2026-01-30');
+    // Project end must be driven by LEAF, not S's stale rolled-up-from-CPM finish.
+    expect(r.get('LEAF').totalFloat).toBe(0);
+    expect(r.get('LEAF').isCritical).toBe(true);
+  });
+});
+
+describe('summary rollup depth comes from parent_id, not wbs', () => {
+  it('a grandparent summary rolls up to the grandchild span even when wbs is missing everywhere', () => {
+    const g = makeTask({ id: 'G', parent_id: null, start_date: '2026-06-01', duration: 5, wbs: null });
+    const p = makeTask({ id: 'P', parent_id: 'G', start_date: '2026-06-01', duration: 5, wbs: null });
+    const x = makeTask({ id: 'X', parent_id: 'P', start_date: '2026-01-05', duration: 2, wbs: null });
+    const y = makeTask({ id: 'Y', parent_id: 'P', start_date: '2026-01-12', duration: 3, wbs: null });
+    const r = run([g, p, x, y]);
+
+    expect(r.get('P').startStr).toBe(r.get('X').startStr);
+    expect(r.get('P').finishStr).toBe(r.get('Y').finishStr);
+    expect(r.get('G').startStr).toBe(r.get('X').startStr);
+    expect(r.get('G').finishStr).toBe(r.get('Y').finishStr);
+  });
+});
+
+describe('summary isCritical is true when it contains ANY critical child', () => {
+  it('flags the summary critical even though one child has slack', () => {
+    // Drives project end: an independent 10-day critical task.
+    const driver = makeTask({ id: 'DRIVER', start_date: '2026-01-05', duration: 10 });
+    // Matches the same finish as DRIVER -> also critical (float 0).
+    const critChild = makeTask({ id: 'CRIT', parent_id: 'S', start_date: '2026-01-05', duration: 10 });
+    // Finishes early -> has slack against the project end.
+    const slackChild = makeTask({ id: 'SLACK', parent_id: 'S', start_date: '2026-01-05', duration: 2 });
+    const s = makeTask({ id: 'S', parent_id: null, start_date: '2026-01-05', duration: 10 });
+    const r = run([driver, critChild, slackChild, s]);
+
+    expect(r.get('CRIT').isCritical).toBe(true);
+    expect(r.get('SLACK').isCritical).toBe(false);
+    expect(r.get('S').isCritical).toBe(true);
+  });
+});
