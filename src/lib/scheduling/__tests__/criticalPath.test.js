@@ -190,6 +190,40 @@ describe('milestone finish-type links', () => {
   });
 });
 
+describe('elapsed lag (intra-day, real-clock)', () => {
+  it('a 48eh lag from a Friday finish lands the successor on Monday, not Tuesday', () => {
+    const a = makeTask({ id: 'A', start_date: '2026-01-05', duration: 5 }); // Mon-Fri
+    const b = makeTask({
+      id: 'B', duration: 2,
+      predecessors: [{ predecessor_id: 'A', type: 'FS', lag_hours: 48, is_elapsed: true }],
+    });
+    const r = run([a, b]);
+    expect(r.get('A').finishStr).toBe('2026-01-09'); // Friday
+    expect(r.get('B').startStr).toBe('2026-01-12');  // Monday — not Tuesday
+  });
+
+  it('a 12eh lag from a same-day finish is not a no-op', () => {
+    const a = makeTask({ id: 'A', start_date: '2026-01-05', duration: 0.5 }); // 4h, finishes 12:00 Mon
+    const b = makeTask({
+      id: 'B', duration: 0.5,
+      predecessors: [{ predecessor_id: 'A', type: 'FS', lag_hours: 12, is_elapsed: true }],
+    });
+    const r = run([a, b]);
+    // 12:00 Mon + 12eh = 00:00 Tue, snapped forward to 08:00 Tue
+    expect(r.get('B').startStr).toBe('2026-01-06'); // Tuesday
+  });
+
+  it('a zero-hour elapsed lag behaves like a working lag of zero (regression)', () => {
+    const a = makeTask({ id: 'A', start_date: '2026-01-05', duration: 5 });
+    const b = makeTask({
+      id: 'B', duration: 2,
+      predecessors: [{ predecessor_id: 'A', type: 'FS', lag_hours: 0, is_elapsed: true }],
+    });
+    const r = run([a, b]);
+    expect(r.get('B').startStr).toBe('2026-01-12');
+  });
+});
+
 describe('working-day duration output', () => {
   it('echoes stored working-day durations (never calendar spans)', () => {
     // 5-working-day task spans 7 calendar days over a weekend — durationDays

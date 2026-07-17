@@ -31,6 +31,8 @@ import {
   dateToWorkingHours,
   workingHoursToDate,
   addElapsedHours,
+  workingHourToInstant,
+  instantToWorkingHours,
   WORK_HOURS_PER_DAY,
   DEFAULT_CALENDAR,
 } from './calendarEngine.js';
@@ -59,32 +61,38 @@ function asDate(value) {
  * SF: succEF_h ≥ predES_h + lag
  *
  * Elapsed lag (dep.isElapsed) is 24/7 wall-clock, not working time. Convention:
- * convert the boundary hour → its Date, add the elapsed hours as real clock
- * time, then map back to the working-hour timeline via dateToWorkingHours
- * (which snaps a landing in non-working time forward to the next working
- * instant). This mixes the two clocks at the link boundary only.
+ * convert the boundary hour → its real-clock instant via workingHourToInstant
+ * (finish-type anchors resolve a whole-day boundary to 16:00 of the previous
+ * working day; start-type anchors resolve it to 08:00), add the elapsed hours
+ * as real clock time, then map back to the working-hour timeline via
+ * instantToWorkingHours (which snaps a landing in non-working time forward to
+ * the next working instant). This mixes the two clocks at the link boundary
+ * only.
  */
 function applyDependencyBoundary(dep, predEF_h, predES_h, anchor, calendar) {
   const type = dep.type || 'FS';
   const lagHours = dep.lagHours ?? 0;
   const isElapsed = dep.isElapsed || false;
 
-  const addLag = (h, lag) => {
+  // FS/FF anchor off the predecessor's FINISH; SS/SF anchor off its START.
+  // Elapsed lag needs to know which so a whole-day boundary resolves to the
+  // right real-clock instant (end of previous working day vs start of next).
+  const addLag = (h, lag, isFinishAnchor) => {
     if (!isElapsed) return h + lag;
-    const asDateVal = workingHoursToDateAtHour(h, anchor, calendar);
-    const shifted = addElapsedHours(asDateVal, lag);
-    return dateToWorkingHours(shifted, anchor, calendar);
+    const instant = workingHourToInstant(h, anchor, calendar, { finishBoundary: isFinishAnchor });
+    const shifted = addElapsedHours(instant, lag);
+    return instantToWorkingHours(shifted, anchor, calendar);
   };
 
   switch (type) {
     case 'FS':
-      return { boundaryStart_h: addLag(predEF_h, lagHours), boundaryFinish_h: null };
+      return { boundaryStart_h: addLag(predEF_h, lagHours, true), boundaryFinish_h: null };
     case 'SS':
-      return { boundaryStart_h: addLag(predES_h, lagHours), boundaryFinish_h: null };
+      return { boundaryStart_h: addLag(predES_h, lagHours, false), boundaryFinish_h: null };
     case 'FF':
-      return { boundaryStart_h: null, boundaryFinish_h: addLag(predEF_h, lagHours) };
+      return { boundaryStart_h: null, boundaryFinish_h: addLag(predEF_h, lagHours, true) };
     case 'SF':
-      return { boundaryStart_h: null, boundaryFinish_h: addLag(predES_h, lagHours) };
+      return { boundaryStart_h: null, boundaryFinish_h: addLag(predES_h, lagHours, false) };
     default:
       return { boundaryStart_h: null, boundaryFinish_h: null };
   }
@@ -105,22 +113,24 @@ function applyBackwardBoundary(dep, succLS_h, succLF_h, anchor, calendar) {
   const lagHours = dep.lagHours ?? 0;
   const isElapsed = dep.isElapsed || false;
 
-  const subLag = (h, lag) => {
+  // succLS is a start-type anchor (finishBoundary: false); succLF is a
+  // finish-type anchor (finishBoundary: true) — mirrors the forward pass.
+  const subLag = (h, lag, isFinishAnchor) => {
     if (!isElapsed) return h - lag;
-    const asDateVal = workingHoursToDateAtHour(h, anchor, calendar);
-    const shifted = addElapsedHours(asDateVal, -lag);
-    return dateToWorkingHours(shifted, anchor, calendar);
+    const instant = workingHourToInstant(h, anchor, calendar, { finishBoundary: isFinishAnchor });
+    const shifted = addElapsedHours(instant, -lag);
+    return instantToWorkingHours(shifted, anchor, calendar);
   };
 
   switch (type) {
     case 'FS':
-      return { boundaryLF_h: subLag(succLS_h, lagHours) };
+      return { boundaryLF_h: subLag(succLS_h, lagHours, false) };
     case 'SS':
-      return { boundaryLS_h: subLag(succLS_h, lagHours) };
+      return { boundaryLS_h: subLag(succLS_h, lagHours, false) };
     case 'FF':
-      return { boundaryLF_h: subLag(succLF_h, lagHours) };
+      return { boundaryLF_h: subLag(succLF_h, lagHours, true) };
     case 'SF':
-      return { boundaryLS_h: subLag(succLF_h, lagHours) };
+      return { boundaryLS_h: subLag(succLF_h, lagHours, true) };
     default:
       return {};
   }
@@ -138,14 +148,6 @@ function snapForward(h, anchor, calendar) {
   // the timeline skips non-working days by construction. The only way to land
   // off-grid is elapsed lag, which dateToWorkingHours already snaps forward.
   return h;
-}
-
-/**
- * The Date (local midnight) of the working day containing an hour offset — used
- * for start-type points and for the elapsed-lag round-trip anchor point.
- */
-function workingHoursToDateAtHour(h, anchor, calendar) {
-  return workingHoursToDate(h, anchor, calendar);
 }
 
 /** startStr / earlyStart Date: the day containing ES_h. */

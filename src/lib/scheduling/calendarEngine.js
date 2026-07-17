@@ -14,6 +14,9 @@ export const CALENDAR_TYPES = {
 
 export const WORK_HOURS_PER_DAY = 8;
 
+/** Clock hour (24h) the working day starts. Working day runs 08:00–16:00. */
+export const WORKDAY_START_HOUR = 8;
+
 /** Max days any working-day search may scan before we declare the calendar broken. */
 export const MAX_CALENDAR_SCAN_DAYS = 10000; // ~27 years
 
@@ -188,6 +191,52 @@ export function addWorkingHoursExact(startDate, hours, calendar = DEFAULT_CALEND
   const anchor = nextWorkingDay(startDate, calendar);
   const startH = dateToWorkingHours(anchor, anchor, calendar); // 0
   return workingHoursToDate(startH + hours, anchor, calendar);
+}
+
+/**
+ * The real-clock instant of a working-hour offset. Working day runs
+ * WORKDAY_START_HOUR..WORKDAY_START_HOUR+8 (08:00–16:00). A whole-day
+ * boundary (h ≡ 0 mod 8) is by convention the START of the next working day;
+ * when `finishBoundary` is true it is instead the END (16:00) of the previous
+ * working day — that's the instant elapsed lag should count from for finishes.
+ */
+export function workingHourToInstant(h, anchor, calendar = DEFAULT_CALENDAR, { finishBoundary = false } = {}) {
+  const frac = ((h % WORK_HOURS_PER_DAY) + WORK_HOURS_PER_DAY) % WORK_HOURS_PER_DAY;
+  if (frac !== 0 || !finishBoundary) {
+    const day = workingHoursToDate(h, anchor, calendar);
+    const instant = new Date(day);
+    instant.setHours(0, 0, 0, 0);
+    instant.setTime(instant.getTime() + (WORKDAY_START_HOUR + frac) * 3600000);
+    return instant;
+  }
+  const EPS = 1e-6;
+  const day = workingHoursToDate(h - EPS, anchor, calendar);
+  const instant = new Date(day);
+  instant.setHours(0, 0, 0, 0);
+  instant.setTime(instant.getTime() + (WORKDAY_START_HOUR + WORK_HOURS_PER_DAY) * 3600000);
+  return instant;
+}
+
+/**
+ * Inverse: real-clock Date → working-hour offset, snapping non-working time
+ * forward (before 08:00 → 08:00 same day; after 16:00 or non-working day →
+ * 08:00 next working day).
+ */
+export function instantToWorkingHours(dateTime, anchor, calendar = DEFAULT_CALENDAR) {
+  const d = new Date(dateTime);
+  const clock = d.getHours() + d.getMinutes() / 60;
+  const midnight = new Date(d);
+  midnight.setHours(0, 0, 0, 0);
+
+  if (!isWorkingDay(midnight, calendar) || clock >= WORKDAY_START_HOUR + WORK_HOURS_PER_DAY) {
+    const next = new Date(midnight);
+    next.setDate(next.getDate() + 1);
+    return dateToWorkingHours(nextWorkingDay(next, calendar), anchor, calendar);
+  }
+  if (clock <= WORKDAY_START_HOUR) {
+    return dateToWorkingHours(midnight, anchor, calendar);
+  }
+  return dateToWorkingHours(midnight, anchor, calendar) + (clock - WORKDAY_START_HOUR);
 }
 
 /**
