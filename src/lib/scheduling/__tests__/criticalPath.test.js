@@ -167,6 +167,29 @@ describe('milestones', () => {
   });
 });
 
+describe('milestone finish-type links', () => {
+  it('FF-linked milestone finishes on the predecessor finish day, not one day earlier', () => {
+    const a = makeTask({ id: 'A', start_date: '2026-01-05', duration: 2 }); // Mon-Tue
+    const m = makeTask({
+      id: 'M', duration: 0, is_milestone: true,
+      predecessors: [{ predecessor_id: 'A', type: 'FF', lag_hours: 0, is_elapsed: false }],
+    });
+    const r = run([a, m]);
+    expect(r.get('A').finishStr).toBe('2026-01-06');
+    expect(r.get('M').finishStr).toBe(r.get('A').finishStr);
+  });
+
+  it('MFO-constrained milestone with no predecessors lands exactly on the constraint date', () => {
+    const m = makeTask({
+      id: 'M', duration: 0, is_milestone: true,
+      constraint: { type: 'MFO', date: '2026-01-14' },
+    });
+    const r = run([m]);
+    expect(r.get('M').startStr).toBe('2026-01-14');
+    expect(r.get('M').finishStr).toBe('2026-01-14');
+  });
+});
+
 describe('working-day duration output', () => {
   it('echoes stored working-day durations (never calendar spans)', () => {
     // 5-working-day task spans 7 calendar days over a weekend — durationDays

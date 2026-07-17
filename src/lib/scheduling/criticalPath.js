@@ -211,13 +211,23 @@ export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALEND
   const efMap = new Map();       // id → EF hours
   const pinnedComplete = new Set(); // tasks locked to actuals (100% complete)
   const conflictMap = new Map(); // id → { type, constraintDate, requiredDate }
+  // Milestones collapse ES/EF to one hour, so a boundary that lands exactly on
+  // a day multiple is ambiguous between "start of this working day" (FS/SS/
+  // MSO/SNET-derived) and "end of the previous working day" (FF/SF/MFO/FNET-
+  // derived — the milestone occurs AT the predecessor's finish, same day).
+  // Track which flavour won so the display step can pick the right day without
+  // perturbing the raw hour used by this milestone's own successors.
+  const milestoneFinishTypeMap = new Map(); // id → boolean
 
   /**
    * Max dependency boundary (hour) across predecessors — the earliest ES the
-   * network allows. Returns -Infinity when no predecessor has been placed.
+   * network allows. `value` is -Infinity when no predecessor has been placed.
+   * `isFinishType` says whether the winning contribution was a finish-type
+   * link (FF/SF) rather than a start-type one (FS/SS) — ties favour finish.
    */
   const networkBoundary_h = (preds, durationHours) => {
     let b = -Infinity;
+    let isFinishType = false;
     for (const dep of preds) {
       const predES_h = esMap.get(dep.id);
       const predEF_h = efMap.get(dep.id);
@@ -225,13 +235,13 @@ export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALEND
       const { boundaryStart_h, boundaryFinish_h } = applyDependencyBoundary(
         dep, predEF_h, predES_h, anchor, calendar
       );
-      if (boundaryStart_h !== null && boundaryStart_h > b) b = boundaryStart_h;
+      if (boundaryStart_h !== null && boundaryStart_h > b) { b = boundaryStart_h; isFinishType = false; }
       if (boundaryFinish_h !== null) {
         const impliedStart_h = boundaryFinish_h - durationHours;
-        if (impliedStart_h > b) b = impliedStart_h;
+        if (impliedStart_h >= b) { b = impliedStart_h; isFinishType = true; }
       }
     }
-    return b;
+    return { value: b, isFinishType };
   };
 
   /**
@@ -243,7 +253,7 @@ export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALEND
    * unaffected — this only refines the hour inside it.
    */
   const refineWithinDay = (dayStart_h, preds, durationHours) => {
-    const b = networkBoundary_h(preds, durationHours);
+    const { value: b } = networkBoundary_h(preds, durationHours);
     if (b > dayStart_h && b < dayStart_h + WORK_HOURS_PER_DAY) return b;
     return dayStart_h;
   };
@@ -251,6 +261,10 @@ export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALEND
   for (const task of sorted) {
     const durationHours = (task.duration || 1) * WORK_HOURS_PER_DAY;
     const isMilestone = task.is_milestone || task.duration === 0;
+    // Milestones occupy zero width on the hour line for boundary purposes
+    // (FF/FNET/MFO), even though durationHours above is a non-zero fallback
+    // used elsewhere. ef_h calculations already branch on isMilestone directly.
+    const boundaryDurationHours = isMilestone ? 0 : durationHours;
     const pct = Number(task.percent_complete) || 0;
     const preds = graph.predecessors.get(task.id) || [];
     const constraint = task.constraint || { type: 'ASAP' };
@@ -265,7 +279,7 @@ export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALEND
     // inclusive end of the actual_finish day (old day-granular behaviour).
     if (pct >= 100) {
       let es_h = dh(task.actual_start || task.start_date) ?? 0;
-      es_h = refineWithinDay(es_h, preds, durationHours);
+      es_h = refineWithinDay(es_h, preds, boundaryDurationHours);
       const durEF_h = isMilestone ? es_h : es_h + durationHours;
       const finDay_h = dh(task.actual_finish || task.end_date);
       let ef_h;
@@ -288,7 +302,7 @@ export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALEND
     //    the data date (retained logic, ported to hours) ───────────────────────
     if (pct > 0) {
       let es_h = dh(task.actual_start || task.start_date) ?? 0;
-      es_h = refineWithinDay(es_h, preds, durationHours);
+      es_h = refineWithinDay(es_h, preds, boundaryDurationHours);
       let ef_h;
       if (isMilestone) {
         ef_h = es_h;
@@ -319,24 +333,26 @@ export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALEND
     // their stored start date. If NO predecessor could be placed (dangling id,
     // or a dependency cycle left the preds unsorted), fall back to the stored
     // start date — never the project anchor.
-    const netBoundary_h = networkBoundary_h(preds, durationHours);
+    const { value: netBoundary_h, isFinishType: netBoundaryIsFinishType } =
+      networkBoundary_h(preds, boundaryDurationHours);
     let es_h = (preds.length && netBoundary_h !== -Infinity)
       ? 0
       : (task.start_date ? dh(task.start_date) : 0);
+    let esKindFinish = false; // which flavour of boundary last set es_h (milestone display only)
 
     // 1. Floor constraints (can only push later)
     if (constraint.type === 'SNET' && constraint.date) {
       const snet_h = dh(constraint.date);
-      if (snet_h > es_h) es_h = snet_h;
+      if (snet_h > es_h) { es_h = snet_h; esKindFinish = false; }
     }
     if (constraint.type === 'FNET' && constraint.date) {
       // Task must not finish before this day's inclusive end.
-      const neededStart_h = finishHourOf(constraint.date) - durationHours;
-      if (neededStart_h > es_h) es_h = neededStart_h;
+      const neededStart_h = finishHourOf(constraint.date) - boundaryDurationHours;
+      if (neededStart_h > es_h) { es_h = neededStart_h; esKindFinish = true; }
     }
 
     // 2. Dependency boundaries (max across all predecessors)
-    if (netBoundary_h > es_h) es_h = netBoundary_h;
+    if (netBoundary_h > es_h) { es_h = netBoundary_h; esKindFinish = netBoundaryIsFinishType; }
     const dependencyDrivenES_h = es_h;
 
     // 3. Ceiling / pinning constraints — honoured, contradiction flagged.
@@ -350,9 +366,10 @@ export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALEND
         });
       }
       es_h = mso_h;
+      esKindFinish = false;
     }
     if (constraint.type === 'MFO' && constraint.date) {
-      const impliedStart_h = finishHourOf(constraint.date) - durationHours;
+      const impliedStart_h = finishHourOf(constraint.date) - boundaryDurationHours;
       if (dependencyDrivenES_h > impliedStart_h) {
         conflictMap.set(task.id, {
           type: 'MFO',
@@ -361,6 +378,7 @@ export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALEND
         });
       }
       es_h = impliedStart_h;
+      esKindFinish = true;
     }
     if (constraint.type === 'SNLT' && constraint.date) {
       const snlt_h = dh(constraint.date);
@@ -371,12 +389,14 @@ export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALEND
           requiredDate: toDateStr(startDate(dependencyDrivenES_h, anchor, calendar)),
         });
         es_h = snlt_h;
+        esKindFinish = false;
       }
     }
 
     // 4. Data date: remaining (unstarted) work cannot be scheduled in the past.
     if (dataDate_h !== null && dataDate_h > es_h) {
       es_h = dataDate_h;
+      esKindFinish = false;
     }
 
     // Snap to next working instant.
@@ -386,6 +406,7 @@ export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALEND
 
     esMap.set(task.id, es_h);
     efMap.set(task.id, ef_h);
+    if (isMilestone) milestoneFinishTypeMap.set(task.id, esKindFinish);
   }
 
   // ─── Project End (hours) ─────────────────────────────────────────────────────
@@ -518,8 +539,18 @@ export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALEND
     // durationDays stays in WORKING days (the unit the duration column uses).
     const durationDays = isMilestone ? 0 : (task.duration ?? 1);
 
-    const es = startDate(es_h, anchor, calendar);
-    const ef = finishDate(ef_h, es_h, anchor, calendar);
+    // Milestones have ES_h === EF_h, so a boundary landing exactly on a day
+    // multiple is ambiguous (see milestoneFinishTypeMap above). A finish-type
+    // boundary (FF/SF/MFO/FNET) means the milestone occurs AT the end of the
+    // previous working day — nudge the display lookup back by epsilon so it
+    // resolves to that day instead of the next one. The stored es_h/ef_h hour
+    // used by this milestone's own successors is untouched.
+    const es = (isMilestone && milestoneFinishTypeMap.get(task.id))
+      ? workingHoursToDate(es_h - EPSILON_HOURS, anchor, calendar)
+      : startDate(es_h, anchor, calendar);
+    const ef = (isMilestone && milestoneFinishTypeMap.get(task.id))
+      ? es
+      : finishDate(ef_h, es_h, anchor, calendar);
     const ls = startDate(ls_h, anchor, calendar);
     const lf = finishDate(lf_h, ls_h, anchor, calendar);
 
