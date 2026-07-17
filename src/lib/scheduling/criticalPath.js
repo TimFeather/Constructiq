@@ -455,13 +455,22 @@ export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALEND
     if (constraint.type === 'MFO' && constraint.date) {
       lf_h = finishHourOf(constraint.date);
     }
+    if (constraint.type === 'SNLT' && constraint.date) {
+      const snltLF_h = isMilestone ? dh(constraint.date) : dh(constraint.date) + durationHours;
+      if (snltLF_h < lf_h) lf_h = snltLF_h;
+    }
+    if (constraint.type === 'MSO' && constraint.date) {
+      lf_h = isMilestone ? dh(constraint.date) : dh(constraint.date) + durationHours;
+    }
 
     const ls_h = isMilestone ? lf_h : lf_h - durationHours;
 
     lsMap.set(task.id, ls_h);
     lfMap.set(task.id, lf_h);
 
-    // Push constraints backward to predecessors.
+    // Push constraints backward to predecessors. Completed work is history — it
+    // should not constrain (or relax) the float of live predecessor tasks.
+    if (pinnedComplete.has(task.id)) continue;
     const preds = graph.predecessors.get(task.id) || [];
     for (const dep of preds) {
       const predTask = taskMap.get(dep.id);

@@ -301,6 +301,52 @@ describe('constraint conflicts', () => {
   });
 });
 
+describe('backward-pass constraint symmetry', () => {
+  it('an MSO-pinned task with no conflict shows zero float and is critical, even when unrelated work pushes project end later', () => {
+    const a = makeTask({ id: 'A', start_date: '2026-01-05', duration: 5 }); // EF Fri 9th
+    const b = makeTask({
+      id: 'B', duration: 2, predecessors: [fs('A')],
+      constraint: { type: 'MSO', date: '2026-01-20' }, // satisfiable: natural start is Mon 12th
+    });
+    const x = makeTask({ id: 'X', start_date: '2026-01-05', duration: 20 }); // holds project end well past B
+    const r = run([a, b, x]);
+
+    expect(r.get('B').constraintConflict).toBeNull();
+    expect(r.get('B').totalFloat).toBe(0);
+    expect(r.get('B').isCritical).toBe(true);
+    // A gains float equal to the gap between its natural finish and B's forced later start.
+    expect(r.get('A').totalFloat).toBe(48); // 6 working days (Mon 12th -> Tue 20th)
+  });
+
+  it('an SNLT-capped task does not float against a project end held out by unrelated later work', () => {
+    const a = makeTask({ id: 'A', start_date: '2026-01-05', duration: 2 }); // EF Tue 6th
+    const b = makeTask({
+      id: 'B', duration: 2, predecessors: [fs('A')],
+      constraint: { type: 'SNLT', date: '2026-01-08' }, // satisfiable: natural start is Wed 7th
+    });
+    const d = makeTask({ id: 'D', start_date: '2026-01-05', duration: 20 }); // holds project end well past B
+    const r = run([a, b, d]);
+
+    expect(r.get('B').constraintConflict).toBeNull();
+    // LS capped at the SNLT date, not floated by D's unrelated slack.
+    expect(r.get('B').totalFloat).toBe(8); // 1 working day (Wed 7th -> Thu 8th)
+  });
+
+  it('a completed successor does not constrain its unfinished predecessor in the backward pass', () => {
+    const a = makeTask({ id: 'A', duration: 5 }); // not started, defaults to project anchor
+    const b = makeTask({
+      id: 'B', duration: 1, predecessors: [fs('A')],
+      percent_complete: 100, actual_start: '2026-01-05', actual_finish: '2026-01-05',
+    });
+    const r = run([a, b]);
+
+    // Without the fix, B's completed (and much earlier) actuals drag A's late
+    // finish backward, producing bogus negative float on unfinished work.
+    expect(r.get('A').totalFloat).toBe(0);
+    expect(r.get('A').isCritical).toBe(true);
+  });
+});
+
 describe('SNET floor constraint', () => {
   it('holds a task later than its dependency-driven date without conflict', () => {
     const a = makeTask({ id: 'A', start_date: '2026-01-05', duration: 2 });
