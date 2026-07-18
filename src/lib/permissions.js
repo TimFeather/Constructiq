@@ -43,7 +43,7 @@ const MODULE_RULES = {
   },
   rfis: {
     access:  ['admin', 'pricing', 'internal', 'external'],
-    create:  ['admin', 'pricing', 'internal'],
+    create:  ['admin', 'pricing', 'internal', 'external'],
     respond: ['admin', 'pricing', 'internal', 'external'],
     edit:    ['admin', 'pricing', 'internal'],
     delete:  ['admin', 'pricing'],

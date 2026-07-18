@@ -91,6 +91,7 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
       assignees: selectedEmails,
       assigned_to_email: firstAssignee?.email || '',
       assigned_to_name: firstAssignee?.name || '',
+      created_by_id: user?.id || null,
       created_by_email: user?.email || '',
       created_by_name: user?.full_name || '',
       });

@@ -16,6 +16,7 @@ import { Plus, MessageSquare, ChevronDown, ChevronUp, Calendar, Send, Paperclip,
 import { format } from 'date-fns';
 import { resolveTemplate, applyTemplate } from '@/lib/emailTemplates';
 import { logProjectActivity } from '@/lib/activityLog';
+import { canCreate } from '@/lib/permissions';
 
 const PRIORITY_COLORS = {
   Low: 'bg-blue-100 text-blue-700',
@@ -360,6 +361,7 @@ function RFICard({ rfi, project, emailTemplates = [], registeredUsers = [] }) {
 export default function ProjectRFIPanel({ project, rfis = [] }) {
   const { user } = useAuth();
   const isAdminOrInternal = user?.role === 'admin' || user?.role === 'internal';
+  const canCreateRfi = canCreate(user, 'rfis');
   const [showCreate, setShowCreate] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [form, setForm] = useState({ title: '', description: '', priority: 'Medium', due_date: '', assigned_to_email: '', assigned_to_name: '' });
@@ -412,6 +414,7 @@ export default function ProjectRFIPanel({ project, rfis = [] }) {
       status: 'Open',
       responses: [],
       attachments: uploadedAttachments,
+      created_by_id: user?.id || null,
       created_by_email: user?.email || '',
       created_by_name: user?.full_name || '',
     });
@@ -466,7 +469,7 @@ export default function ProjectRFIPanel({ project, rfis = [] }) {
               {showArchived ? 'Hide Archived' : `Archived (${archivedRfis.length})`}
             </Button>
           )}
-          {isAdminOrInternal && !showArchived && (
+          {canCreateRfi && !showArchived && (
             <Button size="sm" className="gap-1.5 h-8 text-xs" onClick={() => setShowCreate(true)}>
               <Plus className="w-3 h-3" /> New RFI
             </Button>

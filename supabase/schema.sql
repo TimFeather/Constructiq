@@ -224,6 +224,15 @@ create policy "rfis_select" on public.rfis for select using (
 );
 create policy "rfis_insert" on public.rfis for insert with check (
   get_my_role() in ('admin','internal','pricing')
+  or (
+    get_my_role() = 'external'
+    and exists (
+      select 1 from public.projects p
+      where p.id = rfis.project_id
+        and p.team @> jsonb_build_array(jsonb_build_object('user_email',
+              (select email from public.users where id = auth.uid())))
+    )
+  )
 );
 create policy "rfis_update" on public.rfis for update using (
   get_my_role() in ('admin','internal')
