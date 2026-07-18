@@ -99,11 +99,16 @@ export default function ConvertToProjectModal({ tender, open, onOpenChange }) {
         console.log(`[ConvertToProject] Subcontractors transferred to project team: ${awardedSubs.length}`);
       }
 
-      // Build project data — only columns that exist on projects table
+      // Build project data — only columns that exist on projects table.
+      // Client details: prefer the additional_contacts entry with a Client role
+      // (it can carry a phone number), falling back to the legacy client_name column.
+      const clientContact = (tender.additional_contacts || []).find(c => /client/i.test(c.role || ''));
       const projectData = {
         name: projectName,
         status: 'Active',
         team,
+        client_name:  clientContact?.name  || tender.client_name || null,
+        client_phone: clientContact?.phone || null,
       };
       if (includeDesc && tender.description) {
         // Tender description is rich-text HTML (RichTextEditor); the project

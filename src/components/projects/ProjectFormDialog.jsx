@@ -11,7 +11,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 const initialState = {
-  name: '', description: '', start_date: '', end_date: '', status: 'Active', team: []
+  name: '', description: '', start_date: '', end_date: '', status: 'Active', team: [],
+  client_name: '', client_address: '', client_phone: ''
 };
 
 export default function ProjectFormDialog({ open, onOpenChange, project }) {
@@ -66,6 +67,9 @@ export default function ProjectFormDialog({ open, onOpenChange, project }) {
       ...form,
       start_date: form.start_date || null,
       end_date:   form.end_date   || null,
+      client_name:    form.client_name?.trim()    || null,
+      client_address: form.client_address?.trim() || null,
+      client_phone:   form.client_phone?.trim()   || null,
     });
   };
 
@@ -100,6 +104,36 @@ export default function ProjectFormDialog({ open, onOpenChange, project }) {
               placeholder="Project description"
               rows={3}
             />
+          </div>
+          <div>
+            <Label htmlFor="client_name">Client Name</Label>
+            <Input
+              id="client_name"
+              value={form.client_name || ''}
+              onChange={e => setForm({...form, client_name: e.target.value})}
+              placeholder="Client name (optional)"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="client_address">Client Address</Label>
+              <Input
+                id="client_address"
+                value={form.client_address || ''}
+                onChange={e => setForm({...form, client_address: e.target.value})}
+                placeholder="Address (optional)"
+              />
+            </div>
+            <div>
+              <Label htmlFor="client_phone">Client Phone</Label>
+              <Input
+                id="client_phone"
+                type="tel"
+                value={form.client_phone || ''}
+                onChange={e => setForm({...form, client_phone: e.target.value})}
+                placeholder="Phone (optional)"
+              />
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
