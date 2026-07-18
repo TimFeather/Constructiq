@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ArrowLeft, Pencil, FileText, MessageSquareMore, BarChart2, ExternalLink, FileSignature, HardHat, Clock } from 'lucide-react';
+import { ArrowLeft, Pencil, FileText, MessageSquareMore, BarChart2, ExternalLink, FileSignature, HardHat, Clock, Building2, MapPin, Phone } from 'lucide-react';
 import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
 import TeamManager from '@/components/projects/TeamManager';
@@ -96,6 +96,27 @@ export default function ProjectDetail() {
       <PageHeader
         title={project.name}
         description={project.description}
+        meta={
+          (project.client_name || project.client_address || project.client_phone) && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+              {project.client_name && (
+                <span className="inline-flex items-center gap-1.5">
+                  <Building2 className="w-3.5 h-3.5" /> {project.client_name}
+                </span>
+              )}
+              {project.client_address && (
+                <span className="inline-flex items-center gap-1.5">
+                  <MapPin className="w-3.5 h-3.5" /> {project.client_address}
+                </span>
+              )}
+              {project.client_phone && (
+                <span className="inline-flex items-center gap-1.5">
+                  <Phone className="w-3.5 h-3.5" /> {project.client_phone}
+                </span>
+              )}
+            </div>
+          )
+        }
         actions={
           <div className="flex items-center gap-2">
             {linkedTender && (
