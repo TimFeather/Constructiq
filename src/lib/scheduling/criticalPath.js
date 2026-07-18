@@ -37,7 +37,7 @@ import {
   DEFAULT_CALENDAR,
 } from './calendarEngine.js';
 
-const FLOAT_TOLERANCE_HOURS = 0; // Tasks with ≤ this float are critical
+const FLOAT_TOLERANCE_HOURS = 0; // Base: tasks with ≤ this float are critical
 const EPSILON_HOURS = 1e-6;      // nudge finishes onto the inclusive day
 
 /** Normalize a date input ('yyyy-MM-dd' string or Date) to a local-midnight Date. */
@@ -194,6 +194,11 @@ export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALEND
   const anchor = nextWorkingDay(fallbackStart, calendar);
   const dataDate = asDate(options.dataDate);
   const dataDate_h = dataDate ? dateToWorkingHours(dataDate, anchor, calendar) : null;
+  // Adjustable critical threshold (MS Project's "tasks are critical if slack
+  // is ≤ N days"). Widens the critical net: N=0 flags only true zero-float
+  // tasks; larger N additionally flags near-critical tasks.
+  const criticalToleranceHours =
+    FLOAT_TOLERANCE_HOURS + Math.max(0, Number(options.criticalToleranceDays) || 0) * WORK_HOURS_PER_DAY;
 
   /** yyyy-MM-dd string / Date → hour offset for a START-type point (null-safe). */
   const dh = (d) => {
@@ -551,7 +556,7 @@ export function runCPM(tasks, graph, projectStartDate, calendar = DEFAULT_CALEND
       freeFloatHours = 0;
     }
 
-    const isCritical = !isComplete && totalFloatHours <= FLOAT_TOLERANCE_HOURS;
+    const isCritical = !isComplete && totalFloatHours <= criticalToleranceHours;
 
     // durationDays stays in WORKING days (the unit the duration column uses).
     const durationDays = isMilestone ? 0 : (task.duration ?? 1);

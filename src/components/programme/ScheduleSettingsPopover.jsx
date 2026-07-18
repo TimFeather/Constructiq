@@ -38,6 +38,7 @@ export default function ScheduleSettingsPopover({ projectId, programme, tasks = 
   const [open, setOpen] = useState(false);
   const [dataDate, setDataDate] = useState('');
   const [weekType, setWeekType] = useState('5day');
+  const [slackTolerance, setSlackTolerance] = useState('0');
   const [customHolidays, setCustomHolidays] = useState([]);
   const [shutdowns, setShutdowns] = useState([]);
   const [newHoliday, setNewHoliday] = useState('');
@@ -47,6 +48,7 @@ export default function ScheduleSettingsPopover({ projectId, programme, tasks = 
   useEffect(() => {
     setDataDate(programme?.data_date || '');
     setWeekType(programme?.calendar?.type || '5day');
+    setSlackTolerance(String(programme?.critical_slack_tolerance_days ?? 0));
     setCustomHolidays(programme?.calendar?.holidays || []);
     setShutdowns(programme?.calendar?.shutdowns || []);
     setNewHoliday('');
@@ -88,6 +90,7 @@ export default function ScheduleSettingsPopover({ projectId, programme, tasks = 
   const saveMutation = useMutation({
     mutationFn: () => upsertProgramme(projectId, {
       data_date: dataDate || null,
+      critical_slack_tolerance_days: Math.max(0, parseInt(slackTolerance, 10) || 0),
       calendar: {
         ...(programme?.calendar || {}),
         type: weekType,
@@ -133,6 +136,21 @@ export default function ScheduleSettingsPopover({ projectId, programme, tasks = 
                 <SelectItem value="7day">7-day</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+
+          <div>
+            <Label className="text-xs">Critical slack tolerance (days)</Label>
+            <Input
+              type="number" min="0" step="1" value={slackTolerance}
+              onChange={e => setSlackTolerance(e.target.value)}
+              className="mt-1 h-8 w-28"
+            />
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Tasks are flagged critical when their total float is ≤ this many days
+              (same as MS Project's setting). 0 marks only true zero-float tasks;
+              higher values also flag near-critical tasks — it widens the net, never
+              narrows it.
+            </p>
           </div>
 
           <div>

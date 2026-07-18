@@ -108,6 +108,7 @@ export function runScheduleEngineByProject(tasks, programmesByProject = new Map(
     const calendar = calendarForProgramme(programme, projectTasks);
     const result = runScheduleEngine(projectTasks, null, calendar, {
       dataDate: programme?.data_date || null,
+      criticalToleranceDays: programme?.critical_slack_tolerance_days || 0,
     });
     result.forEach((v, k) => merged.set(k, v));
   }

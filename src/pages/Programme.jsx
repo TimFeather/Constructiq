@@ -208,7 +208,10 @@ export default function Programme() {
       return runScheduleEngineByProject(tasks, programmesByProject || new Map());
     }
     const calendar = calendarForProgramme(programme, tasks);
-    return runScheduleEngine(tasks, projectStart, calendar, { dataDate: programme?.data_date || null });
+    return runScheduleEngine(tasks, projectStart, calendar, {
+      dataDate: programme?.data_date || null,
+      criticalToleranceDays: programme?.critical_slack_tolerance_days || 0,
+    });
   }, [tasks, projectStart, programme, programmesByProject, selectedProjectId]);
 
   // Context every schedule mutation needs (audit user, calendar, data date)
@@ -217,6 +220,7 @@ export default function Programme() {
     projectStart,
     calendar: selectedProjectId !== 'all' ? calendarForProgramme(programme, tasks) : undefined,
     dataDate: selectedProjectId !== 'all' ? (programme?.data_date || null) : null,
+    criticalToleranceDays: selectedProjectId !== 'all' ? (programme?.critical_slack_tolerance_days || 0) : 0,
   }), [user?.id, projectStart, programme, tasks, selectedProjectId]);
 
   // Publish freezes the schedule for non-admins; admin can always edit/unpublish.
@@ -728,13 +732,6 @@ export default function Programme() {
               </SelectContent>
             </Select>
 
-            {criticalTaskCount > 0 && (
-              <Badge variant={showCriticalPath ? 'destructive' : 'outline'} className="cursor-pointer gap-1"
-                onClick={() => setShowCriticalPath(v => !v)}>
-                <Target className="w-3 h-3" />{criticalTaskCount} critical
-              </Badge>
-            )}
-
             {selectedProjectId !== 'all' && programmeLocked && (
               <Badge variant="outline" className="gap-1 border-amber-400 text-amber-700 bg-amber-50">
                 <Lock className="w-3 h-3" /> Locked
@@ -766,11 +763,11 @@ export default function Programme() {
               </Button>
             )}
             <Button
-              variant={showCriticalPath ? 'default' : 'outline'} size="sm"
+              variant={showCriticalPath ? 'destructive' : 'outline'} size="sm"
               onClick={() => setShowCriticalPath(v => !v)}
-              title="Show critical path only"
+              title="Highlight the critical path in red"
               className="gap-1.5 text-xs h-9">
-              <Target className="w-3.5 h-3.5" /> Critical
+              <Target className="w-3.5 h-3.5" /> Critical{criticalTaskCount > 0 ? ` (${criticalTaskCount})` : ''}
             </Button>
             {programmeEditable && (
               <ScheduleSettingsPopover
@@ -861,6 +858,7 @@ export default function Programme() {
                 onTaskAction={handleTaskAction}
                 editable={programmeEditable}
                 totalWorkingDays={totalWorkingDays}
+                showCritical={showCriticalPath}
                 scrollRef={taskScrollRef}
                 onScroll={() => {}}
               />
@@ -896,6 +894,7 @@ export default function Programme() {
                     onTaskAction={handleTaskAction}
                     editable={programmeEditable}
                     totalWorkingDays={totalWorkingDays}
+                    showCritical={showCriticalPath}
                     scrollRef={taskScrollRef}
                     onScroll={() => {
                       if (taskScrollRef.current && ganttScrollRef.current) {

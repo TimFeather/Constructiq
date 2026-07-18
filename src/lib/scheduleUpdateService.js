@@ -119,10 +119,11 @@ function toDbPayload(changes) {
  *   projectStart - fallback anchor date (yyyy-MM-dd)
  *   calendar     - working calendar (from calendarForProgramme)
  *   dataDate     - programme data date (yyyy-MM-dd or null)
+ *   criticalToleranceDays - flag tasks critical when float ≤ this many days
  * @returns {Promise<{ patches: Array, scheduledMap: Map, mergedTasks: Array }>}
  */
 export async function applyScheduleUpdate(taskId, changes, allTasks, options = {}) {
-  const { userId = null, projectStart, calendar, dataDate } = options;
+  const { userId = null, projectStart, calendar, dataDate, criticalToleranceDays = 0 } = options;
   const task = allTasks.find(t => t.id === taskId);
   if (!task) throw new Error(`Task ${taskId} not found`);
 
@@ -133,7 +134,7 @@ export async function applyScheduleUpdate(taskId, changes, allTasks, options = {
   const taskMap = new Map(allTasks.map(t => [t.id, t]));
 
   // 2. Run full schedule engine
-  const scheduledMap = runScheduleEngine(mergedTasks, projectStart, calendar, { dataDate });
+  const scheduledMap = runScheduleEngine(mergedTasks, projectStart, calendar, { dataDate, criticalToleranceDays });
 
   // 3. Compute all patches — every task whose stored dates differ from computed
   const patches = [];
@@ -302,7 +303,7 @@ export async function updateTaskProgress(taskId, percent_complete, allTasks, opt
   await writeChangeLog(directChangeRows(task, changes, options.userId));
 
   const mergedTasks = allTasks.map(t => (t.id === taskId ? { ...t, ...changes } : t));
-  const scheduledMap = runScheduleEngine(mergedTasks, options.projectStart, options.calendar, { dataDate: options.dataDate });
+  const scheduledMap = runScheduleEngine(mergedTasks, options.projectStart, options.calendar, { dataDate: options.dataDate, criticalToleranceDays: options.criticalToleranceDays || 0 });
   return { patches: [], scheduledMap, mergedTasks };
 }
 
@@ -328,7 +329,7 @@ export async function updateTaskFull(taskId, newData, allTasks, options = {}) {
   await Task.update(taskId, toDbPayload(newData));
   await writeChangeLog(directChangeRows(task, newData, options.userId));
   const mergedTasks = allTasks.map(t => (t.id === taskId ? { ...t, ...newData } : t));
-  const scheduledMap = runScheduleEngine(mergedTasks, options.projectStart, options.calendar, { dataDate: options.dataDate });
+  const scheduledMap = runScheduleEngine(mergedTasks, options.projectStart, options.calendar, { dataDate: options.dataDate, criticalToleranceDays: options.criticalToleranceDays || 0 });
   return { patches: [], scheduledMap, mergedTasks };
 }
 

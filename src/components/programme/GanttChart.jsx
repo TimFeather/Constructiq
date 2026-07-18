@@ -50,7 +50,7 @@ export default function GanttChart({
   // ─── Interactive authoring (all optional, gated by `editable`) ───────────────
   editable = false,
   dataDate = null,          // 'yyyy-MM-dd' — render a marker line like the Today line
-  criticalOnly = false,     // dim non-critical work
+  criticalOnly = false,     // Critical toggle: paint critical work red, dim the rest
   onMoveTask,               // (taskId, newStartDateStr) => void
   onResizeTask,             // (taskId, newDurationDays) => void
   onCreateDependency,       // ({ predecessorId, successorId, type, lagDays }) => void
@@ -445,20 +445,24 @@ export default function GanttChart({
                   <path d="M0,0 L8,4 L0,8 Z" fill="#dc2626" />
                 </marker>
               </defs>
-              {arrows.map(({ pathD, color, type, bothCritical, key }) => (
-                <g key={key} opacity={criticalOnly && !bothCritical ? 0.15 : 1}>
-                  <path d={pathD} fill="none" stroke="transparent" strokeWidth="6" />
-                  <path
-                    d={pathD}
-                    fill="none"
-                    stroke={bothCritical ? '#dc2626' : color}
-                    strokeWidth={bothCritical ? 2 : 1.5}
-                    strokeDasharray="5 3"
-                    opacity={bothCritical ? 1 : 0.8}
-                    markerEnd={bothCritical ? 'url(#arrow-critical)' : `url(#arrow-${type})`}
-                  />
-                </g>
-              ))}
+              {arrows.map(({ pathD, color, type, bothCritical, key }) => {
+                // Red link styling only while the Critical toggle is active.
+                const critLink = criticalOnly && bothCritical;
+                return (
+                  <g key={key} opacity={criticalOnly && !bothCritical ? 0.15 : 1}>
+                    <path d={pathD} fill="none" stroke="transparent" strokeWidth="6" />
+                    <path
+                      d={pathD}
+                      fill="none"
+                      stroke={critLink ? '#dc2626' : color}
+                      strokeWidth={critLink ? 2 : 1.5}
+                      strokeDasharray="5 3"
+                      opacity={critLink ? 1 : 0.8}
+                      markerEnd={critLink ? 'url(#arrow-critical)' : `url(#arrow-${type})`}
+                    />
+                  </g>
+                );
+              })}
             </svg>
 
             {/* Temporary dependency-link line while dragging a handle */}
@@ -488,7 +492,9 @@ export default function GanttChart({
               if (!bar) return null;
 
               const resolved = scheduledMap?.get(task.id);
-              const isCritical = resolved?.isCritical || false;
+              // Bars only go red while the Critical toggle is active; the
+              // toggle-off view keeps the normal colour scheme.
+              const isCritical = criticalOnly && (resolved?.isCritical || false);
               const isMilestoneTask = bar.isMilestone;
               const isSummary = summaryIds.has(task.id);
               const percentComplete = isSummary

@@ -74,6 +74,7 @@ export default function TaskList({
   onTaskAction,          // (action, task) => void — indent/outdent/insert/convert-milestone from right-click menu
   editable = false,      // whether the grid is editable
   totalWorkingDays = null, // overall project span in working days (title bar)
+  showCritical = false,  // red critical styling only when the Critical toggle is on
 }) {
   const COLS = baselineMap
     ? '44px 20px 1fr 48px 44px 64px 64px 90px 72px'
@@ -104,7 +105,7 @@ export default function TaskList({
   function getRowCtx(task) {
     const isSummary = summaryIds.has(task.id);
     const resolved = scheduledMap?.get(task.id);
-    const isCritical = resolved?.isCritical || false;
+    const isCritical = showCritical && (resolved?.isCritical || false);
     const plannedStart = resolved?.startStr || task.start_date;
     const plannedEnd = resolved?.finishStr || task.end_date;
     const percentComplete = isSummary
@@ -421,7 +422,7 @@ export default function TaskList({
               className={cn(
                 'relative group grid items-center w-full border-b border-border/20 hover:bg-muted/40 transition-colors cursor-pointer px-2 border-l-2',
                 isCritical ? 'border-l-red-500 bg-red-50/30 dark:bg-red-950/10' : (levelColors[depth] || 'border-l-muted'),
-                isSummary && !isCritical && 'bg-muted/50',
+                isSummary && !isCritical && 'bg-primary/15 dark:bg-primary/20',
                 hoveredTaskId === task.id && 'bg-muted/60',
               )}
               onClick={() => { if (!editable) onTaskClick?.(task); }}
