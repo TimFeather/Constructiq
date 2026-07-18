@@ -17,6 +17,7 @@ import { X } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { filterActiveUsers } from '@/lib/userStatus';
 import { logProjectActivity } from '@/lib/activityLog';
+import { getRole } from '@/lib/permissions';
 
 export default function RFIFormDialog({ open, onOpenChange, projects = [], defaultProjectId = '' }) {
   const { user } = useAuth();
@@ -57,6 +58,14 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
     !m.user_email || activeUserEmails.has(m.user_email.toLowerCase())
   );
 
+  // External/subcontractor users don't pick an assignee — their RFIs always
+  // route back to whoever created the project.
+  const isExternal = getRole(user) === 'external';
+  const projectOwner = allUsersRaw.find(u => u.id === selectedProject?.created_by_id);
+  const effectiveAssignees = isExternal
+    ? (projectOwner ? [{ email: projectOwner.email, name: projectOwner.full_name || projectOwner.email, role: projectOwner.role }] : [])
+    : selectedEmails;
+
   useEffect(() => {
     setSelectedEmails([]);
   }, [form.project_id]);
@@ -81,14 +90,14 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
       const maxNumber = projectRfis.reduce((max, r) => Math.max(max, r.number || 0), 0);
       const nextNumber = maxNumber + 1;
       // keep legacy single-assignee fields populated with first assignee for backwards compat
-      const firstAssignee = selectedEmails[0];
+      const firstAssignee = effectiveAssignees[0];
       const rfi = await RFI.create({
       ...data,
       number: nextNumber,
       status: 'Open',
       responses: [],
       attachments: [],
-      assignees: selectedEmails,
+      assignees: effectiveAssignees,
       assigned_to_email: firstAssignee?.email || '',
       assigned_to_name: firstAssignee?.name || '',
       created_by_id: user?.id || null,
@@ -99,7 +108,7 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
       const rfiUrl = `${window.location.origin}/rfis/${rfi.id}`;
       const projectName = projects.find(p => p.id === data.project_id)?.name || '';
       const tpl = resolveTemplate(emailTemplates, 'rfi_assigned');
-      selectedEmails.forEach(assignee => {
+      effectiveAssignees.forEach(assignee => {
         const { subject, body } = applyTemplate(tpl, {
           rfi_ref: `RFI-${String(nextNumber).padStart(3, '0')}`,
           title: data.title,
@@ -127,20 +136,21 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
         user,
         description: `RFI-${String(rfi.number).padStart(3, '0')} "${rfi.title}" created`,
       }).catch(() => {});
-      if (selectedEmails.length > 0) {
+      const rfiAssignees = rfi.assignees || [];
+      if (rfiAssignees.length > 0) {
         logProjectActivity({
           projectId: rfi.project_id,
           entityType: 'rfi',
           entityId: rfi.id,
           eventType: 'rfi_assigned',
           user,
-          description: `RFI-${String(rfi.number).padStart(3, '0')} assigned to ${selectedEmails.map(a => a.name || a.email).join(', ')}`,
-          metadata: { assignees: selectedEmails.map(a => a.email) },
+          description: `RFI-${String(rfi.number).padStart(3, '0')} assigned to ${rfiAssignees.map(a => a.name || a.email).join(', ')}`,
+          metadata: { assignees: rfiAssignees.map(a => a.email) },
         }).catch(() => {});
       }
       queryClient.invalidateQueries({ queryKey: ['rfis'] });
       onOpenChange(false);
-      if (!selectedEmails || selectedEmails.length === 0) {
+      if (rfiAssignees.length === 0) {
         toast({
           title: 'RFI created — no assignees set',
           description: 'No notification email was sent. You can assign someone from the RFI detail page.',
@@ -202,7 +212,16 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
             <Input type="date" value={form.due_date} onChange={e => setForm({...form, due_date: e.target.value})} />
           </div>
 
-          {/* Multi-select assignees */}
+          {/* Multi-select assignees (internal/pricing) or auto-routed owner (external) */}
+          {isExternal ? (
+            <div>
+              <Label>Assign To</Label>
+              <div className="border rounded-md p-3 mt-1.5 bg-muted/30">
+                <p className="text-sm">{projectOwner ? (projectOwner.full_name || projectOwner.email) : 'Project owner'}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">RFIs you raise are automatically sent to the project owner.</p>
+              </div>
+            </div>
+          ) : (
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <Label>Assign To</Label>
@@ -257,6 +276,7 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
               </div>
             )}
           </div>
+          )}
 
           <div className="flex items-start justify-between gap-3 border rounded-md p-3">
             <div>

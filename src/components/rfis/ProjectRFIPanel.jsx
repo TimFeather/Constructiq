@@ -16,7 +16,7 @@ import { Plus, MessageSquare, ChevronDown, ChevronUp, Calendar, Send, Paperclip,
 import { format } from 'date-fns';
 import { resolveTemplate, applyTemplate } from '@/lib/emailTemplates';
 import { logProjectActivity } from '@/lib/activityLog';
-import { canCreate } from '@/lib/permissions';
+import { canCreate, getRole } from '@/lib/permissions';
 
 const PRIORITY_COLORS = {
   Low: 'bg-blue-100 text-blue-700',
@@ -383,6 +383,11 @@ export default function ProjectRFIPanel({ project, rfis = [] }) {
 
   const isRegistered = (email) => registeredUsers.some(u => u.email?.toLowerCase() === email?.toLowerCase());
 
+  // External/subcontractor users don't pick an assignee — their RFIs always
+  // route back to whoever created the project.
+  const isExternal = getRole(user) === 'external';
+  const projectOwner = registeredUsers.find(u => u.id === project?.created_by_id);
+
   const handleAssigneeChange = (value) => {
     if (value === 'unassigned') {
       setForm(f => ({ ...f, assigned_to_email: '', assigned_to_name: '' }));
@@ -407,8 +412,13 @@ export default function ProjectRFIPanel({ project, rfis = [] }) {
       })
     );
 
+    const assignedToEmail = isExternal ? (projectOwner?.email || '') : form.assigned_to_email;
+    const assignedToName = isExternal ? (projectOwner?.full_name || projectOwner?.email || '') : form.assigned_to_name;
+
     const rfi = await RFI.create({
       ...form,
+      assigned_to_email: assignedToEmail,
+      assigned_to_name: assignedToName,
       project_id: project.id,
       number: nextNumber,
       status: 'Open',
@@ -419,20 +429,20 @@ export default function ProjectRFIPanel({ project, rfis = [] }) {
       created_by_name: user?.full_name || '',
     });
 
-    if (form.assigned_to_email && isRegistered(form.assigned_to_email)) {
+    if (assignedToEmail && isRegistered(assignedToEmail)) {
       try {
         const tpl = resolveTemplate(emailTemplates, 'rfi_assigned');
         const { subject, body } = applyTemplate(tpl, {
           rfi_ref: `RFI-${String(nextNumber).padStart(3, '0')}`,
           title: form.title,
           project_name: project.name,
-          assignee_name: form.assigned_to_name || form.assigned_to_email,
+          assignee_name: assignedToName || assignedToEmail,
           priority: form.priority,
           due_date: form.due_date || 'Not set',
           description: form.description || 'No description',
           url: `${window.location.origin}/rfis/${rfi.id}`,
         });
-        await sendEmail({ to: form.assigned_to_email, subject, body });
+        await sendEmail({ to: assignedToEmail, subject, body });
       } catch (e) { /* non-critical */ }
     }
 
@@ -521,7 +531,12 @@ export default function ProjectRFIPanel({ project, rfis = [] }) {
             </div>
             <div>
               <Label>Assign To</Label>
-              {teamMembers.length > 0 ? (
+              {isExternal ? (
+                <div className="border rounded-md p-3 mt-1.5 bg-muted/30">
+                  <p className="text-sm">{projectOwner ? (projectOwner.full_name || projectOwner.email) : 'Project owner'}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">RFIs you raise are automatically sent to the project owner.</p>
+                </div>
+              ) : teamMembers.length > 0 ? (
                 <Select value={form.assigned_to_email || 'unassigned'} onValueChange={handleAssigneeChange}>
                   <SelectTrigger><SelectValue placeholder="Select team member" /></SelectTrigger>
                   <SelectContent>
