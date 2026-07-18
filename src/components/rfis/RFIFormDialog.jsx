@@ -58,14 +58,12 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
     !m.user_email || activeUserEmails.has(m.user_email.toLowerCase())
   );
 
-  // External/subcontractor users pick from admin/internal team members only
-  // (not the whole team) and default to whoever created the project if left blank.
+  // External/subcontractor users pick any admin/internal user (they aren't
+  // necessarily on the project's team array) and default to whoever created
+  // the project if left blank.
   const isExternal = getRole(user) === 'external';
   const projectOwner = allUsersRaw.find(u => u.id === selectedProject?.created_by_id);
-  const internalAdminMembers = teamMembers.filter(m => {
-    const u = allUsersRaw.find(x => x.email?.toLowerCase() === m.user_email?.toLowerCase());
-    return u && ['admin', 'internal'].includes(getRole(u));
-  });
+  const internalAdminUsers = filterActiveUsers(allUsersRaw).filter(u => ['admin', 'internal'].includes(getRole(u)));
   const effectiveAssignees = isExternal
     ? (selectedEmails.length > 0
         ? selectedEmails
@@ -226,8 +224,8 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
                 value={selectedEmails[0]?.email || 'owner'}
                 onValueChange={v => {
                   if (v === 'owner') { setSelectedEmails([]); return; }
-                  const member = internalAdminMembers.find(m => m.user_email === v);
-                  if (member) setSelectedEmails([{ email: member.user_email, name: member.full_name, role: member.role }]);
+                  const member = internalAdminUsers.find(m => m.email === v);
+                  if (member) setSelectedEmails([{ email: member.email, name: member.full_name || member.email, role: member.role }]);
                 }}
               >
                 <SelectTrigger><SelectValue /></SelectTrigger>
@@ -235,8 +233,8 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
                   <SelectItem value="owner">
                     {projectOwner ? `${projectOwner.full_name || projectOwner.email} — Project Owner` : 'Project Owner'}
                   </SelectItem>
-                  {internalAdminMembers.map(m => (
-                    <SelectItem key={m.user_email} value={m.user_email}>{m.full_name} — {m.role}</SelectItem>
+                  {internalAdminUsers.map(m => (
+                    <SelectItem key={m.email} value={m.email}>{m.full_name || m.email} — {m.role}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
