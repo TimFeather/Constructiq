@@ -58,12 +58,18 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
     !m.user_email || activeUserEmails.has(m.user_email.toLowerCase())
   );
 
-  // External/subcontractor users don't pick an assignee — their RFIs always
-  // route back to whoever created the project.
+  // External/subcontractor users pick from admin/internal team members only
+  // (not the whole team) and default to whoever created the project if left blank.
   const isExternal = getRole(user) === 'external';
   const projectOwner = allUsersRaw.find(u => u.id === selectedProject?.created_by_id);
+  const internalAdminMembers = teamMembers.filter(m => {
+    const u = allUsersRaw.find(x => x.email?.toLowerCase() === m.user_email?.toLowerCase());
+    return u && ['admin', 'internal'].includes(getRole(u));
+  });
   const effectiveAssignees = isExternal
-    ? (projectOwner ? [{ email: projectOwner.email, name: projectOwner.full_name || projectOwner.email, role: projectOwner.role }] : [])
+    ? (selectedEmails.length > 0
+        ? selectedEmails
+        : (projectOwner ? [{ email: projectOwner.email, name: projectOwner.full_name || projectOwner.email, role: projectOwner.role }] : []))
     : selectedEmails;
 
   useEffect(() => {
@@ -212,14 +218,28 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
             <Input type="date" value={form.due_date} onChange={e => setForm({...form, due_date: e.target.value})} />
           </div>
 
-          {/* Multi-select assignees (internal/pricing) or auto-routed owner (external) */}
+          {/* Multi-select assignees (internal/pricing) or admin/internal picker defaulting to owner (external) */}
           {isExternal ? (
             <div>
-              <Label>Assign To</Label>
-              <div className="border rounded-md p-3 mt-1.5 bg-muted/30">
-                <p className="text-sm">{projectOwner ? (projectOwner.full_name || projectOwner.email) : 'Project owner'}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">RFIs you raise are automatically sent to the project owner.</p>
-              </div>
+              <Label>Assign To <span className="text-muted-foreground font-normal">(optional — defaults to project owner)</span></Label>
+              <Select
+                value={selectedEmails[0]?.email || 'owner'}
+                onValueChange={v => {
+                  if (v === 'owner') { setSelectedEmails([]); return; }
+                  const member = internalAdminMembers.find(m => m.user_email === v);
+                  if (member) setSelectedEmails([{ email: member.user_email, name: member.full_name, role: member.role }]);
+                }}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="owner">
+                    {projectOwner ? `${projectOwner.full_name || projectOwner.email} — Project Owner` : 'Project Owner'}
+                  </SelectItem>
+                  {internalAdminMembers.map(m => (
+                    <SelectItem key={m.user_email} value={m.user_email}>{m.full_name} — {m.role}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           ) : (
           <div>

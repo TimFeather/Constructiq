@@ -383,13 +383,17 @@ export default function ProjectRFIPanel({ project, rfis = [] }) {
 
   const isRegistered = (email) => registeredUsers.some(u => u.email?.toLowerCase() === email?.toLowerCase());
 
-  // External/subcontractor users don't pick an assignee — their RFIs always
-  // route back to whoever created the project.
+  // External/subcontractor users pick from admin/internal team members only
+  // (not the whole team) and default to whoever created the project if left blank.
   const isExternal = getRole(user) === 'external';
   const projectOwner = registeredUsers.find(u => u.id === project?.created_by_id);
+  const internalAdminMembers = teamMembers.filter(m => {
+    const u = registeredUsers.find(x => x.email?.toLowerCase() === m.user_email?.toLowerCase());
+    return u && ['admin', 'internal'].includes(getRole(u));
+  });
 
   const handleAssigneeChange = (value) => {
-    if (value === 'unassigned') {
+    if (value === 'unassigned' || value === 'owner') {
       setForm(f => ({ ...f, assigned_to_email: '', assigned_to_name: '' }));
       return;
     }
@@ -412,8 +416,8 @@ export default function ProjectRFIPanel({ project, rfis = [] }) {
       })
     );
 
-    const assignedToEmail = isExternal ? (projectOwner?.email || '') : form.assigned_to_email;
-    const assignedToName = isExternal ? (projectOwner?.full_name || projectOwner?.email || '') : form.assigned_to_name;
+    const assignedToEmail = isExternal ? (form.assigned_to_email || projectOwner?.email || '') : form.assigned_to_email;
+    const assignedToName = isExternal ? (form.assigned_to_name || projectOwner?.full_name || projectOwner?.email || '') : form.assigned_to_name;
 
     const rfi = await RFI.create({
       ...form,
@@ -532,10 +536,20 @@ export default function ProjectRFIPanel({ project, rfis = [] }) {
             <div>
               <Label>Assign To</Label>
               {isExternal ? (
-                <div className="border rounded-md p-3 mt-1.5 bg-muted/30">
-                  <p className="text-sm">{projectOwner ? (projectOwner.full_name || projectOwner.email) : 'Project owner'}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">RFIs you raise are automatically sent to the project owner.</p>
-                </div>
+                <>
+                  <Select value={form.assigned_to_email || 'owner'} onValueChange={handleAssigneeChange}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="owner">
+                        {projectOwner ? `${projectOwner.full_name || projectOwner.email} — Project Owner` : 'Project Owner'}
+                      </SelectItem>
+                      {internalAdminMembers.map(m => (
+                        <SelectItem key={m.user_email} value={m.user_email}>{m.full_name} — {m.role}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground mt-1">Optional — defaults to the project owner if left blank.</p>
+                </>
               ) : teamMembers.length > 0 ? (
                 <Select value={form.assigned_to_email || 'unassigned'} onValueChange={handleAssigneeChange}>
                   <SelectTrigger><SelectValue placeholder="Select team member" /></SelectTrigger>
