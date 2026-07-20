@@ -82,27 +82,24 @@ Deno.serve(async (req: Request) => {
       file_url:     f.file_url || '',
     }));
 
-    // Batch-sign every resolvable path in one round-trip.
-    const paths = [...new Set(files.map(f => f.storage_path).filter(Boolean))] as string[];
-    const signedByPath = new Map<string, string | null>();
-    if (paths.length) {
-      const { data: signed, error: signErr } = await supabaseAdmin.storage
-        .from(BUCKET)
-        .createSignedUrls(paths, EXPIRY_SECONDS);
-      if (signErr) {
-        return Response.json({ error: `Failed to sign URLs: ${signErr.message}` }, { status: 500, headers: corsHeaders });
+    // Sign per-file (not batched) so each URL carries `download: file_name` —
+    // storage keys are generated UUIDs, and without this the browser would save
+    // downloads under the UUID instead of the original filename.
+    const result = await Promise.all(files.map(async (f) => {
+      let signedUrl: string | null = null;
+      if (f.storage_path) {
+        const { data } = await supabaseAdmin.storage
+          .from(BUCKET)
+          .createSignedUrl(f.storage_path, EXPIRY_SECONDS, { download: f.file_name });
+        signedUrl = data?.signedUrl || null;
       }
-      for (const item of signed || []) {
-        signedByPath.set(item.path, item.error ? null : item.signedUrl);
-      }
-    }
-
-    const result = files.map(f => ({
-      file_name:    f.file_name,
-      storage_path: f.storage_path,
-      // Fresh signed URL when we could resolve a path; otherwise fall back to the
-      // stored value (best-effort for legacy rows we couldn't recover a path from).
-      signed_url:   (f.storage_path && signedByPath.get(f.storage_path)) || f.file_url || null,
+      return {
+        file_name:    f.file_name,
+        storage_path: f.storage_path,
+        // Fresh signed URL when we could resolve a path; otherwise fall back to the
+        // stored value (best-effort for legacy rows we couldn't recover a path from).
+        signed_url:   signedUrl || f.file_url || null,
+      };
     }));
 
     return Response.json({ files: result }, { headers: corsHeaders });

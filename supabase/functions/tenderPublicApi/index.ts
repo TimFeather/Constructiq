@@ -246,8 +246,13 @@ Deno.serve(async (req: Request) => {
         }
         const mimeType = fileType || 'application/octet-stream';
 
-        // Upload to Supabase Storage (tender-submissions bucket)
-        const storagePath = `${invitation.tender_id}/${invitation.id}/${Date.now()}_${fileName}`;
+        // Upload to Supabase Storage (tender-submissions bucket).
+        // The storage key must never contain the original filename — Supabase
+        // rejects keys that are too long or contain characters outside its
+        // allowed set, and real-world construction filenames hit both. The
+        // original name is kept in the submission row (file_name) and restored
+        // at download time via the signed URL's `download` option.
+        const storagePath = `${invitation.tender_id}/${invitation.id}/${Date.now()}_${crypto.randomUUID()}.${ext}`;
         const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
           .from('tender-submissions')
           .upload(storagePath, binary, { contentType: mimeType, upsert: false });
@@ -266,7 +271,7 @@ Deno.serve(async (req: Request) => {
 
         const { data: { signedUrl }, error: signError } = await supabaseAdmin.storage
           .from('tender-submissions')
-          .createSignedUrl(storagePath, expirySeconds);
+          .createSignedUrl(storagePath, expirySeconds, { download: fileName });
 
         if (signError || !signedUrl) {
           throw new Error(`Failed to generate signed URL: ${signError?.message || 'unknown error'}`);

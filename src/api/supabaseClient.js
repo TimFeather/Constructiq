@@ -41,6 +41,15 @@ export function isStoredUrl(value) {
   return typeof value === 'string' && /^https?:\/\//i.test(value);
 }
 
+// True when a storage upload died at the network level (no HTTP status) — fetch
+// rejected before the server answered. storage-js wraps these as "Failed to fetch"
+// (Chrome), "NetworkError…" (Firefox), or "Load failed" (Safari). Server-side
+// rejections (4xx/5xx) carry a real message and must NOT match here.
+function isNetworkSendFailure(error) {
+  const msg = error?.message || String(error);
+  return /failed to fetch|networkerror|load failed|network request failed/i.test(msg);
+}
+
 // Drop-in replacement for base44.integrations.Core.UploadFile({ file })
 // onProgress(pct: 0–100) is optional — called during upload if the browser supports it
 // signal is an optional AbortSignal — passed through to the storage client for true
@@ -64,7 +73,28 @@ export async function uploadFile(file, bucket = 'Documents', onProgress = null, 
   const options = {};
   if (onProgress) options.onUploadProgress = ({ loaded, total }) => onProgress(Math.round((loaded / total) * 100));
   if (signal) options.signal = signal;
-  const { error } = await supabase.storage.from(bucket).upload(path, file, Object.keys(options).length ? options : undefined);
+  const uploadOpts = Object.keys(options).length ? options : undefined;
+  let { error } = await supabase.storage.from(bucket).upload(path, file, uploadOpts);
+  if (error && isNetworkSendFailure(error)) {
+    // net::ERR_FAILED with no HTTP status: the browser couldn't stream the file
+    // from disk at send time. Happens with over-long Windows paths (>260 chars)
+    // and OneDrive/SharePoint placeholder files that aren't hydrated locally.
+    // Buffering the whole file into memory first reads it through a different
+    // OS path (and hydrates placeholders), so retry the upload with a copy.
+    let bytes;
+    try {
+      bytes = await file.arrayBuffer();
+    } catch {
+      throw new Error(
+        `Windows could not read "${file.name}" from disk. This usually means the ` +
+        `file's folder path is too long, or the file hasn't finished downloading ` +
+        `from OneDrive/SharePoint. Open the file once (or move it to a shorter ` +
+        `folder path) and try again.`
+      );
+    }
+    const copy = new Blob([bytes], { type: file.type || 'application/octet-stream' });
+    ({ error } = await supabase.storage.from(bucket).upload(path, copy, uploadOpts));
+  }
   if (error) {
     const msg = error.message || String(error);
     if (msg.includes('exceeded') || msg.includes('too large') || msg.includes('413')) {
