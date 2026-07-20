@@ -354,6 +354,7 @@ Deno.serve(async (req: Request) => {
           title:           tender.title,
           description:     tender.description,
           closing_date:    tender.closing_date,
+          issue_date:      tender.issue_date || null,
           ths_rft_closing_date: tender.ths_rft_closing_date || '',
           site_visit_date: tender.site_visit_date || null,
           questions_date:  tender.questions_date  || null,

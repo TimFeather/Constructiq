@@ -22,6 +22,21 @@ function fmtDate(val) {
   try { return format(parseISO(val.split('T')[0]), 'dd MMMM yyyy'); } catch { return val; }
 }
 
+// Format a full datetime (e.g. closing_date "2026-07-21T17:00:00") as
+// "21 July 2026 at 5:00 PM". Falls back to date-only if there is no time part.
+function fmtDateTime(val) {
+  if (!val) return null;
+  const dateStr = fmtDate(val);
+  if (!dateStr) return null;
+  const timePart = String(val).split('T')[1];
+  if (!timePart) return dateStr;
+  try {
+    return `${dateStr} at ${format(parseISO(val), 'h:mm a')}`;
+  } catch {
+    return dateStr;
+  }
+}
+
 function DownloadAllButton({ documents, tenderTitle }) {
   const [downloading, setDownloading] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -401,7 +416,10 @@ export default function TenderSubmit() {
                   <InfoField label="Project" value={tender.title} />
                   <InfoField label="Tender Number" value={tender.tender_number} />
                   <InfoField label="Address / Location" value={tender.location} />
-                  <InfoField label="Tender due date" value={fmtDate(tender.closing_date)}
+                  {tender.issue_date && (
+                    <InfoField label="Issue Date" value={fmtDate(tender.issue_date)} />
+                  )}
+                  <InfoField label="Tender due date" value={fmtDateTime(tender.closing_date)}
                     highlight={isOverdue ? 'red' : null} />
                   {tender.ths_rft_closing_date && (
                     <InfoField label="THS RFT closing date" value={fmtDate(tender.ths_rft_closing_date)} />
