@@ -43,7 +43,7 @@ export default function UploadProgressModal({ state, onDuplicateAction, onRetryF
   return (
     <Dialog open={phase !== 'idle'} onOpenChange={handleOpenChange}>
       <DialogContent
-        className="sm:max-w-md"
+        className="sm:max-w-md overflow-hidden"
         onPointerDownOutside={e => isRunning && e.preventDefault()}
         onEscapeKeyDown={e => isRunning && e.preventDefault()}
       >
@@ -72,7 +72,7 @@ export default function UploadProgressModal({ state, onDuplicateAction, onRetryF
             </p>
             <div className="bg-muted rounded-lg p-3 max-h-36 overflow-y-auto space-y-0.5">
               {duplicates.map((d, i) => (
-                <p key={i} className="text-xs font-mono text-muted-foreground truncate">{d}</p>
+                <p key={i} className="text-xs font-mono text-muted-foreground break-all">{d}</p>
               ))}
             </div>
             <div className="flex flex-col gap-2">
@@ -115,9 +115,9 @@ export default function UploadProgressModal({ state, onDuplicateAction, onRetryF
             </div>
 
             {currentFile && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground min-w-0">
-                <Loader2 className="w-3.5 h-3.5 animate-spin flex-shrink-0" />
-                <span className="truncate font-mono text-xs">{currentFile}</span>
+              <div className="flex items-start gap-2 text-sm text-muted-foreground min-w-0">
+                <Loader2 className="w-3.5 h-3.5 animate-spin flex-shrink-0 mt-0.5" />
+                <span className="break-all font-mono text-xs min-w-0">{currentFile}</span>
               </div>
             )}
 

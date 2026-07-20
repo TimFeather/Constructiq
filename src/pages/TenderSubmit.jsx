@@ -314,7 +314,7 @@ export default function TenderSubmit() {
                   {submittedFiles.map((f, i) => (
                     <li key={i} className="flex items-center gap-2 text-sm">
                       <FileText className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-                      <span className="truncate">{f.file_name}</span>
+                      <span className="min-w-0 break-all">{f.file_name}</span>
                     </li>
                   ))}
                 </ul>
@@ -744,7 +744,7 @@ export default function TenderSubmit() {
                             {f.status === 'uploading' && <Loader2 className="w-3 h-3 animate-spin flex-shrink-0" />}
                             {f.status === 'done'      && <CheckCircle2 className="w-3 h-3 flex-shrink-0 text-green-600" />}
                             {f.status === 'error'     && <AlertCircle className="w-3 h-3 flex-shrink-0 text-red-500" />}
-                            <span className="flex-1 truncate">{f.file_name}</span>
+                            <span className="flex-1 min-w-0 break-all">{f.file_name}</span>
                             {f.status === 'error' && (
                               <button className="flex items-center gap-0.5 text-red-700 hover:underline" onClick={() => uploadSingleFile(f)}>
                                 <RefreshCw className="w-3 h-3" /> Retry

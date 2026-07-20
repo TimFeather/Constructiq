@@ -58,7 +58,7 @@ function DocRow({ doc, idx, canManage, onCategoryChange, onDelete, onPreview, on
       <td className="px-4 py-2.5">
         <div className="flex items-center gap-2" style={{ paddingLeft: `${depth * 20}px` }}>
           <span className="text-sm">{FILE_ICONS[getExt(doc.name)] || '📎'}</span>
-          <span className="font-medium text-sm truncate max-w-[200px]">{doc.name}</span>
+          <span className="font-medium text-sm break-words max-w-[280px]" title={doc.name}>{doc.name}</span>
         </div>
       </td>
       <td className="px-4 py-2.5">
