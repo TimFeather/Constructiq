@@ -173,11 +173,12 @@ export default function UploadProgressModal({ state, onDuplicateAction, onRetryF
             </div>
 
             {failedFiles?.length > 0 && (
-              <div className="bg-muted/50 rounded-lg p-3 max-h-32 overflow-y-auto space-y-0.5">
+              <div className="bg-muted/50 rounded-lg p-3 max-h-48 overflow-y-auto overflow-x-hidden space-y-2">
                 {failedFiles.map((f, i) => (
-                  <p key={i} className="text-xs text-destructive font-mono truncate">
-                    ✗ {f.relativePath}
-                  </p>
+                  <div key={i} className="text-xs space-y-0.5">
+                    <p className="text-destructive font-mono break-all">✗ {f.relativePath}</p>
+                    {f.error && <p className="text-muted-foreground break-words pl-4">{f.error}</p>}
+                  </div>
                 ))}
               </div>
             )}

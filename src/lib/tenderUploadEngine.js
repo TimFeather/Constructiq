@@ -157,6 +157,9 @@ async function uploadWithRetry(file, maxRetries = 3) {
       return file_url;
     } catch (err) {
       lastErr = err;
+      // Unreadable-from-disk failures (long Windows paths, unsynced OneDrive
+      // placeholders) can never succeed on retry — surface them immediately.
+      if (err?.unreadableFile) throw err;
       if (attempt < maxRetries) {
         await new Promise(r => setTimeout(r, delays[attempt]));
       }

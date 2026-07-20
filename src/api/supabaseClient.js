@@ -81,22 +81,28 @@ export async function uploadFile(file, bucket = 'Documents', onProgress = null, 
     // and OneDrive/SharePoint placeholder files that aren't hydrated locally.
     // Buffering the whole file into memory first reads it through a different
     // OS path (and hydrates placeholders), so retry the upload with a copy.
+    console.warn(`[uploadFile] network-level send failure for "${file.name}" — retrying with buffered copy`, error);
     let bytes;
     try {
       bytes = await file.arrayBuffer();
-    } catch {
-      throw new Error(
-        `Windows could not read "${file.name}" from disk. This usually means the ` +
+    } catch (readErr) {
+      console.error(`[uploadFile] buffered read failed for "${file.name}"`, readErr);
+      const detail = readErr?.name ? ` (${readErr.name}: ${readErr.message || 'no detail'})` : '';
+      const e = new Error(
+        `Windows could not read "${file.name}" from disk${detail}. This usually means the ` +
         `file's folder path is too long, or the file hasn't finished downloading ` +
         `from OneDrive/SharePoint. Open the file once (or move it to a shorter ` +
         `folder path) and try again.`
       );
+      e.unreadableFile = true; // signals retry loops that retrying cannot help
+      throw e;
     }
     const copy = new Blob([bytes], { type: file.type || 'application/octet-stream' });
     ({ error } = await supabase.storage.from(bucket).upload(path, copy, uploadOpts));
   }
   if (error) {
     const msg = error.message || String(error);
+    console.error(`[uploadFile] upload failed for "${file.name}":`, msg, error);
     if (msg.includes('exceeded') || msg.includes('too large') || msg.includes('413')) {
       throw new Error(`File is too large to upload. Please reduce the file size and try again, or contact your administrator.`);
     }
