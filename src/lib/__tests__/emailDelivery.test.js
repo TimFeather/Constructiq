@@ -54,6 +54,29 @@ describe('resolveDeliveryDisplay', () => {
     expect(d).toMatchObject({ status: 'sent', isProblem: false });
   });
 
+  // Migration 024: problems from senders that log no invitee context are
+  // matched to the invitee by email address, so `status` (which only counts
+  // explicitly linked messages) is null.
+  it('shows an address-matched problem when there is no linked message', () => {
+    const d = resolveDeliveryDisplay({
+      status: null,
+      failure_status: 'delayed',
+      error_message: null,
+    });
+    expect(d.status).toBe('delayed');
+    expect(d.isProblem).toBe(true);
+    expect(d.explanation).toMatch(/not accepting mail yet/i);
+  });
+
+  it('does not claim a resend is in flight when nothing was resent', () => {
+    const d = resolveDeliveryDisplay({ status: null, failure_status: 'bounced' });
+    expect(d.retryInFlight).toBe(false);
+  });
+
+  it('returns null when there is neither a status nor a failure', () => {
+    expect(resolveDeliveryDisplay({ status: null, failure_status: null })).toBeNull();
+  });
+
   it('surfaces a spam complaint even though mail was delivered', () => {
     const d = resolveDeliveryDisplay({ status: 'complained', failure_status: 'complained' });
     expect(d.isProblem).toBe(true);

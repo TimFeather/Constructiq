@@ -108,14 +108,20 @@ export function resolveDeliveryDisplay(delivery) {
 
   // Nothing has landed yet and we have a known failure: that is still the
   // most recent real outcome, even if a resend is currently in flight.
+  //
+  // status may be null here — the problem was matched to this invitee by
+  // email address, from a send that carried no invitee link (migration 024).
+  // In that case there is no newer message, so nothing is in flight.
   if (delivery.failure_status) {
     return {
       status:        delivery.failure_status,
       isProblem:     true,
       explanation:   explainDeliveryFailure({ ...delivery, status: delivery.failure_status }),
-      retryInFlight: delivery.status !== delivery.failure_status,
+      retryInFlight: Boolean(delivery.status) && delivery.status !== delivery.failure_status,
     };
   }
+
+  if (!delivery.status) return null;
 
   return {
     status:        delivery.status,
