@@ -31,6 +31,9 @@ export const DELIVERY_STATUS_LABELS = {
   failed:     'Failed',
 };
 
+/** Statuses that mean the email definitively landed. */
+export const GOOD_STATUSES = ['delivered', 'opened', 'clicked'];
+
 /** Statuses that mean the recipient did not get the email. */
 export const FAILED_STATUSES = ['bounced', 'failed'];
 
@@ -82,6 +85,44 @@ export function explainDeliveryFailure(msg) {
     return 'A temporary problem at the receiving end. Resend retried for up to 14 hours before giving up — resending later may work.';
   }
   return 'Permanent delivery failure. The address will not accept mail as written.';
+}
+
+/**
+ * Decides what a tender invitee's delivery badge should say, given a row
+ * from the tender_invitee_delivery view.
+ *
+ * The subtlety: resending to a bad address creates a fresh 'sent' message,
+ * which would otherwise mask the bounce that prompted the resend. A bounce
+ * stays visible until a later message actually lands, because the fix is to
+ * correct the address — retrying the same one fails identically.
+ *
+ * Returns null when there is nothing to show.
+ */
+export function resolveDeliveryDisplay(delivery) {
+  if (!delivery) return null;
+
+  // A later message actually landed — whatever failed before is resolved.
+  if (GOOD_STATUSES.includes(delivery.status)) {
+    return { status: delivery.status, isProblem: false, explanation: null, retryInFlight: false };
+  }
+
+  // Nothing has landed yet and we have a known failure: that is still the
+  // most recent real outcome, even if a resend is currently in flight.
+  if (delivery.failure_status) {
+    return {
+      status:        delivery.failure_status,
+      isProblem:     true,
+      explanation:   explainDeliveryFailure({ ...delivery, status: delivery.failure_status }),
+      retryInFlight: delivery.status !== delivery.failure_status,
+    };
+  }
+
+  return {
+    status:        delivery.status,
+    isProblem:     isDeliveryProblem(delivery.status),
+    explanation:   explainDeliveryFailure(delivery),
+    retryInFlight: false,
+  };
 }
 
 export function formatDeliveryTime(value) {

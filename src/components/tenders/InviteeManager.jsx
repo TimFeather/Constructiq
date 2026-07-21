@@ -23,7 +23,7 @@ import PersonAutocomplete from '@/components/shared/PersonAutocomplete';
 import { filterContacts } from '@/lib/contactFilter';
 import {
   DELIVERY_STATUS_STYLES, DELIVERY_STATUS_LABELS,
-  isDeliveryProblem, explainDeliveryFailure, formatDeliveryTime,
+  resolveDeliveryDisplay, formatDeliveryTime,
 } from '@/lib/emailDelivery';
 
 const DEFAULT_TRADES = [
@@ -514,8 +514,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
             const isLoading = !!actionLoading[inv.id];
             const canResend = canManage && RESENDABLE_STATUSES.includes(inv.status || 'Draft') && tender.status === 'Issued';
             const canDelete = canManage && inv.status !== 'Archived';
-            const delivery  = deliveryByInviteeId[inv.id];
-            const deliveryProblem = delivery && isDeliveryProblem(delivery.status);
+            const delivery = resolveDeliveryDisplay(deliveryByInviteeId[inv.id]);
 
             return (
               <div key={inv.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/30 transition-colors">
@@ -532,17 +531,18 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
                     {delivery && (
                       <span
                         className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${DELIVERY_STATUS_STYLES[delivery.status] || 'bg-gray-100 text-gray-700'}`}
-                        title={`Last email ${DELIVERY_STATUS_LABELS[delivery.status]?.toLowerCase() || delivery.status}${delivery.last_event_at ? ` — ${formatDeliveryTime(delivery.last_event_at)}` : ''}`}
+                        title={formatDeliveryTime(deliveryByInviteeId[inv.id]?.last_event_at)}
                       >
                         {DELIVERY_STATUS_LABELS[delivery.status] || delivery.status}
                       </span>
                     )}
+                    {delivery?.retryInFlight && (
+                      <span className="text-xs text-muted-foreground">resend in progress</span>
+                    )}
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5">{inv.email || 'No email'}</p>
-                  {deliveryProblem && (
-                    <p className="text-xs text-red-600 mt-1">
-                      {explainDeliveryFailure(delivery)}
-                    </p>
+                  {delivery?.isProblem && (
+                    <p className="text-xs text-red-600 mt-1">{delivery.explanation}</p>
                   )}
                 </div>
 
