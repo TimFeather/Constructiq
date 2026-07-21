@@ -11,6 +11,7 @@
  */
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { Resend } from 'npm:resend@4.0.0';
+import { logEmailSend } from '../_shared/emailLog.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz',
@@ -206,6 +207,13 @@ Deno.serve(async (req: Request) => {
         }).eq('id', sub.id);
         results.push({ id: sub.id, email: sub.invitee_email, outcome, status: 'Failed', error: sendErr.message });
         failed++;
+        await logEmailSend(supabaseAdmin, {
+          resendId:  null,
+          recipient: sub.invitee_email,
+          subject,
+          failure:   sendErr.message,
+          context:   { kind: 'tender_outcome', tenderId, inviteeId: sub.invitee_id, sentBy: user.id },
+        });
 
         // Log activity
         try {
@@ -233,6 +241,12 @@ Deno.serve(async (req: Request) => {
           outcome_notification_error:      null,
         }).eq('id', sub.id);
         sent++;
+        await logEmailSend(supabaseAdmin, {
+          resendId:  result.data.id,
+          recipient: sub.invitee_email,
+          subject,
+          context:   { kind: 'tender_outcome', tenderId, inviteeId: sub.invitee_id, sentBy: user.id },
+        });
         trace(`SUCCESS sub.id=${sub.id} messageId=${result.data.id}`);
         results.push({ id: sub.id, email: sub.invitee_email, outcome, status: 'Sent', messageId: result.data.id });
 
@@ -259,6 +273,13 @@ Deno.serve(async (req: Request) => {
         }).eq('id', sub.id);
         failed++;
         results.push({ id: sub.id, email: sub.invitee_email, outcome, status: 'Failed', error: errMsg });
+        await logEmailSend(supabaseAdmin, {
+          resendId:  null,
+          recipient: sub.invitee_email,
+          subject,
+          failure:   errMsg,
+          context:   { kind: 'tender_outcome', tenderId, inviteeId: sub.invitee_id, sentBy: user.id },
+        });
 
         try {
           await supabaseAdmin.from('tender_activity').insert({

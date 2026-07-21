@@ -12,6 +12,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { Resend } from 'npm:resend@4.0.0';
 import { escapeHtml } from '../_shared/escapeHtml.ts';
+import { sendTrackedEmail } from '../_shared/emailLog.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz',
@@ -193,7 +194,7 @@ Deno.serve(async (req: Request) => {
         // Get invitees who haven't submitted
         const { data: invitations } = await supabaseAdmin
           .from('tender_invitations')
-          .select('id, token, invitee_email, invitee_name')
+          .select('id, token, invitee_email, invitee_name, invitee_id')
           .eq('tender_id', tender.id)
           .in('status', ['Sent', 'Viewed']);
 
@@ -227,7 +228,12 @@ Deno.serve(async (req: Request) => {
           const subject = tpl?.subject ? replaceVars(tpl.subject, vars) : `Reminder: ${tender.tender_number} — ${tender.title} closes in ${days} day(s)`;
 
           try {
-            await resend.emails.send({ from: fromEmail, to: inv.invitee_email, subject, html: buildWrapper(replaceVars(rawBody, vars), branding) });
+            await sendTrackedEmail(
+              resend,
+              supabaseAdmin,
+              { from: fromEmail, to: inv.invitee_email, subject, html: buildWrapper(replaceVars(rawBody, vars), branding) },
+              { kind: 'reminder_tender_external', tenderId: tender.id, inviteeId: inv.invitee_id },
+            );
             await logSent(logKey, tender.id, inv.invitee_email);
             totalSent++;
             details.push({ type: 'tender_ext', id: tender.id, title: tender.title, days, action: 'sent', recipients: [inv.invitee_email] });
@@ -306,7 +312,12 @@ Deno.serve(async (req: Request) => {
           const subject = tpl?.subject ? replaceVars(tpl.subject, vars) : `Reminder: ${tender.tender_number} — ${tender.title} closes in ${days} day(s)`;
 
           try {
-            await resend.emails.send({ from: fromEmail, to: email, subject, html: buildWrapper(replaceVars(rawBody, vars), branding) });
+            await sendTrackedEmail(
+              resend,
+              supabaseAdmin,
+              { from: fromEmail, to: email, subject, html: buildWrapper(replaceVars(rawBody, vars), branding) },
+              { kind: 'reminder_tender_internal', tenderId: tender.id },
+            );
             await logSent(logKey, tender.id, email);
             totalSent++;
             details.push({ type: 'tender_int', id: tender.id, title: tender.title, days, action: 'sent', recipients: [email] });
@@ -343,7 +354,7 @@ Deno.serve(async (req: Request) => {
 
         const { data: invitations } = await supabaseAdmin
           .from('tender_invitations')
-          .select('id, token, invitee_email, invitee_name')
+          .select('id, token, invitee_email, invitee_name, invitee_id')
           .eq('tender_id', tender.id)
           .in('status', ['Sent', 'Viewed']);
 
@@ -377,7 +388,12 @@ Deno.serve(async (req: Request) => {
           const subject = tpl?.subject ? replaceVars(tpl.subject, vars) : `Reminder: Questions close in ${days} day(s) — ${tender.tender_number}: ${tender.title}`;
 
           try {
-            await resend.emails.send({ from: fromEmail, to: inv.invitee_email, subject, html: buildWrapper(replaceVars(rawBody, vars), branding) });
+            await sendTrackedEmail(
+              resend,
+              supabaseAdmin,
+              { from: fromEmail, to: inv.invitee_email, subject, html: buildWrapper(replaceVars(rawBody, vars), branding) },
+              { kind: 'reminder_questions_deadline', tenderId: tender.id, inviteeId: inv.invitee_id },
+            );
             await logSent(logKey, tender.id, inv.invitee_email);
             totalSent++;
             details.push({ type: 'rfi_reminder', id: tender.id, title: tender.title, days, action: 'sent', recipients: [inv.invitee_email] });

@@ -19,6 +19,7 @@ import AppearanceSettings from '@/components/settings/AppearanceSettings';
 import RoleManager from '@/components/settings/RoleManager';
 import SubcontractorDirectory from '@/components/settings/SubcontractorDirectory';
 import EmailBrandingPanel from '@/components/settings/EmailBrandingPanel';
+import EmailDeliveryLog from '@/components/settings/EmailDeliveryLog';
 import EmailTemplateEditor from '@/components/settings/EmailTemplateEditor';
 import DocumentFolderTemplates from '@/components/settings/DocumentFolderTemplates';
 import TenderSettingsPanel from '@/components/settings/TenderSettingsPanel';
@@ -360,6 +361,8 @@ export default function Settings() {
           <TabsContent value="emails">
             <div className="space-y-4">
               <EmailBrandingPanel />
+
+              <EmailDeliveryLog />
 
               <p className="text-sm text-muted-foreground pt-2">Customise the emails sent by the system. Click a template to expand the editor.</p>
               {TEMPLATE_KEYS.map(({ key, label }) => {

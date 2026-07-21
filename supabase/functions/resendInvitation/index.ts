@@ -8,6 +8,7 @@
  */
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { Resend } from 'npm:resend@4.0.0';
+import { sendTrackedEmail } from '../_shared/emailLog.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz',
@@ -215,7 +216,12 @@ Deno.serve(async (req: Request) => {
 </body>
 </html>`;
 
-    await resend.emails.send({ from: fromEmail, to: invitee.email, subject, html: htmlBody, text: bodyText });
+    await sendTrackedEmail(
+      resend,
+      supabaseAdmin,
+      { from: fromEmail, to: invitee.email, subject, html: htmlBody, text: bodyText },
+      { kind: 'tender_invitation_resend', tenderId: invitee.tender_id, inviteeId, sentBy: user.id },
+    );
     console.log(`[resendInvitation] SENT to=${invitee.email} inviteeId=${inviteeId}`);
 
     return Response.json({ success: true, email: invitee.email }, { headers: corsHeaders });

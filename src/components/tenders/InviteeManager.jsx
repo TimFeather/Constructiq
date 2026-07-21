@@ -21,6 +21,10 @@ import { useToast } from '@/components/ui/use-toast';
 import { deriveLegacyContactNames } from '@/lib/tenderContacts';
 import PersonAutocomplete from '@/components/shared/PersonAutocomplete';
 import { filterContacts } from '@/lib/contactFilter';
+import {
+  DELIVERY_STATUS_STYLES, DELIVERY_STATUS_LABELS,
+  isDeliveryProblem, explainDeliveryFailure, formatDeliveryTime,
+} from '@/lib/emailDelivery';
 
 const DEFAULT_TRADES = [
   'Electrical', 'Plumbing', 'HVAC', 'Carpentry', 'Masonry',
@@ -95,6 +99,23 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
 
   // Map invitee_id → invitation record for quick lookup
   const invitationByInviteeId = Object.fromEntries(invitations.map(inv => [inv.invitee_id, inv]));
+
+  // Latest Resend delivery status per invitee. Refetched on an interval
+  // because webhook events land server-side, not in response to anything
+  // the user does here.
+  const { data: deliveries = [] } = useQuery({
+    queryKey: ['tenderInviteeDelivery', tender.id],
+    queryFn:  async () => {
+      const { data, error } = await supabase
+        .from('tender_invitee_delivery').select('*').eq('tender_id', tender.id);
+      if (error) throw error;
+      return data ?? [];
+    },
+    enabled:  !!tender.id,
+    refetchInterval: 60_000,
+  });
+
+  const deliveryByInviteeId = Object.fromEntries(deliveries.map(d => [d.invitee_id, d]));
 
   const copySubmissionLink = (inv) => {
     const invitation = invitationByInviteeId[inv.id];
@@ -493,6 +514,8 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
             const isLoading = !!actionLoading[inv.id];
             const canResend = canManage && RESENDABLE_STATUSES.includes(inv.status || 'Draft') && tender.status === 'Issued';
             const canDelete = canManage && inv.status !== 'Archived';
+            const delivery  = deliveryByInviteeId[inv.id];
+            const deliveryProblem = delivery && isDeliveryProblem(delivery.status);
 
             return (
               <div key={inv.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/30 transition-colors">
@@ -506,8 +529,21 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
                         {inv.status}
                       </span>
                     )}
+                    {delivery && (
+                      <span
+                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${DELIVERY_STATUS_STYLES[delivery.status] || 'bg-gray-100 text-gray-700'}`}
+                        title={`Last email ${DELIVERY_STATUS_LABELS[delivery.status]?.toLowerCase() || delivery.status}${delivery.last_event_at ? ` — ${formatDeliveryTime(delivery.last_event_at)}` : ''}`}
+                      >
+                        {DELIVERY_STATUS_LABELS[delivery.status] || delivery.status}
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5">{inv.email || 'No email'}</p>
+                  {deliveryProblem && (
+                    <p className="text-xs text-red-600 mt-1">
+                      {explainDeliveryFailure(delivery)}
+                    </p>
+                  )}
                 </div>
 
                 {/* Actions */}
