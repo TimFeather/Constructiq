@@ -139,15 +139,30 @@ Deno.serve(async (req: Request) => {
     const resend = new Resend(RESEND_API_KEY);
 
     // Load branding + reminder settings + email templates
-    const [{ data: brandingData }, { data: settingsData }, { data: templatesData }] = await Promise.all([
+    const [brandingRes, settingsRes, templatesRes] = await Promise.all([
       supabaseAdmin.from('email_branding').select('*').limit(1).single(),
       supabaseAdmin.from('reminder_settings').select('*'),
       supabaseAdmin.from('email_templates').select('*'),
     ]);
 
-    const branding: any = brandingData || {};
-    const settings: any[] = settingsData || [];
-    const templates: any[] = templatesData || [];
+    // These errors used to be destructured away. A failed settings read left
+    // settings=[], which skipped every reminder block and still reported
+    // success — reminders silently stopped for as long as the fault lasted.
+    // "Nothing is configured" and "I cannot read the configuration" must not
+    // look the same from the outside.
+    if (settingsRes.error) {
+      throw new Error(`Could not read reminder_settings: ${settingsRes.error.message}`);
+    }
+    if (brandingRes.error) {
+      console.warn(`[sendReminders] email_branding unreadable, using defaults: ${brandingRes.error.message}`);
+    }
+    if (templatesRes.error) {
+      console.warn(`[sendReminders] email_templates unreadable, using defaults: ${templatesRes.error.message}`);
+    }
+
+    const branding: any = brandingRes.data || {};
+    const settings: any[] = settingsRes.data || [];
+    const templates: any[] = templatesRes.data || [];
 
     const senderEmail = branding.sender_email || Deno.env.get('SENDER_EMAIL') || 'noreply@totalhomesolutions.co.nz';
     const fromName    = branding.sender_name || branding.company_name || 'ConstructIQ';
