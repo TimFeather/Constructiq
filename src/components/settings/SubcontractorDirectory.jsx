@@ -47,6 +47,7 @@ export default function SubcontractorDirectory() {
       setForm(emptyContact);
       toast({ title: 'Contact added' });
     },
+    onError: (e) => toast({ title: 'Failed to add contact', description: e?.message, variant: 'destructive' }),
   });
 
   const updateMutation = useMutation({
@@ -56,6 +57,7 @@ export default function SubcontractorDirectory() {
       setEditingId(null);
       toast({ title: 'Contact updated' });
     },
+    onError: (e) => toast({ title: 'Failed to update contact', description: e?.message, variant: 'destructive' }),
   });
 
   const deleteMutation = useMutation({
@@ -63,6 +65,7 @@ export default function SubcontractorDirectory() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tenderContacts'] });
     },
+    onError: (e) => toast({ title: 'Failed to delete contact', description: e?.message, variant: 'destructive' }),
   });
 
   const handleCSVDownload = () => {

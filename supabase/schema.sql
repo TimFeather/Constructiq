@@ -503,9 +503,16 @@ create policy "tender_contacts_select" on public.tender_contacts for select usin
 create policy "tender_contacts_update" on public.tender_contacts for update using (
   get_my_role() in ('admin','pricing','internal')
 );
+create policy "tender_contacts_insert" on public.tender_contacts for insert with check (
+  get_my_role() in ('admin','pricing','internal')
+);
 create policy "tender_contacts_delete" on public.tender_contacts for delete using (
   get_my_role() = 'admin'
 );
+-- Grants were missing on the live DB (added in migration 025); RLS alone is
+-- not enough here — see supabase/migrations/README.md "The one rule: GRANT".
+grant select, insert, update, delete on public.tender_contacts to authenticated;
+grant all on public.tender_contacts to service_role;
 
 -- ── 13. tender_counter ───────────────────────────────────
 create table public.tender_counter (
