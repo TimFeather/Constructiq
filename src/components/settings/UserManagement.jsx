@@ -2,12 +2,13 @@ import React, { useState } from 'react';
 import { InvitedUser, User } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
+import { invokeFunction } from '@/api/supabaseClient';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { UserPlus, Clock, Pencil, ShieldOff, ShieldCheck } from 'lucide-react';
+import { UserPlus, Clock, Pencil, ShieldOff, ShieldCheck, KeyRound, Copy, Check, Loader2, Mail } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Label } from '@/components/ui/label';
@@ -22,6 +23,11 @@ export default function UserManagement() {
   const [editRole, setEditRole] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [pendingRoleChange, setPendingRoleChange] = useState(null);
+  const [resetUser, setResetUser] = useState(null);   // user whose reset dialog is open
+  const [resetLink, setResetLink] = useState('');
+  const [resetSent, setResetSent] = useState(false);
+  const [resetError, setResetError] = useState('');
+  const [copied, setCopied] = useState(false);
 
   const { data: users = [] } = useQuery({
     queryKey: ['users'],
@@ -72,9 +78,38 @@ export default function UserManagement() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['users'] }),
   });
 
+  const resetLinkMutation = useMutation({
+    mutationFn: ({ userId, send }) => invokeFunction('adminResetPassword', { userId, send }),
+    onSuccess: ({ data }) => {
+      setResetLink(data?.action_link || '');
+      setResetSent(!!data?.sent);
+      setResetError(data?.warning || '');
+    },
+    onError: (err) => setResetError(err?.message || 'Failed to generate reset link'),
+  });
+
   const openEdit = (u) => {
     setEditingUser(u);
     setEditRole(u.role || 'external');
+  };
+
+  const openReset = (u) => {
+    setResetUser(u);
+    setResetLink('');
+    setResetSent(false);
+    setResetError('');
+    setCopied(false);
+    resetLinkMutation.reset();
+  };
+
+  const copyResetLink = async () => {
+    try {
+      await navigator.clipboard.writeText(resetLink);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setResetError('Could not copy automatically — select the link and copy it manually.');
+    }
   };
 
   return (
@@ -168,6 +203,11 @@ export default function UserManagement() {
                         <Pencil className="w-3 h-3" /> Edit
                       </Button>
                     )}
+                    {!isDeactivated && (
+                      <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={() => openReset(u)}>
+                        <KeyRound className="w-3 h-3" /> Reset password
+                      </Button>
+                    )}
                     {isDeactivated ? (
                       <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs text-green-700 border-green-400 hover:bg-green-50"
                         disabled={reactivateUserMutation.isPending}
@@ -253,6 +293,74 @@ export default function UserManagement() {
           <AlertDialogCancel>Cancel</AlertDialogCancel>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Reset password link */}
+      <Dialog open={!!resetUser} onOpenChange={(open) => { if (!open) setResetUser(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reset password — {resetUser?.full_name || resetUser?.email}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-sm text-muted-foreground">
+              Generate a one-time reset link for <strong>{resetUser?.email}</strong>. They can open it to set a new
+              password — no existing password needed. Email it to them directly, or copy it to send yourself.
+            </p>
+
+            {/* Actions */}
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Button
+                className="gap-2 flex-1"
+                disabled={resetLinkMutation.isPending}
+                onClick={() => resetLinkMutation.mutate({ userId: resetUser.id, send: true })}
+              >
+                {resetLinkMutation.isPending && resetLinkMutation.variables?.send
+                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Emailing…</>
+                  : <><Mail className="w-4 h-4" /> Email reset link</>}
+              </Button>
+              <Button
+                variant="outline"
+                className="gap-2 flex-1"
+                disabled={resetLinkMutation.isPending}
+                onClick={() => resetLinkMutation.mutate({ userId: resetUser.id, send: false })}
+              >
+                {resetLinkMutation.isPending && !resetLinkMutation.variables?.send
+                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Generating…</>
+                  : <><KeyRound className="w-4 h-4" /> Generate link to copy</>}
+              </Button>
+            </div>
+
+            {resetError && (
+              <div className="p-3 rounded-lg bg-destructive/10 text-destructive text-sm">{resetError}</div>
+            )}
+
+            {resetSent && (
+              <div className="p-3 rounded-lg bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-400 text-sm flex items-center gap-2">
+                <Check className="w-4 h-4 flex-shrink-0" /> Reset link emailed to {resetUser?.email}.
+              </div>
+            )}
+
+            {resetLink && (
+              <div className="space-y-1.5">
+                <Label className="text-xs">Reset link{resetSent ? ' (also emailed above)' : ''}</Label>
+                <div className="flex items-center gap-2">
+                  <Input readOnly value={resetLink} onFocus={(e) => e.target.select()} className="flex-1 text-xs" />
+                  <Button size="sm" variant="outline" className="gap-1.5 flex-shrink-0" onClick={copyResetLink}>
+                    {copied ? <><Check className="w-3.5 h-3.5" /> Copied</> : <><Copy className="w-3.5 h-3.5" /> Copy</>}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            <p className="text-xs text-muted-foreground">
+              The link can only be used once and expires after a while. Users can also reset it themselves from the
+              “Forgot password?” link on the log-in page.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setResetUser(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Deactivate confirm */}
       <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>

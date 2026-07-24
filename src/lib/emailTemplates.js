@@ -283,6 +283,21 @@ export const DEFAULT_TEMPLATES = {
   If you did not expect this invitation, you can safely ignore this email.
 </p>`,
   },
+  password_reset: {
+    name: 'Password Reset',
+    subject: 'Reset your ConstructIQ password',
+    body_html: `
+<p>Hi <strong>{name}</strong>,</p>
+<p>A password reset was requested for your <strong>{company_name}</strong> account. Click the button below to set a new password.</p>
+<p style="margin-top:24px;">
+  <a href="{reset_link}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#fff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">
+    Set a new password
+  </a>
+</p>
+<p style="font-size:13px;color:#6b7280;margin-top:16px;">
+  This link can only be used once and will expire after a while. If you did not request this, you can safely ignore this email — your password will not change.
+</p>`,
+  },
 };
 
 export const TEMPLATE_VARIABLES = {
@@ -448,6 +463,12 @@ export const TEMPLATE_VARIABLES = {
     { key: 'project_context', desc: 'Optional project name paragraph' },
     { key: 'quote_context', desc: 'Optional accepted-quote paragraph (subcontractors added with a quote ref)' },
     { key: 'invite_link', desc: 'Registration link' },
+  ],
+  password_reset: [
+    { key: 'name', desc: "Recipient's name (or email if no name)" },
+    { key: 'reset_link', desc: 'One-time password reset link' },
+    { key: 'company_name', desc: 'Your company name' },
+    { key: 'sender_name', desc: 'Name of the admin sending the reset' },
   ],
 };
 
