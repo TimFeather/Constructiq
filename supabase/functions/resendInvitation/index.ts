@@ -9,6 +9,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { Resend } from 'npm:resend@4.0.0';
 import { sendTrackedEmail } from '../_shared/emailLog.ts';
+import { formatClosingDateTime } from '../_shared/formatDate.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz',
@@ -161,7 +162,7 @@ Deno.serve(async (req: Request) => {
       invitee_name:    invitee.full_name || '',
       company_name:    branding.company_name || 'ConstructIQ',
       location:        tender.location || '',
-      closing_date:    tender.closing_date || '',
+      closing_date:    formatClosingDateTime(tender.closing_date || ''),
       trade_packages:  (tender.trade_packages || []).join(', '),
       description:     tender.description || '',
       submission_link: submissionLink,

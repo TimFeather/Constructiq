@@ -19,6 +19,7 @@ import { Resend } from 'npm:resend@4.0.0';
 import { escapeHtml } from '../_shared/escapeHtml.ts';
 import { sanitizeHtmlForEmail } from '../_shared/sanitizeHtml.ts';
 import { sendTrackedEmail } from '../_shared/emailLog.ts';
+import { formatClosingDateTime } from '../_shared/formatDate.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz',
@@ -182,7 +183,7 @@ Deno.serve(async (req: Request) => {
         invitee_name:    escapeHtml(inv.full_name || ''),
         company_name:    escapeHtml(branding.company_name || 'ConstructIQ'),
         location:        escapeHtml(tenderInfo.location || ''),
-        closing_date:    escapeHtml(tenderInfo.closing_date || ''),
+        closing_date:    escapeHtml(formatClosingDateTime(tenderInfo.closing_date || '')),
         trade_packages:  escapeHtml((tenderInfo.trade_packages || []).join(', ')),
         // description is HTML authored via RichTextEditor — sanitize (don't escape)
         // so formatting survives while script/event-handler vectors are stripped.
