@@ -1,4 +1,4 @@
-import { uploadFile, sendEmail } from '@/api/supabaseClient';
+import { uploadFile, sendEmail, invokeFunction } from '@/api/supabaseClient';
 import SecureFileLink from '@/components/shared/SecureFileLink';
 import React, { useState, useRef } from 'react';
 import { Document, EmailTemplate, RFI, User } from '@/api/entities';
@@ -17,6 +17,7 @@ import { format } from 'date-fns';
 import { resolveTemplate, applyTemplate } from '@/lib/emailTemplates';
 import { logProjectActivity } from '@/lib/activityLog';
 import { canCreate, getRole } from '@/lib/permissions';
+import { useToast } from '@/components/ui/use-toast';
 
 const PRIORITY_COLORS = {
   Low: 'bg-blue-100 text-blue-700',
@@ -360,6 +361,7 @@ function RFICard({ rfi, project, emailTemplates = [], registeredUsers = [] }) {
 
 export default function ProjectRFIPanel({ project, rfis = [] }) {
   const { user } = useAuth();
+  const { toast } = useToast();
   const isAdminOrInternal = user?.role === 'admin' || user?.role === 'internal';
   const canCreateRfi = canCreate(user, 'rfis');
   const [showCreate, setShowCreate] = useState(false);
@@ -380,8 +382,6 @@ export default function ProjectRFIPanel({ project, rfis = [] }) {
     queryKey: ['users'],
     queryFn: () => User.list(),
   });
-
-  const isRegistered = (email) => registeredUsers.some(u => u.email?.toLowerCase() === email?.toLowerCase());
 
   // External/subcontractor users pick from admin/internal users who are on
   // this project's team (e.g. the internal PM assigned to it), and default
@@ -434,21 +434,16 @@ export default function ProjectRFIPanel({ project, rfis = [] }) {
       created_by_name: user?.full_name || '',
     });
 
-    if (assignedToEmail && isRegistered(assignedToEmail)) {
+    // Notify the assignee. Rendering + delivery happen server-side in the
+    // notifyRfiAssigned function so external-raised RFIs also send (the generic
+    // sendEmail rejects non-internal senders) and the email is branded/tracked.
+    if (assignedToEmail) {
       try {
-        const tpl = resolveTemplate(emailTemplates, 'rfi_assigned');
-        const { subject, body } = applyTemplate(tpl, {
-          rfi_ref: `RFI-${String(nextNumber).padStart(3, '0')}`,
-          title: form.title,
-          project_name: project.name,
-          assignee_name: assignedToName || assignedToEmail,
-          priority: form.priority,
-          due_date: form.due_date || 'Not set',
-          description: form.description || 'No description',
-          url: `${window.location.origin}/rfis/${rfi.id}`,
-        });
-        await sendEmail({ to: assignedToEmail, subject, body });
-      } catch (e) { /* non-critical */ }
+        await invokeFunction('notifyRfiAssigned', { rfiId: rfi.id });
+      } catch (e) {
+        console.warn('[ProjectRFIPanel] failed to notify assignee by email:', assignedToEmail, e?.message || e);
+        toast({ variant: 'destructive', title: `Could not notify ${assignedToName || assignedToEmail} by email` });
+      }
     }
 
     queryClient.invalidateQueries({ queryKey: ['rfis', project.id] });

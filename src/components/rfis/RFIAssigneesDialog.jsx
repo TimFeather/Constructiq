@@ -1,9 +1,8 @@
 import { invokeFunction } from '@/api/supabaseClient';
 import React, { useState, useEffect } from 'react';
-import { EmailBranding, EmailTemplate, RFI } from '@/api/entities';
+import { RFI } from '@/api/entities';
 import { useAuth } from '@/lib/AuthContext';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { resolveTemplate, applyTemplate, buildEmailHtml } from '@/lib/emailTemplates';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -27,16 +26,6 @@ export default function RFIAssigneesDialog({ open, onOpenChange, rfi, project })
       setSelectedEmails(rfi?.assignees || []);
     }
   }, [open, rfi]);
-
-  const { data: emailTemplates = [] } = useQuery({
-    queryKey: ['emailTemplates'],
-    queryFn: () => EmailTemplate.list(),
-  });
-
-  const { data: emailBranding = {} } = useQuery({
-    queryKey: ['emailBranding'],
-    queryFn: () => EmailBranding.list().then(r => r[0] ?? {}),
-  });
 
   const toggleMember = (member) => {
     setSelectedEmails(prev => {
@@ -64,26 +53,16 @@ export default function RFIAssigneesDialog({ open, onOpenChange, rfi, project })
         assigned_to_name: firstAssignee?.name || null,
       });
 
-      // Notify newly added assignees using the same rfi_assigned template flow as RFIFormDialog
+      // Notify newly added assignees. notifyRfiAssigned renders + delivers
+      // server-side (branded, delivery-tracked, works for external users); the
+      // recipients list is intersected server-side with the RFI's real assignees.
       if (newlyAdded.length > 0) {
-        const rfiUrl = `${window.location.origin}/rfis/${rfi.id}`;
-        const tpl = resolveTemplate(emailTemplates, 'rfi_assigned');
-        newlyAdded.forEach(assignee => {
-          const { subject, body } = applyTemplate(tpl, {
-            rfi_ref: `RFI-${String(rfi.number).padStart(3, '0')}`,
-            title: rfi.title,
-            project_name: project?.name || '',
-            assignee_name: assignee.name,
-            priority: rfi.priority || 'Medium',
-            due_date: rfi.due_date || 'Not set',
-            description: rfi.description || 'No description provided',
-            url: rfiUrl,
-          });
-          const htmlBody = buildEmailHtml(body, emailBranding);
-          invokeFunction('sendEmail', { to: assignee.email, toName: assignee.name || '', subject, htmlBody }).catch((e) => {
-            console.warn('[RFIAssigneesDialog] failed to notify assignee by email:', assignee.email, e?.message || e);
-            toast({ variant: 'destructive', title: `Could not notify ${assignee.name || assignee.email} by email` });
-          });
+        invokeFunction('notifyRfiAssigned', {
+          rfiId: rfi.id,
+          recipients: newlyAdded.map(a => a.email),
+        }).catch((e) => {
+          console.warn('[RFIAssigneesDialog] failed to notify new assignees by email:', e?.message || e);
+          toast({ variant: 'destructive', title: 'Could not notify new assignee(s) by email' });
         });
       }
 

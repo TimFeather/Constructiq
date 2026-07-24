@@ -1,9 +1,8 @@
 import { invokeFunction } from '@/api/supabaseClient';
 import React, { useState, useEffect } from 'react';
-import { EmailBranding, EmailTemplate, RFI, User } from '@/api/entities';
+import { RFI, User } from '@/api/entities';
 import { useAuth } from '@/lib/AuthContext';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { resolveTemplate, applyTemplate, buildEmailHtml } from '@/lib/emailTemplates';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -35,16 +34,6 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
   }, [open, defaultProjectId]);
   const [selectedEmails, setSelectedEmails] = useState([]);
   const queryClient = useQueryClient();
-
-  const { data: emailTemplates = [] } = useQuery({
-    queryKey: ['emailTemplates'],
-    queryFn: () => EmailTemplate.list(),
-  });
-
-  const { data: emailBranding = {} } = useQuery({
-    queryKey: ['emailBranding'],
-    queryFn: () => EmailBranding.list().then(r => r[0] ?? {}),
-  });
 
   const { data: allUsersRaw = [] } = useQuery({
     queryKey: ['users'],
@@ -112,27 +101,16 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
       created_by_email: user?.email || '',
       created_by_name: user?.full_name || '',
       });
-      // send email to all assignees using template
-      const rfiUrl = `${window.location.origin}/rfis/${rfi.id}`;
-      const projectName = projects.find(p => p.id === data.project_id)?.name || '';
-      const tpl = resolveTemplate(emailTemplates, 'rfi_assigned');
-      effectiveAssignees.forEach(assignee => {
-        const { subject, body } = applyTemplate(tpl, {
-          rfi_ref: `RFI-${String(nextNumber).padStart(3, '0')}`,
-          title: data.title,
-          project_name: projectName,
-          assignee_name: assignee.name,
-          priority: data.priority || 'Medium',
-          due_date: data.due_date || 'Not set',
-          description: data.description || 'No description provided',
-          url: rfiUrl,
+      // Notify assignees. notifyRfiAssigned renders + delivers server-side so
+      // external-raised RFIs also send (generic sendEmail rejects non-internal
+      // senders) and emails are branded and delivery-tracked. Fire-and-forget so
+      // a notify failure never rolls back the already-created RFI.
+      if (effectiveAssignees.length > 0) {
+        invokeFunction('notifyRfiAssigned', { rfiId: rfi.id }).catch((e) => {
+          console.warn('[RFIFormDialog] failed to notify assignees by email:', e?.message || e);
+          toast({ variant: 'destructive', title: 'Could not notify assignee(s) by email' });
         });
-        const htmlBody = buildEmailHtml(body, emailBranding);
-        invokeFunction('sendEmail', { to: assignee.email, toName: assignee.name || '', subject, htmlBody }).catch((e) => {
-          console.warn('[RFIFormDialog] failed to notify assignee by email:', assignee.email, e?.message || e);
-          toast({ variant: 'destructive', title: `Could not notify ${assignee.name || assignee.email} by email` });
-        });
-      });
+      }
       return rfi;
     },
     onSuccess: (rfi) => {
