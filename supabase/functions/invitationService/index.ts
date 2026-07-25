@@ -25,6 +25,14 @@ function toPermissionRole(role: string) {
   return VALID_APP_ROLES.includes(r) ? r : 'external';
 }
 
+// The tender_contacts directory (Settings -> Subcontractors) is a subcontractor
+// invitee/suggestion pool. Only write subcontractors into it — not clients,
+// architects, PMs, etc. — so those roles don't pollute the directory.
+function belongsInSubcontractorDirectory(role?: string, trade?: string): boolean {
+  return (role || '').trim().toLowerCase() === 'subcontractor'
+    || Boolean(trade && trade.trim());
+}
+
 async function getSystemRoleFromDb(projectRoleName: string) {
   if (!projectRoleName) return 'external';
   try {
@@ -338,7 +346,9 @@ Deno.serve(async (req) => {
 
       // Non-fatal write-back into the shared people directory so this person
       // shows up as a suggestion next time (e.g. in InviteeManager).
-      upsertTenderContact(supabaseAdmin, { fullName, businessName, email: normalEmail, phone, trade }).catch(() => {});
+      if (belongsInSubcontractorDirectory(role, trade)) {
+        upsertTenderContact(supabaseAdmin, { fullName, businessName, email: normalEmail, phone, trade }).catch(() => {});
+      }
 
       const { data: brandings } = await supabaseAdmin.from('email_branding').select('*').limit(1);
       const branding = brandings?.[0] || {};
@@ -522,13 +532,15 @@ Deno.serve(async (req) => {
       if (!targetUserData) return Response.json({ error: 'User not found' }, { status: 404, headers: corsHeaders });
 
       // Non-fatal write-back into the shared people directory.
-      upsertTenderContact(supabaseAdmin, {
-        fullName: fullName || targetUserData.full_name || '',
-        businessName: businessName || targetUserData.business_name || '',
-        email: normalizeEmail(targetUserData.email),
-        phone: phone || targetUserData.phone || '',
-        trade,
-      }).catch(() => {});
+      if (belongsInSubcontractorDirectory(role, trade)) {
+        upsertTenderContact(supabaseAdmin, {
+          fullName: fullName || targetUserData.full_name || '',
+          businessName: businessName || targetUserData.business_name || '',
+          email: normalizeEmail(targetUserData.email),
+          phone: phone || targetUserData.phone || '',
+          trade,
+        }).catch(() => {});
+      }
 
       const team = projectData.team || [];
       const alreadyMember = team.some((m: any) => normalizeEmail(m.user_email) === normalizeEmail(targetUserData.email));
