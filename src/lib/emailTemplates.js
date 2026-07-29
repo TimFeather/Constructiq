@@ -41,6 +41,9 @@ export const DEFAULT_TEMPLATES = {
 <p>You have been added to the project <strong>{project_name}</strong> as <strong>{role}</strong>.</p>
 {quote_context}
 <p>Please log in to view your project details and get started.</p>
+<p style="margin-top:24px;">
+  <a href="{login_url}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">Log in to View Project</a>
+</p>
 <p style="margin-top:24px;color:#6b7280;font-size:13px;">Best regards,<br>ConstructIQ</p>`,
   },
   tender_invitation: {
@@ -172,6 +175,9 @@ export const DEFAULT_TEMPLATES = {
 <p>We are pleased to advise that following a review of all tender submissions for <strong>{title}</strong>, your submission has been selected.</p>
 <p>We will be in touch shortly to discuss next steps and formalise the engagement.</p>
 <p>Thank you for your submission and we look forward to working with you.</p>
+<p style="margin-top:24px;">
+  <a href="{submission_link}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View Your Submission</a>
+</p>
 <p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br>{sender_name}<br>{company_name}</p>`,
   },
   tender_sub_unsuccessful: {
@@ -182,6 +188,9 @@ export const DEFAULT_TEMPLATES = {
 <p>Thank you for submitting your pricing for <strong>{title}</strong>.</p>
 <p>After careful consideration of all submissions received, we regret to advise that your submission was not selected on this occasion.</p>
 <p>We appreciate the time and effort you put into your submission and hope to have the opportunity to work with you in the future.</p>
+<p style="margin-top:24px;">
+  <a href="{submission_link}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View Your Submission</a>
+</p>
 <p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br>{sender_name}<br>{company_name}</p>`,
   },
   contract_instruction: {
@@ -256,6 +265,9 @@ export const DEFAULT_TEMPLATES = {
 <p>Hi <strong>{name}</strong>,</p>
 <p>You have been added to the project <strong>{project_name}</strong> as <strong>{role}</strong>, following acceptance of your quote <strong>{quote_number}</strong>.</p>
 <p>Please log in to view your project details and get started.</p>
+<p style="margin-top:24px;">
+  <a href="{login_url}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">Log in to View Project</a>
+</p>
 <p style="margin-top:24px;color:#6b7280;font-size:13px;">Best regards,<br>ConstructIQ</p>`,
   },
   programme_published: {
@@ -264,6 +276,9 @@ export const DEFAULT_TEMPLATES = {
     body_html: `<p>Hi,</p>
 <p>The construction programme for <strong>{project_name}</strong> has been updated by {sender_name}.</p>
 <p>Please refer to the latest schedule for current dates, and let us know if you have any questions.</p>
+<p style="margin-top:24px;">
+  <a href="{login_url}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">Log in to View Programme</a>
+</p>
 <p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br>{sender_name}<br>{company_name}</p>`,
   },
   user_invite: {
@@ -324,6 +339,7 @@ export const TEMPLATE_VARIABLES = {
     { key: 'project_name', desc: 'Project name' },
     { key: 'role', desc: 'Their role on the project' },
     { key: 'quote_context', desc: 'Optional accepted-quote paragraph (subcontractors added with a quote ref)' },
+    { key: 'login_url', desc: 'Link straight into the project in ConstructIQ (login required)' },
   ],
   tender_invitation: [
     { key: 'invitee_name', desc: 'Subcontractor name' },
@@ -407,6 +423,7 @@ export const TEMPLATE_VARIABLES = {
     { key: 'tender_number', desc: 'Tender reference' },
     { key: 'sender_name', desc: 'Your name' },
     { key: 'company_name', desc: 'Your company name' },
+    { key: 'submission_link', desc: 'Link to their tender portal (falls back to the ConstructIQ login page)' },
   ],
   tender_sub_unsuccessful: [
     { key: 'invitee_name', desc: 'Subcontractor name' },
@@ -414,6 +431,7 @@ export const TEMPLATE_VARIABLES = {
     { key: 'tender_number', desc: 'Tender reference' },
     { key: 'sender_name', desc: 'Your name' },
     { key: 'company_name', desc: 'Your company name' },
+    { key: 'submission_link', desc: 'Link to their tender portal (falls back to the ConstructIQ login page)' },
   ],
   contract_instruction: [
     { key: 'recipient_name', desc: 'Recipient name' },
@@ -451,11 +469,13 @@ export const TEMPLATE_VARIABLES = {
     { key: 'project_name', desc: 'Project name' },
     { key: 'role', desc: 'Their role on the project' },
     { key: 'quote_number', desc: 'Accepted quote reference e.g. Q-1042' },
+    { key: 'login_url', desc: 'Link straight into the project in ConstructIQ (login required)' },
   ],
   programme_published: [
     { key: 'project_name', desc: 'Project name' },
     { key: 'sender_name', desc: 'Name of the person who published the programme' },
     { key: 'company_name', desc: 'Your company name' },
+    { key: 'login_url', desc: 'Link straight into the project programme in ConstructIQ (login required)' },
   ],
   user_invite: [
     { key: 'name', desc: 'Invitee full name or email' },

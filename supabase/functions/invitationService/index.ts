@@ -57,6 +57,16 @@ function quoteContextHtml(quoteRef: string) {
   return `<p>This appointment relates to your quote <strong>${escapeHtml(ref)}</strong>, which we have accepted.</p>`;
 }
 
+// "Log in to view" CTA button. Baked into the default templates, and appended
+// to customised DB templates that predate {login_url} so every notification
+// still has a way straight into the app.
+function loginButtonHtml(url: string, label: string) {
+  return `
+<p style="margin-top:24px;">
+  <a href="${url}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">${label}</a>
+</p>`;
+}
+
 function tokenExpiryDate() {
   const d = new Date();
   d.setDate(d.getDate() + TOKEN_EXPIRY_DAYS);
@@ -577,6 +587,9 @@ Deno.serve(async (req) => {
 <p>Hi <strong>{name}</strong>,</p>
 <p>You have been added to the project <strong>{project_name}</strong> as <strong>{role}</strong>, following acceptance of your quote <strong>{quote_number}</strong>.</p>
 <p>Please log in to view your project details and get started.</p>
+<p style="margin-top:24px;">
+  <a href="{login_url}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">Log in to View Project</a>
+</p>
 <p style="margin-top:24px;color:#6b7280;font-size:13px;">Best regards,<br>ConstructIQ</p>`,
         } : {
           subject: "You've been added to project: {project_name}",
@@ -585,17 +598,22 @@ Deno.serve(async (req) => {
 <p>You have been added to the project <strong>{project_name}</strong> as <strong>{role}</strong>.</p>
 {quote_context}
 <p>Please log in to view your project details and get started.</p>
+<p style="margin-top:24px;">
+  <a href="{login_url}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">Log in to View Project</a>
+</p>
 <p style="margin-top:24px;color:#6b7280;font-size:13px;">Best regards,<br>ConstructIQ</p>`,
         });
         const branding = brandings?.[0] || {};
 
         const quoteContext = quoteContextHtml(quoteRef);
+        const loginUrl = `${APP_URL}/projects/${projectData.id}`;
         const vars: Record<string, string> = {
           name: escapeHtml(memberName),
           project_name: escapeHtml(projectData.name || ''),
           role: escapeHtml(role),
           quote_number: escapeHtml(String(quoteRef || '').trim()),
           quote_context: quoteContext,
+          login_url: loginUrl,
         };
 
         let subject = template.subject || '';
@@ -604,6 +622,9 @@ Deno.serve(async (req) => {
         // paragraph so an entered quote ref is never silently dropped. Skipped
         // for the dedicated quote template — it already states {quote_number} inline.
         if (quoteContext && teamTemplateKey !== 'team_added_quote' && !bodyHtml.includes('{quote_context}')) bodyHtml += quoteContext;
+        // Same for {login_url}: customised rows saved before the CTA existed
+        // still get a button straight into the project.
+        if (!bodyHtml.includes('{login_url}')) bodyHtml += loginButtonHtml(loginUrl, 'Log in to View Project');
         for (const [key, val] of Object.entries(vars)) {
           const re = new RegExp(`\\{${key}\\}`, 'g');
           subject = subject.replace(re, val ?? '');
@@ -716,8 +737,8 @@ Deno.serve(async (req) => {
     <p>You have been added to <strong>${escapeHtml(projectName)}</strong> as a <strong>${escapeHtml(member.role || 'team member')}</strong>.</p>
     <p>Log in to ConstructIQ to view the project.</p>
     <p style="margin-top:24px;">
-      <a href="${APP_URL}" style="background:${brandColour};color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;display:inline-block;">
-        Open ConstructIQ
+      <a href="${APP_URL}/projects/${encodeURIComponent(projectId)}" style="background:${brandColour};color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;display:inline-block;">
+        Log in to View Project
       </a>
     </p>
     <p style="color:#6b7280;font-size:13px;margin-top:24px;">Regards,<br>${escapeHtml(branding.company_name || 'ConstructIQ')}</p>

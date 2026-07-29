@@ -272,3 +272,65 @@ hardcoded fallback in the edge function.
      keys specifically (it would otherwise double up the quote mention).
    - Both added to `TEMPLATE_KEYS` in Settings for independent editing.
    **Needs deploy**: `invitationService`.
+
+---
+
+## Update 2026-07-30 — every notification email gets a CTA button
+
+Audited all 19 template keys plus every inline (non-template) `resend.emails.send`
+call site for a clickable button into the app. 14 templates already had one
+(`{url}`, `{admin_url}`, `{submission_link}`, `{invite_link}`, `{reset_link}`).
+Five did not, plus four inline emails.
+
+### Templates fixed (5)
+
+| Key | New variable | Button label | Destination |
+|---|---|---|---|
+| `team_added` | `{login_url}` | Log in to View Project | `${APP_URL}/projects/{id}` |
+| `team_added_quote` | `{login_url}` | Log in to View Project | `${APP_URL}/projects/{id}` |
+| `programme_published` | `{login_url}` | Log in to View Programme | `${APP_URL}/projects/{id}` |
+| `tender_sub_awarded` | `{submission_link}` | View Your Submission | `${APP_URL}/tender-submit/{token}` |
+| `tender_sub_unsuccessful` | `{submission_link}` | View Your Submission | `${APP_URL}/tender-submit/{token}` |
+
+The two outcome templates use the token portal link rather than a login link:
+their recipients are external subcontractors who often have no ConstructIQ
+account, so a login button would dead-end. The portal stays readable after
+award — `tenderPublicApi` only blocks *mutations* on Closed/Cancelled tenders.
+`sendOutcomeNotifications` now also loads `tender_invitations` and resolves the
+token per submission (by `invitation_id`, falling back to `invitee_email`, then
+to `APP_URL` if no invitation row exists).
+
+### Inline (non-template) emails fixed (4)
+
+- `tenderPublicApi` action `submit`, invitee confirmation — added
+  "View Your Submission" → portal.
+- `tenderPublicApi` action `submit`, internal notify — replaced the dead
+  "Log in to view and score this submission." sentence (no link at all) with a
+  "Log in to View & Score" button → `${SITE_URL}/tenders/{id}`.
+- `issueNTT` action `retryEmails` — bare inline anchor upgraded to a
+  "View Tender Portal" button.
+- `sendTenderInvitations` + `resendInvitation` — when no `tender_invitation` row
+  exists in `email_templates`, these fall back to a *plain-text* body whose
+  `{submission_link}` became unclickable text in the HTML variant. Both now
+  append a "View Tender & Submit Pricing" button to the HTML variant unless the
+  body already contains an `<a `. The `text:` variant is untouched.
+- `invitationService` action `bulkInviteProjectTeam` (existing-user branch)
+  already had an "Open ConstructIQ" button; re-pointed from the app root to the
+  project and relabelled "Log in to View Project".
+
+### Already-customised DB rows
+
+An `email_templates` row overrides the lib default, so a template Tim has
+already customised in Settings would not pick up the new button. Every edge
+function that renders these keys therefore **appends the CTA when the resolved
+body has no `{login_url}` / `{submission_link}` placeholder** — mirroring the
+existing `{quote_context}` append-if-missing precedent in `invitationService`.
+No SQL needed; nothing to backfill.
+
+**Needs deploy**: `invitationService`, `notifyProgrammePublished`,
+`sendOutcomeNotifications`, `tenderPublicApi`, `issueNTT`,
+`sendTenderInvitations`, `resendInvitation`.
+
+**Verified**: `npm run lint` and `npm run build` both clean. Edge functions are
+Deno and were not executed (no local Deno runtime) — the changes are string/HTML
+assembly plus one extra `tender_invitations` select.

@@ -533,6 +533,9 @@ Deno.serve(async (req: Request) => {
       const senderEmail = branding.sender_email || Deno.env.get('SENDER_EMAIL') || 'noreply@totalhomesolutions.co.nz';
       const fromEmail   = `${fromName} <${senderEmail}>`;
       const resend      = new Resend(Deno.env.get('RESEND_API_KEY'));
+      const siteUrl     = Deno.env.get('SITE_URL') || Deno.env.get('APP_URL') || 'https://constructiq-beige.vercel.app';
+      const portalUrl   = `${siteUrl}/tender-submit/${token}`;
+      const tenderUrl   = `${siteUrl}/tenders/${tender.id}`;
 
       // Confirmation to invitee
       if (invitation.invitee_email) {
@@ -548,6 +551,9 @@ Deno.serve(async (req: Request) => {
     <p>Dear <strong>${escapeHtml(invitation.invitee_name)}</strong>,</p>
     <p>Thank you for submitting your pricing for <strong>${escapeHtml(tender.title)}</strong>.</p>
     <p>Your submission has been received. We will be in touch following the closing date${tender.closing_date ? ' of <strong>' + tender.closing_date + '</strong>' : ''}.</p>
+    <p style="margin-top:24px;">
+      <a href="${portalUrl}" style="display:inline-block;padding:10px 24px;background:${brandColour};color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View Your Submission</a>
+    </p>
     <p style="color:#6b7280;font-size:13px;">Regards,<br>${branding.company_name || 'ConstructIQ'}</p>
   </td></tr>
   <tr><td style="background:${brandColour};height:2px;"></td></tr>
@@ -578,7 +584,9 @@ Deno.serve(async (req: Request) => {
       <tr><td style="padding:8px 0;font-size:13px;color:#6b7280;">Price</td>
           <td style="padding:8px 0;font-weight:600;">${price}</td></tr>
     </table>
-    <p style="font-size:13px;color:#6b7280;">Log in to view and score this submission.</p>
+    <p style="margin-top:24px;">
+      <a href="${tenderUrl}" style="display:inline-block;padding:10px 24px;background:${brandColour};color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">Log in to View &amp; Score</a>
+    </p>
   </td></tr>
   <tr><td style="background:${brandColour};height:2px;"></td></tr>
 </table></body></html>`,

@@ -20,13 +20,29 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
+const APP_URL = Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz';
+
+// Kept in sync with DEFAULT_TEMPLATES.programme_published in
+// src/lib/emailTemplates.js.
 const DEFAULT_TEMPLATE = {
   subject: 'Programme Updated — {project_name}',
   body_html: `<p>Hi,</p>
 <p>The construction programme for <strong>{project_name}</strong> has been updated by {sender_name}.</p>
 <p>Please refer to the latest schedule for current dates, and let us know if you have any questions.</p>
+<p style="margin-top:24px;">
+  <a href="{login_url}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">Log in to View Programme</a>
+</p>
 <p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br>{sender_name}<br>{company_name}</p>`,
 };
+
+// "Log in to view" CTA appended to customised templates saved before
+// {login_url} existed, so every notification has a way into the app.
+function loginButtonHtml(url: string, label: string) {
+  return `
+<p style="margin-top:24px;">
+  <a href="${url}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">${label}</a>
+</p>`;
+}
 
 function applyVars(template: { subject: string; body_html: string }, vars: Record<string, string>) {
   let subject = template.subject || '';
@@ -122,11 +138,16 @@ Deno.serve(async (req: Request) => {
       return Response.json({ success: true, total: 0, sent: 0, failed: 0, results: [], log }, { headers: corsHeaders });
     }
 
-    const { subject, body: bodyHtml } = applyVars(template, {
+    const loginUrl = `${APP_URL}/projects/${project.id}`;
+    const { subject, body: renderedBody } = applyVars(template, {
       project_name: project.name || '',
       sender_name:  sender.full_name || sender.email || '',
       company_name: branding.company_name || 'ConstructIQ',
+      login_url:    loginUrl,
     });
+    const bodyHtml = (template.body_html || '').includes('{login_url}')
+      ? renderedBody
+      : renderedBody + loginButtonHtml(loginUrl, 'Log in to View Programme');
     const html = buildHtml(bodyHtml, branding);
 
     const results: any[] = [];

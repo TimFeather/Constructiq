@@ -330,7 +330,10 @@ Deno.serve(async (req: Request) => {
           await resend.emails.send({
             from: fromEmail, to: inv.invitee_email,
             subject: `${tender.title} — ${notice.notice_number} Issued (Retry)`,
-            html: `<p>Please visit your <a href="${portalUrl}">tender portal</a> to view ${notice.notice_number}: ${notice.title}.</p>`,
+            html: `<p>A Notice to Tenderers, ${notice.notice_number}: ${notice.title}, has been issued.</p>
+<p style="margin-top:24px;">
+  <a href="${portalUrl}" style="display:inline-block;padding:10px 24px;background:${brandColour};color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View Tender Portal</a>
+</p>`,
           });
           sent++;
         } catch (_e) { failed++; }

@@ -20,6 +20,7 @@ const corsHeaders = {
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const APP_URL = Deno.env.get('SITE_URL') || Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz';
 
 const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
@@ -31,6 +32,9 @@ const DEFAULT_TEMPLATES: Record<string, { subject: string; body_html: string }> 
 <p>We are pleased to advise that following a review of all tender submissions for <strong>{title}</strong>, your submission has been selected.</p>
 <p>We will be in touch shortly to discuss next steps and formalise the engagement.</p>
 <p>Thank you for your submission and we look forward to working with you.</p>
+<p style="margin-top:24px;">
+  <a href="{submission_link}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View Your Submission</a>
+</p>
 <p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br>{sender_name}<br>{company_name}</p>`,
   },
   tender_sub_unsuccessful: {
@@ -39,9 +43,21 @@ const DEFAULT_TEMPLATES: Record<string, { subject: string; body_html: string }> 
 <p>Thank you for submitting your pricing for <strong>{title}</strong>.</p>
 <p>After careful consideration of all submissions received, we regret to advise that your submission was not selected on this occasion.</p>
 <p>We appreciate the time and effort you put into your submission and hope to have the opportunity to work with you in the future.</p>
+<p style="margin-top:24px;">
+  <a href="{submission_link}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View Your Submission</a>
+</p>
 <p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br>{sender_name}<br>{company_name}</p>`,
   },
 };
+
+// CTA appended to customised templates saved before {submission_link} existed,
+// so every outcome email still links back into the tender portal.
+function ctaButtonHtml(url: string, label: string) {
+  return `
+<p style="margin-top:24px;">
+  <a href="${url}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">${label}</a>
+</p>`;
+}
 
 function applyVars(template: { subject: string; body_html: string }, vars: Record<string, string>) {
   let subject = template.subject || '';
@@ -109,11 +125,13 @@ Deno.serve(async (req: Request) => {
       { data: allSubmissionsData },
       { data: customTemplatesData },
       { data: brandingsData },
+      { data: invitationsData },
     ] = await Promise.all([
       supabaseAdmin.from('tenders').select('*').eq('id', tenderId).single(),
       supabaseAdmin.from('tender_submissions').select('*').eq('tender_id', tenderId),
       supabaseAdmin.from('email_templates').select('*'),
       supabaseAdmin.from('email_branding').select('*'),
+      supabaseAdmin.from('tender_invitations').select('id, token, invitee_email').eq('tender_id', tenderId),
     ]);
 
     const tender: any = tenderData;
@@ -129,6 +147,19 @@ Deno.serve(async (req: Request) => {
     const fromName  = branding.sender_name || branding.company_name || 'ConstructIQ';
     const fromEmail = `${fromName} <noreply@totalhomesolutions.co.nz>`;
     const resend    = new Resend(Deno.env.get('RESEND_API_KEY'));
+
+    // Portal links for the "View Your Submission" CTA — the token URL works
+    // without an account, which matters for subs who never registered.
+    const invitations: any[] = invitationsData ?? [];
+    const tokenByInvitationId = new Map(invitations.map((i: any) => [i.id, i.token]));
+    const tokenByEmail = new Map(
+      invitations.filter((i: any) => i.invitee_email).map((i: any) => [String(i.invitee_email).toLowerCase(), i.token])
+    );
+    const portalLinkFor = (sub: any) => {
+      const token = tokenByInvitationId.get(sub.invitation_id)
+        || tokenByEmail.get(String(sub.invitee_email || '').toLowerCase());
+      return token ? `${APP_URL}/tender-submit/${token}` : APP_URL;
+    };
 
     // ── Filter which submissions to process ───────────────────────────────────
     let submissions = allSubmissions.filter((s: any) =>
@@ -177,13 +208,18 @@ Deno.serve(async (req: Request) => {
         continue;
       }
 
-      const { subject, body: bodyHtml } = applyVars(template, {
-        tender_number: tender.tender_number || '',
-        title:         tender.title || '',
-        invitee_name:  sub.invitee_name || sub.full_name || '',
-        sender_name:   user.full_name || '',
-        company_name:  branding.company_name || 'ConstructIQ',
+      const portalLink = portalLinkFor(sub);
+      const { subject, body: renderedBody } = applyVars(template, {
+        tender_number:   tender.tender_number || '',
+        title:           tender.title || '',
+        invitee_name:    sub.invitee_name || sub.full_name || '',
+        sender_name:     user.full_name || '',
+        company_name:    branding.company_name || 'ConstructIQ',
+        submission_link: portalLink,
       });
+      const bodyHtml = (template.body_html || '').includes('{submission_link}')
+        ? renderedBody
+        : renderedBody + ctaButtonHtml(portalLink, 'View Your Submission');
 
       const html = buildHtml(bodyHtml, branding);
 
