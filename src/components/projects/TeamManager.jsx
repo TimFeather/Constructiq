@@ -244,7 +244,6 @@ export default function TeamManager({ project }) {
       setEmailInput('');
       setCustomTrade('');
       setCustomRole('');
-      setSuggestions([]);
       setEmailStatus(null);
       setEmailStatusData(null);
     } catch (e) {
