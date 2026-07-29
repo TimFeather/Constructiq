@@ -11,8 +11,8 @@
  *     upload that is mid-flight or whose DB row is being written cannot be reaped.
  *   • Over-referencing. The "still referenced" set is built by regex-scanning the FULL
  *     serialized rows of every table that can hold a project-files path (documents,
- *     rfis, contract_instructions, tender_submissions). Because the path is a unique
- *     `<timestamp>-<random>.<ext>` string, a substring match cannot collide — and
+ *     rfis, contract_instructions, tender_submissions, project_activity). Because the
+ *     path is a unique `<timestamp>-<random>.<ext>` string, a substring match cannot collide — and
  *     scanning whole rows means a path stored in an unexpected/forgotten JSON field is
  *     still treated as referenced. The bias is always toward KEEPING a file.
  *   • Per-file error isolation — one failed delete does not abort the run.
@@ -50,7 +50,9 @@ const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 const BUCKET = 'project-files';
 // Tables that can store a project-files path (see migrateStorageToPrivate scope).
 // Over-inclusive on purpose: scanning an unrelated table is harmless.
-const REFERENCING_TABLES = ['documents', 'rfis', 'contract_instructions', 'tender_submissions'];
+// project_activity — notifyProgrammePublished records the archived programme PDF
+// path in metadata.pdf_path; without it the archive is reaped as an orphan.
+const REFERENCING_TABLES = ['documents', 'rfis', 'contract_instructions', 'tender_submissions', 'project_activity'];
 // Storage paths look like `<13-digit-ms>-<random-or-uuid>.<ext>`. Matches both the legacy
 // Math.random() form and the newer crypto.randomUUID() form.
 const PATH_RE = /\d{13}-[A-Za-z0-9-]+\.[A-Za-z0-9]+/g;

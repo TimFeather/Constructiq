@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
 import { addDays, format } from 'date-fns';
-import { exportProgrammePdf } from './pdfExport';
+import { exportProgrammePdf, programmePdfBase64 } from './pdfExport';
 
 function buildScenario({ n = 60, spanDays = 500 } = {}) {
   const base = new Date('2026-01-05T00:00:00');
@@ -86,5 +86,31 @@ describe('exportProgrammePdf smoke tests', () => {
     const scenario = buildScenario({ n: 15, spanDays: 60 });
     scenario.scheduledMap.delete('t3'); // task with no resolved schedule
     expect(() => runExport(scenario)).not.toThrow();
+  });
+});
+
+describe('programmePdfBase64', () => {
+  it('returns raw base64 PDF bytes across all three tiling tiers', () => {
+    for (const opts of [{ n: 10, spanDays: 20 }, { n: 80, spanDays: 300 }, { n: 200, spanDays: 1500 }]) {
+      const out = programmePdfBase64(buildScenario(opts));
+      expect(out).not.toBeNull();
+      expect(out.base64.startsWith('JVBER')).toBe(true);   // base64 of '%PDF'
+      expect(out.base64).not.toMatch(/^data:/);            // guards the datauristring trap
+      expect(out.bytes).toBeGreaterThan(1000);
+      expect(out.base64.length).toBeLessThan(8 * 1024 * 1024);
+      expect(out.filename).toMatch(/^Smoke Test Project - Programme \d{4}-\d{2}-\d{2}\.pdf$/);
+    }
+  });
+
+  it('returns null for an empty task list', () => {
+    expect(programmePdfBase64({ tasks: [], scheduledMap: new Map() })).toBeNull();
+  });
+
+  it('criticalOnly:false yields more content than criticalOnly:true', () => {
+    // Locks in that the publish path sends the FULL programme — a regression that
+    // reintroduces showCriticalPath would shrink the attachment.
+    const s = buildScenario({ n: 40, spanDays: 200 });
+    expect(programmePdfBase64({ ...s, criticalOnly: false }).bytes)
+      .toBeGreaterThan(programmePdfBase64({ ...s, criticalOnly: true }).bytes);
   });
 });

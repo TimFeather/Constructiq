@@ -146,6 +146,25 @@ function clipTicks(ticks, bandStart, bandEnd, mmPerDay, sparse) {
     .filter(Boolean);
 }
 
+/** Project name reduced to filename-safe characters. Shared by both export paths. */
+function safeProjectFileName(projectName) {
+  return (projectName || 'Programme').replace(/[^a-z0-9\-_ ]/gi, '').trim() || 'Programme';
+}
+
+/**
+ * ArrayBuffer → base64. Chunked because String.fromCharCode(...bytes) on a
+ * multi-hundred-KB PDF exceeds the maximum argument count and throws.
+ */
+function arrayBufferToBase64(buf) {
+  const bytes = new Uint8Array(buf);
+  const CHUNK = 0x8000;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
+
 function fitText(doc, text, maxW) {
   const s = String(text ?? '');
   if (!s) return '';
@@ -168,12 +187,12 @@ function drawDiamond(doc, cx, cy, r, rgb) {
  * @param {Map}    baselineMap - id -> { baseline_start, baseline_finish }
  * @param {boolean} criticalOnly
  */
-export function exportProgrammePdf({ tasks = [], scheduledMap, programme, projectName, baselineMap, criticalOnly = false }) {
+export function buildProgrammePdfDoc({ tasks = [], scheduledMap, programme, projectName, baselineMap, criticalOnly = false }) {
   const printTasks = getVisibleTasks(tasks, new Set(tasks.map(t => t.id)));
   const visibleTasks = criticalOnly
     ? printTasks.filter(t => scheduledMap?.get(t.id)?.isCritical)
     : printTasks;
-  if (visibleTasks.length === 0) return false;
+  if (visibleTasks.length === 0) return null;
 
   const wbsMap = wbsLabelMap(visibleTasks);
 
@@ -445,9 +464,38 @@ export function exportProgrammePdf({ tasks = [], scheduledMap, programme, projec
     }
   }
 
-  const safeName = (projectName || 'Programme').replace(/[^a-z0-9\-_ ]/gi, '').trim() || 'Programme';
-  doc.save(`${safeName} - Programme.pdf`);
+  return doc;
+}
+
+/**
+ * Build + download. Unchanged public contract: true when a PDF was produced,
+ * false when there was nothing to draw.
+ */
+export function exportProgrammePdf(args = {}) {
+  const doc = buildProgrammePdfDoc(args);
+  if (!doc) return false;
+  doc.save(`${safeProjectFileName(args.projectName)} - Programme.pdf`);
   return true;
+}
+
+/**
+ * Build + return the bytes as base64, for emailing as an attachment.
+ * Returns null when there is nothing to draw.
+ *
+ * Uses output('arraybuffer') — NOT 'datauristring', which prefixes
+ * `data:application/pdf;…;base64,` and breaks both Resend and the
+ * server-side atob(). Needs neither `document` nor file-saver, unlike save().
+ */
+export function programmePdfBase64(args = {}) {
+  const doc = buildProgrammePdfDoc(args);
+  if (!doc) return null;
+  const buf = doc.output('arraybuffer');
+  return {
+    base64: arrayBufferToBase64(buf),
+    // Dated, unlike the manual export, so repeat publishes don't collide in an inbox.
+    filename: `${safeProjectFileName(args.projectName)} - Programme ${format(new Date(), 'yyyy-MM-dd')}.pdf`,
+    bytes: buf.byteLength,
+  };
 }
 
 function isCriticalPair(scheduledMap, predId, taskId) {

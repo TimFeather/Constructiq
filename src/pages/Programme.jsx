@@ -53,11 +53,14 @@ import { getVisibleTasks } from '@/lib/programme/visibleTasks';
 import { bulkOperationState } from '@/lib/bulkOperationState';
 import { retry429 } from '@/lib/retry429';
 import TaskInlineEditor from '@/components/programme/TaskInlineEditor';
-import { exportProgrammePdf } from '@/lib/programme/pdfExport';
+import { exportProgrammePdf, programmePdfBase64 } from '@/lib/programme/pdfExport';
 import { useIsMobile } from '@/hooks/use-mobile';
 
 const ZOOM_LEVELS = ['year', 'quarter', 'month', 'week', 'day'];
 const DELETE_CHUNK = 150;
+// Resend's ceiling is 40MB post-base64; Supabase does not document an edge-function
+// request-body limit, so stay well clear of both. A real programme is 300–600KB.
+const MAX_ATTACHMENT_B64 = 8 * 1024 * 1024;
 const IMPORT_STAGES = ['Reading file', 'Parsing schedule', 'Creating tasks', 'Linking dependencies', 'Building hierarchy', 'Finalising'];
 
 export default function Programme() {
@@ -234,6 +237,9 @@ export default function Programme() {
 
   const [isLocking, setIsLocking] = useState(false);
   const [isNotifying, setIsNotifying] = useState(false);
+  // { reason: 'no_tasks' | 'too_large' | 'failed', detail? } — drives the
+  // "send without PDF?" confirm when the attachment can't be produced.
+  const [pdfIssue, setPdfIssue] = useState(null);
 
   // Lock the schedule — freezes dates/hierarchy/dependencies for non-admins.
   // No email is sent; use Publish to notify the team of an update.
@@ -268,27 +274,9 @@ export default function Programme() {
     }
   }, [selectedProjectId, queryClient, toast]);
 
-  // Publish = notify every team member & subcontractor that the programme has
-  // been updated. Does not change the lock state — lock the schedule first.
-  const handlePublish = useCallback(async () => {
-    if (!selectedProjectId || selectedProjectId === 'all') return;
-    setIsNotifying(true);
-    try {
-      const { data } = await invokeFunction('notifyProgrammePublished', { projectId: selectedProjectId });
-      const sent = data?.sent ?? 0;
-      toast({
-        title: 'Update published',
-        description: sent > 0
-          ? `Notified ${sent} team member${sent === 1 ? '' : 's'} & subcontractor(s).`
-          : 'No team members with an email address to notify.',
-        duration: 3500,
-      });
-    } catch (e) {
-      toast({ title: 'Publish failed', description: e.message, variant: 'destructive' });
-    } finally {
-      setIsNotifying(false);
-    }
-  }, [selectedProjectId, toast]);
+  // Publish = notify every team member & subcontractor, with the programme PDF
+  // attached. Defined below handlePrint, alongside buildPublishPdf/sendPublishNotification —
+  // it needs selectedProjectName, which isn't in scope yet at this point in the file.
 
   // ─── Authoring handlers (Gantt drag + editors → scheduling service) ──────────
   const afterScheduleChange = useCallback((patchCount) => {
@@ -603,6 +591,78 @@ export default function Programme() {
     }, 0);
   }, [tasks, scheduledMap, programme, selectedProjectName, baselineMap, showCriticalPath, toast]);
 
+  // Build the publish attachment. Deliberately criticalOnly:false — the emailed
+  // programme must never be silently filtered by the on-screen Critical toggle.
+  // Wrapped in setTimeout so the disabled/spinner state paints before the
+  // synchronous draw loop blocks the main thread (same reason as handlePrint).
+  const buildPublishPdf = useCallback(() => new Promise((resolve) => {
+    setTimeout(() => {
+      try {
+        resolve({ ok: true, pdf: programmePdfBase64({
+          tasks,
+          scheduledMap,
+          programme,
+          projectName: selectedProjectName,
+          baselineMap,
+          criticalOnly: false,
+        }) });
+      } catch (err) {
+        resolve({ ok: false, error: err });
+      }
+    }, 0);
+  }), [tasks, scheduledMap, programme, selectedProjectName, baselineMap]);
+
+  // The actual notify call. `pdf` null → link-only email (existing behaviour).
+  const sendPublishNotification = useCallback(async (pdf) => {
+    setIsNotifying(true);
+    try {
+      const { data } = await invokeFunction('notifyProgrammePublished', {
+        projectId: selectedProjectId,
+        ...(pdf ? { pdfBase64: pdf.base64, pdfFilename: pdf.filename } : {}),
+      });
+      const sent = data?.sent ?? 0;
+      const failed = data?.failed ?? 0;
+      toast({
+        title: 'Update published',
+        description: sent > 0
+          ? `Notified ${sent} team member${sent === 1 ? '' : 's'} & subcontractor(s)`
+            + `${pdf ? ' with the programme PDF attached' : ' (no PDF attached)'}.`
+            + `${failed ? ` ${failed} failed — check Settings → Emails.` : ''}`
+          : 'No team members with an email address to notify.',
+        duration: failed ? 6000 : 3500,
+      });
+    } catch (e) {
+      toast({ title: 'Publish failed', description: e.message, variant: 'destructive' });
+    } finally {
+      setIsNotifying(false);
+    }
+  }, [selectedProjectId, toast]);
+
+  // Publish = notify every team member & subcontractor, with the programme PDF
+  // attached. Does not change the lock state — lock the schedule first.
+  const handlePublish = useCallback(async () => {
+    if (!selectedProjectId || selectedProjectId === 'all') return;
+    setIsNotifying(true);
+    const result = await buildPublishPdf();
+
+    if (!result.ok) {
+      setIsNotifying(false);
+      setPdfIssue({ reason: 'failed', detail: result.error?.message || 'Unknown error' });
+      return;
+    }
+    if (!result.pdf) {
+      setIsNotifying(false);
+      setPdfIssue({ reason: 'no_tasks' });
+      return;
+    }
+    if (result.pdf.base64.length > MAX_ATTACHMENT_B64) {
+      setIsNotifying(false);
+      setPdfIssue({ reason: 'too_large', detail: `${(result.pdf.bytes / 1024 / 1024).toFixed(1)} MB` });
+      return;
+    }
+    await sendPublishNotification(result.pdf);
+  }, [selectedProjectId, buildPublishPdf, sendPublishNotification]);
+
   const handleExportExcel = () => {
     downloadProgrammeExcel(tasks, scheduledMap, selectedProjectName);
     toast({ title: 'Exported', description: 'Excel programme downloaded.', duration: 3000 });
@@ -752,7 +812,7 @@ export default function Programme() {
             )}
             {canPublish && programmeLocked && (
               <Button variant="default" size="sm" onClick={handlePublish} disabled={isNotifying}
-                className="gap-1.5 text-xs h-9" title="Email the team & subcontractors that the programme has been updated">
+                className="gap-1.5 text-xs h-9" title="Email the team & subcontractors the programme PDF">
                 <Send className="w-3.5 h-3.5" /> {isNotifying ? 'Publishing…' : 'Publish'}
               </Button>
             )}
@@ -1022,6 +1082,25 @@ export default function Programme() {
           </AlertDialogHeader>
           <AlertDialogAction onClick={handleDeleteAllTasks} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
             Delete All
+          </AlertDialogAction>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Publish: the programme PDF could not be attached */}
+      <AlertDialog open={!!pdfIssue} onOpenChange={(open) => !open && setPdfIssue(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Send without the programme PDF?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pdfIssue?.reason === 'no_tasks' && 'This programme has no tasks, so there is nothing to put in a PDF. '}
+              {pdfIssue?.reason === 'too_large' && `The programme PDF is ${pdfIssue.detail}, which is too large to email. `}
+              {pdfIssue?.reason === 'failed' && `The programme PDF could not be generated (${pdfIssue.detail}). `}
+              The notification can still go out with the “Log in to View Programme” link instead.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogAction onClick={() => sendPublishNotification(null)}>
+            Send without PDF
           </AlertDialogAction>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
         </AlertDialogContent>
