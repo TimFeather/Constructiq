@@ -103,15 +103,17 @@ export const DEFAULT_TEMPLATES = {
     subject: '{title} — {notice_number} Issued',
     body_html: `
 <p>Dear <strong>{invitee_name}</strong>,</p>
-<p>A new Notice to Tenderers has been issued for <strong>{title}</strong>.</p>
+<p>A Notice to Tenderers has been issued for <strong>{title}</strong>.</p>
 <table style="width:100%;border-collapse:collapse;margin:16px 0;background:#f9fafb;border-radius:6px;font-size:14px;">
   <tr><td style="padding:10px 14px;color:#6b7280;border-bottom:1px solid #e5e7eb;width:120px;">Notice</td><td style="padding:10px 14px;font-weight:600;">{notice_number}</td></tr>
   <tr><td style="padding:10px 14px;color:#6b7280;border-bottom:1px solid #e5e7eb;">Type</td><td style="padding:10px 14px;">{notice_type}</td></tr>
   <tr><td style="padding:10px 14px;color:#6b7280;">Issued</td><td style="padding:10px 14px;">{issue_date}</td></tr>
 </table>
-<p style="color:#374151;">Please review the tender portal for full details and any attached documents.</p>
+<h3 style="font-size:16px;margin:24px 0 8px;color:#111827;">{notice_title}</h3>
+<div style="color:#374151;">{notice_description}</div>
+{attachments_list}
 <p style="margin-top:24px;">
-  <a href="{submission_link}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View Tender Portal</a>
+  <a href="{submission_link}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View Notice on the Tender Portal</a>
 </p>
 <p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br>{company_name}</p>`,
   },
@@ -385,6 +387,10 @@ export const TEMPLATE_VARIABLES = {
     { key: 'notice_number', desc: 'Notice reference e.g. NTT-001' },
     { key: 'notice_type', desc: 'Type of notice' },
     { key: 'issue_date', desc: 'Date notice was issued' },
+    { key: 'notice_title', desc: "The notice's own title" },
+    { key: 'notice_description', desc: 'The notice body/content' },
+    { key: 'attachments_list', desc: 'List of attached documents (blank if none)' },
+    { key: 'attachment_count', desc: 'Number of attachments' },
     { key: 'submission_link', desc: 'Link to tender portal' },
     { key: 'company_name', desc: 'Company name' },
   ],
