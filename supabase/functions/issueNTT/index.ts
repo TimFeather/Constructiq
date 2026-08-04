@@ -170,7 +170,7 @@ Deno.serve(async (req: Request) => {
 
       for (const inv of inviteeList) {
         if (!inv.invitee_email) continue;
-        const portalUrl = `${SITE_URL}/tender-submit/${inv.token}`;
+        const portalUrl = `${SITE_URL}/tender-submit/${inv.token}?tab=correspondence`;
         const issueDate = notice.created_at ? new Date(notice.created_at).toLocaleDateString('en-NZ') : new Date().toLocaleDateString('en-NZ');
 
         const vars: Record<string, string> = {
@@ -325,7 +325,7 @@ Deno.serve(async (req: Request) => {
 
       let sent = 0, failed = 0;
       for (const inv of (invitations ?? [])) {
-        const portalUrl = `${SITE_URL}/tender-submit/${inv.token}`;
+        const portalUrl = `${SITE_URL}/tender-submit/${inv.token}?tab=correspondence`;
         try {
           await resend.emails.send({
             from: fromEmail, to: inv.invitee_email,
