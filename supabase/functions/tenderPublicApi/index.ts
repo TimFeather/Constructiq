@@ -135,7 +135,7 @@ Deno.serve(async (req: Request) => {
       // Find the invitation token for the invitee to link back to portal
       const { data: invRows } = await supabaseAdmin.from('tender_invitations').select('token').eq('tender_id', payloadTenderId).eq('invitee_email', invitee_email).limit(1);
       const invToken = (invRows ?? [])[0]?.token;
-      const portalUrl = invToken ? `${Deno.env.get('SITE_URL') || Deno.env.get('APP_URL') || 'https://constructiq-beige.vercel.app'}/tender-submit/${invToken}` : '';
+      const portalUrl = invToken ? `${Deno.env.get('SITE_URL') || Deno.env.get('APP_URL') || 'https://constructiq-beige.vercel.app'}/tender-submit/${invToken}?tab=questions` : '';
 
       try {
         const template = templates?.[0] || DEFAULT_QUESTION_ANSWERED_TEMPLATE;
@@ -797,7 +797,7 @@ Deno.serve(async (req: Request) => {
         const br: any = bd || {};
         const senderEmail = br.sender_email || Deno.env.get('SENDER_EMAIL') || 'noreply@totalhomesolutions.co.nz';
         const fromName    = br.sender_name || br.company_name || 'ConstructIQ';
-        const portalUrl   = `${Deno.env.get('SITE_URL') || Deno.env.get('APP_URL') || 'https://constructiq-beige.vercel.app'}/tender-submit/${token}`;
+        const portalUrl   = `${Deno.env.get('SITE_URL') || Deno.env.get('APP_URL') || 'https://constructiq-beige.vercel.app'}/tender-submit/${token}?tab=questions`;
         const resend      = new Resend(Deno.env.get('RESEND_API_KEY'));
 
         const template = templates?.[0] || DEFAULT_QUESTION_ANSWERED_TEMPLATE;

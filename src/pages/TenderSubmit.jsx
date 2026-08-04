@@ -260,6 +260,8 @@ export default function TenderSubmit() {
       } : prev);
       setSubmitted(true);
       setEditingSubmission(false);
+      // Drop any deep-link ?tab= so the confirmation screen's short-circuit fires again.
+      setSearchParams(prev => { const p = new URLSearchParams(prev); p.delete('tab'); return p; }, { replace: true });
     } catch (e) {
       setSubmitError(e?.response?.data?.error || 'Submission failed. Please try again.');
     } finally {
@@ -300,8 +302,13 @@ export default function TenderSubmit() {
     );
   }
 
+  // A ?tab= deep link (e.g. the "View Notice" button in an NTT email) must reach the
+  // tabbed portal even after this invitee has submitted — otherwise the confirmation
+  // screen swallows the link.
+  const deepLinkTab = searchParams.get('tab');
+
   // ── Submitted confirmation ───────────────────────────────────────────────────
-  if (submitted && !editingSubmission) {
+  if (submitted && !editingSubmission && !deepLinkTab) {
     // Files the supplier lodged (names only — the files themselves are private).
     const submittedFiles = pricingFiles.filter(f => f.status === 'done');
     return (
@@ -384,6 +391,16 @@ export default function TenderSubmit() {
           <div className="flex items-center gap-2 p-3 mb-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
             <AlertCircle className="w-4 h-4 flex-shrink-0" />
             This tender has passed its closing date and is no longer accepting submissions.
+          </div>
+        )}
+
+        {submitted && !editingSubmission && (
+          <div className="flex items-center gap-2 p-3 mb-4 bg-green-50 border border-green-200 rounded-lg text-green-800 text-sm">
+            <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+            Your pricing was submitted
+            {invitee?.submission?.submitted_at
+              ? ` on ${format(new Date(invitee.submission.submitted_at), 'dd MMM yyyy h:mm a')}`
+              : ''}. You can review notices below and update your submission until the closing date.
           </div>
         )}
 
