@@ -15,8 +15,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ChevronDown, ChevronUp, Download, Plus, Trash2, AlertTriangle, Loader2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Download, Plus, Trash2, AlertTriangle, Loader2, ClipboardEdit } from 'lucide-react';
 import { format } from 'date-fns';
+import RecordSubmissionDialog from './RecordSubmissionDialog';
 
 function calcWeightedScore(submission, criteria) {
   if (!submission?.scores?.length) return null;
@@ -245,6 +246,7 @@ export default function SubmissionScorer({ tender, onUpdate, canManage }) {
   const [savingScores, setSavingScores] = useState(null);
   const [showCriteria, setShowCriteria] = useState(false);
   const [tradeFilter, setTradeFilter]   = useState('ALL');
+  const [recordDialog, setRecordDialog] = useState(null); // null | { mode: 'create' } | { mode: 'edit', submission }
   // Sync criteria from tender prop (source of truth is Tender.scoring_criteria)
   const [criteria, setCriteria] = useState(
     tender.scoring_criteria?.length
@@ -388,27 +390,50 @@ export default function SubmissionScorer({ tender, onUpdate, canManage }) {
         </div>
       )}
 
-      {/* Trade filter */}
-      {submissions.length > 0 && (
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-muted-foreground flex-shrink-0">Filter by trade:</span>
-          <Select value={tradeFilter} onValueChange={setTradeFilter}>
-            <SelectTrigger className="w-48 h-8 text-sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">All Trades</SelectItem>
-              {uniqueTrades.map(t => (
-                <SelectItem key={t} value={t}>{t}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {tradeFilter !== 'ALL' && (
-            <button className="text-xs text-muted-foreground hover:text-foreground underline" onClick={() => setTradeFilter('ALL')}>
-              Clear
-            </button>
-          )}
-        </div>
+      {/* Trade filter + record submission */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        {submissions.length > 0 ? (
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-muted-foreground flex-shrink-0">Filter by trade:</span>
+            <Select value={tradeFilter} onValueChange={setTradeFilter}>
+              <SelectTrigger className="w-48 h-8 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All Trades</SelectItem>
+                {uniqueTrades.map(t => (
+                  <SelectItem key={t} value={t}>{t}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {tradeFilter !== 'ALL' && (
+              <button className="text-xs text-muted-foreground hover:text-foreground underline" onClick={() => setTradeFilter('ALL')}>
+                Clear
+              </button>
+            )}
+          </div>
+        ) : <div />}
+        {canManage && (
+          <Button variant="outline" size="sm" className="gap-1.5"
+            onClick={() => setRecordDialog({ mode: 'create' })}>
+            <ClipboardEdit className="w-3.5 h-3.5" /> Record submission
+          </Button>
+        )}
+      </div>
+
+      {recordDialog && (
+        <RecordSubmissionDialog
+          tender={tender}
+          invitees={invitees}
+          submissions={submissions}
+          submission={recordDialog.mode === 'edit' ? recordDialog.submission : null}
+          onClose={() => setRecordDialog(null)}
+          onSaved={() => {
+            setRecordDialog(null);
+            queryClient.invalidateQueries({ queryKey: ['tenderSubmissions', tender.id] });
+            queryClient.invalidateQueries({ queryKey: ['tenderInvitees', tender.id] });
+          }}
+        />
       )}
 
       {/* Submissions list — grouped by trade */}
@@ -445,6 +470,12 @@ export default function SubmissionScorer({ tender, onUpdate, canManage }) {
                             {sub.trade && (
                               <span className="text-xs bg-secondary text-secondary-foreground px-1.5 py-0.5 rounded">{sub.trade}</span>
                             )}
+                            {sub.submission_source === 'manual' && (
+                              <span className="text-xs bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded">Recorded manually</span>
+                            )}
+                            {sub.received_after_close && (
+                              <span className="text-xs bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded">After close</span>
+                            )}
                           </div>
                           <div className="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
                             {sub.lump_sum_price && (
@@ -455,12 +486,22 @@ export default function SubmissionScorer({ tender, onUpdate, canManage }) {
                             {ws != null && <span className="text-primary font-medium">Score: {ws}/100</span>}
                             {sub.submitted_at && <span>{format(new Date(sub.submitted_at), 'dd MMM yyyy')}</span>}
                           </div>
+                          {sub.submission_source === 'manual' && sub.recorded_by_name && (
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              Entered by {sub.recorded_by_name}{sub.recorded_at ? ` on ${format(new Date(sub.recorded_at), 'dd MMM yyyy')}` : ''}
+                            </p>
+                          )}
                         </div>
                         {canManage && (
-                          <Button variant="outline" size="sm"
-                            onClick={() => setOpenPanel(openPanel === sub.id ? null : sub.id)}>
-                            {openPanel === sub.id ? 'Close' : 'View / Score'}
-                          </Button>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <Button variant="ghost" size="sm" onClick={() => setRecordDialog({ mode: 'edit', submission: sub })}>
+                              Edit submission
+                            </Button>
+                            <Button variant="outline" size="sm"
+                              onClick={() => setOpenPanel(openPanel === sub.id ? null : sub.id)}>
+                              {openPanel === sub.id ? 'Close' : 'View / Score'}
+                            </Button>
+                          </div>
                         )}
                       </div>
                       {openPanel === sub.id && (
