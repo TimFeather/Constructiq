@@ -429,6 +429,106 @@ Deno.serve(async (req: Request) => {
       return Response.json({ success: true, emails_sent: sent, emails_failed: failed }, { headers: corsHeaders });
     }
 
+    // ── UPDATE NOTICE (Draft only) ────────────────────────────────────────────
+    if (action === 'updateNotice') {
+      const { noticeId, title, description, noticeType, proposedNewCloseDate, attachments = [] } = payload;
+      if (!noticeId) return Response.json({ error: 'noticeId required' }, { status: 400, headers: corsHeaders });
+
+      const { data: notice, error: noticeErr } = await supabaseAdmin
+        .from('tender_notices').select('*').eq('id', noticeId).single();
+      if (noticeErr || !notice) return Response.json({ error: 'Notice not found' }, { status: 404, headers: corsHeaders });
+      if (notice.status !== 'Draft') {
+        return Response.json({ error: 'Only draft notices can be edited — this notice has been issued.' }, { status: 409, headers: corsHeaders });
+      }
+
+      const { data: updated, error: updateErr } = await supabaseAdmin
+        .from('tender_notices')
+        .update({
+          title:                    title,
+          description:              description || null,
+          notice_type:              noticeType,
+          proposed_new_close_date:  noticeType === 'Closing Date Extension' ? (proposedNewCloseDate || null) : null,
+          updated_at:               new Date().toISOString(),
+        })
+        .eq('id', noticeId)
+        .select()
+        .single();
+      if (updateErr) return Response.json({ error: updateErr.message }, { status: 500, headers: corsHeaders });
+
+      // Sync attachments to match the payload exactly — delete what's no longer there,
+      // insert what's new. Never delete-all-then-reinsert: a failure mid-way would lose the lot.
+      const { data: existingAttachments, error: existingAttErr } = await supabaseAdmin
+        .from('tender_notice_attachments')
+        .select('id, file_url')
+        .eq('notice_id', noticeId);
+      if (existingAttErr) return Response.json({ error: `Could not read existing attachments: ${existingAttErr.message}` }, { status: 500, headers: corsHeaders });
+
+      const keepUrls   = new Set(attachments.map((a: any) => a.file_url));
+      const existingUrls = new Set((existingAttachments ?? []).map((a: any) => a.file_url));
+      const toDeleteIds  = (existingAttachments ?? []).filter((a: any) => !keepUrls.has(a.file_url)).map((a: any) => a.id);
+      const toInsert      = attachments.filter((a: any) => a.file_url && !existingUrls.has(a.file_url));
+
+      if (toDeleteIds.length > 0) {
+        const { error: delAttErr } = await supabaseAdmin
+          .from('tender_notice_attachments').delete().in('id', toDeleteIds);
+        if (delAttErr) return Response.json({ error: `Could not remove attachments: ${delAttErr.message}` }, { status: 500, headers: corsHeaders });
+      }
+      if (toInsert.length > 0) {
+        const { error: insAttErr } = await supabaseAdmin
+          .from('tender_notice_attachments')
+          .insert(toInsert.map((a: any) => ({ notice_id: noticeId, file_url: a.file_url, file_name: a.file_name || null })));
+        if (insAttErr) return Response.json({ error: `Could not add attachments: ${insAttErr.message}` }, { status: 500, headers: corsHeaders });
+      }
+
+      await supabaseAdmin.from('audit_logs').insert({
+        user_id: user.id, action: 'NTT Updated', entity_id: noticeId,
+        details: { notice_number: notice.notice_number, attachment_count: attachments.length },
+        created_at: new Date().toISOString(),
+      }).then(() => {});
+
+      return Response.json({ success: true, notice: updated }, { headers: corsHeaders });
+    }
+
+    // ── DELETE NOTICE (Draft only) ────────────────────────────────────────────
+    if (action === 'deleteNotice') {
+      const { noticeId } = payload;
+      if (!noticeId) return Response.json({ error: 'noticeId required' }, { status: 400, headers: corsHeaders });
+
+      const { data: notice, error: noticeErr } = await supabaseAdmin
+        .from('tender_notices').select('*').eq('id', noticeId).single();
+      if (noticeErr || !notice) return Response.json({ error: 'Notice not found' }, { status: 404, headers: corsHeaders });
+      if (notice.status !== 'Draft') {
+        return Response.json({ error: 'Only draft notices can be deleted — this notice has been issued.' }, { status: 409, headers: corsHeaders });
+      }
+
+      // Capture details before the delete — they won't exist to read afterward.
+      const { notice_number, tender_id, title } = notice;
+
+      // tender_notice_attachments cascade-deletes with the notice (schema.sql).
+      // Check the error and return its raw message — if service_role lacks a DELETE
+      // grant this surfaces as a clear 42501 instead of a silent no-op.
+      const { error: deleteErr } = await supabaseAdmin
+        .from('tender_notices').delete().eq('id', noticeId);
+      if (deleteErr) return Response.json({ error: deleteErr.message }, { status: 500, headers: corsHeaders });
+
+      await supabaseAdmin.from('audit_logs').insert({
+        user_id: user.id, action: 'NTT Deleted', entity_id: noticeId,
+        details: { notice_number, tender_id, title },
+        created_at: new Date().toISOString(),
+      }).then(() => {});
+
+      await supabaseAdmin.from('tender_activity').insert({
+        tender_id,
+        event_type:  'status_changed',
+        actor_name:  user.email,
+        actor_email: user.email,
+        description: `NTT ${notice_number} deleted before issue`,
+        occurred_at: new Date().toISOString(),
+      }).then(() => {});
+
+      return Response.json({ success: true }, { headers: corsHeaders });
+    }
+
     // ── ARCHIVE NOTICE ─────────────────────────────────────────────────────────
     if (action === 'archiveNotice') {
       const { noticeId } = payload;

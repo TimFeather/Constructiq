@@ -4,7 +4,6 @@
  */
 import React, { useState, useMemo, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { TenderNotice } from '@/api/entities';
 import { invokeFunction, uploadFile } from '@/api/supabaseClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,8 +17,9 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Plus, Send, Archive, ChevronDown, ChevronUp, AlertTriangle, CheckCircle2, Upload, X, Pencil, Paperclip, Download } from 'lucide-react';
+import { Plus, Send, Archive, ChevronDown, ChevronUp, AlertTriangle, CheckCircle2, Upload, X, Pencil, Paperclip, Download, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
+import { useToast } from '@/components/ui/use-toast';
 
 const NOTICE_TYPES = [
   'Clarification',
@@ -37,6 +37,7 @@ const STATUS_COLOURS = {
 
 export default function TenderNTTPanel({ tender, canManage }) {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const { data: notices = [], isLoading, isError, error } = useQuery({
     queryKey: ['tenderNotices', tender.id],
@@ -60,6 +61,7 @@ export default function TenderNTTPanel({ tender, canManage }) {
   const [editNotice, setEditNotice]     = useState(null);   // notice object to edit
   const [confirmIssue, setConfirmIssue] = useState(null);   // noticeId
   const [confirmArchive, setConfirmArchive] = useState(null); // noticeId
+  const [confirmDelete, setConfirmDelete] = useState(null); // notice object
   const [confirmDateUpdate, setConfirmDateUpdate] = useState(null); // { noticeId, tenderId, date }
   const [issueResult, setIssueResult] = useState(null);     // { sent, failed, recipients }
   const [working, setWorking]         = useState(false);
@@ -95,7 +97,7 @@ export default function TenderNTTPanel({ tender, canManage }) {
         noticeId:   confirmIssue,
       });
     } catch (e) {
-      alert(`Failed to issue NTT: ${e?.message || 'Unknown error'}`);
+      toast({ variant: 'destructive', title: 'Failed to issue NTT', description: e?.message || 'Unknown error' });
     } finally {
       setWorking(false);
       setConfirmIssue(null);
@@ -109,10 +111,25 @@ export default function TenderNTTPanel({ tender, canManage }) {
       await invokeFunction('issueNTT', { action: 'archiveNotice', noticeId: confirmArchive });
       queryClient.invalidateQueries({ queryKey: ['tenderNotices', tender.id] });
     } catch (e) {
-      alert(`Failed to archive: ${e?.message}`);
+      toast({ variant: 'destructive', title: 'Failed to archive', description: e?.message || 'Unknown error' });
     } finally {
       setWorking(false);
       setConfirmArchive(null);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!confirmDelete) return;
+    setWorking(true);
+    try {
+      await invokeFunction('issueNTT', { action: 'deleteNotice', noticeId: confirmDelete.id });
+      queryClient.invalidateQueries({ queryKey: ['tenderNotices', tender.id] });
+      toast({ title: `${confirmDelete.notice_number} deleted` });
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'Failed to delete draft', description: e?.message || 'Unknown error' });
+    } finally {
+      setWorking(false);
+      setConfirmDelete(null);
     }
   };
 
@@ -139,7 +156,7 @@ export default function TenderNTTPanel({ tender, canManage }) {
         recipients: [],
       }));
     } catch (e) {
-      alert(`Retry failed: ${e?.message}`);
+      toast({ variant: 'destructive', title: 'Retry failed', description: e?.message || 'Unknown error' });
     }
   };
 
@@ -258,6 +275,10 @@ export default function TenderNTTPanel({ tender, canManage }) {
                         title="Issue NTT" onClick={() => setConfirmIssue(notice.id)}>
                         <Send className="w-3.5 h-3.5" />
                       </Button>
+                      <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        title="Delete draft" onClick={() => setConfirmDelete(notice)}>
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
                     </>
                   )}
                   {canManage && notice.status === 'Issued' && (
@@ -370,6 +391,25 @@ export default function TenderNTTPanel({ tender, canManage }) {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Confirm Delete */}
+      <AlertDialog open={!!confirmDelete} onOpenChange={(o) => !o && setConfirmDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {confirmDelete?.notice_number}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes the draft notice and its attachment list. Nothing has been
+              sent to invitees. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} disabled={working} className="bg-destructive hover:bg-destructive/90">
+              {working ? 'Deleting...' : 'Delete Draft'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Confirm close date update */}
       <AlertDialog open={!!confirmDateUpdate} onOpenChange={(o) => !o && handleDateUpdate(false)}>
         <AlertDialogContent>
@@ -390,6 +430,141 @@ export default function TenderNTTPanel({ tender, canManage }) {
   );
 }
 
+// ── Shared create/edit form ───────────────────────────────────────────────────
+// Used by both CreateNTTDialog and EditNTTDialog so they can't drift apart again.
+// `value.attachments` is the single source of truth for the notice's final attachment
+// list — newly uploaded files and ticked existing tender documents both land in it,
+// and removing one (X) works the same regardless of where it came from.
+
+function NTTForm({ value, onChange, tender, uploading, setUploading }) {
+  const [uploadError, setUploadError] = useState('');
+  const fileInputRef = useRef(null);
+  const tenderDocs = tender?.documents || [];
+
+  const patch = (p) => onChange({ ...value, ...p });
+
+  const handleFileUpload = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    setUploading(true);
+    setUploadError('');
+    try {
+      const results = [];
+      for (const file of files) {
+        // NTT attachments are sent to suppliers and viewed on the public portal —
+        // keep them in the public Documents bucket (permanent public URL).
+        const { file_url } = await uploadFile(file, 'Documents');
+        results.push({ file_url, file_name: file.name });
+      }
+      patch({ attachments: [...value.attachments, ...results] });
+    } catch (e) {
+      setUploadError(e?.message || 'Upload failed');
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const removeAttachment = (fileUrl) =>
+    patch({ attachments: value.attachments.filter(a => a.file_url !== fileUrl) });
+
+  const toggleTenderDoc = (doc) => {
+    const exists = value.attachments.some(a => a.file_url === doc.file_url);
+    patch({
+      attachments: exists
+        ? value.attachments.filter(a => a.file_url !== doc.file_url)
+        : [...value.attachments, { file_url: doc.file_url, file_name: doc.name }],
+    });
+  };
+
+  return (
+    <>
+      <div>
+        <Label>Title *</Label>
+        <Input value={value.title} onChange={e => patch({ title: e.target.value })}
+          placeholder="e.g. Clarification on Structural Drawings" className="mt-1" />
+      </div>
+      <div>
+        <Label>Notice Type *</Label>
+        <Select value={value.noticeType} onValueChange={v => patch({ noticeType: v })}>
+          <SelectTrigger className="mt-1"><SelectValue placeholder="Select type..." /></SelectTrigger>
+          <SelectContent>
+            {NOTICE_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+      <div>
+        <Label>Description</Label>
+        <Textarea value={value.description}
+          onChange={e => patch({ description: e.target.value })}
+          rows={5} placeholder="Describe the notice in full..." className="mt-1" />
+      </div>
+
+      {value.noticeType === 'Closing Date Extension' && (
+        <div>
+          <Label>Proposed New Closing Date</Label>
+          <Input type="date" value={value.proposedNewCloseDate}
+            onChange={e => patch({ proposedNewCloseDate: e.target.value })}
+            className="mt-1" />
+          <p className="text-xs text-muted-foreground mt-1">
+            Current close date: {tender.closing_date?.split('T')[0] || '—'}
+          </p>
+        </div>
+      )}
+
+      {/* Upload new documents */}
+      <div>
+        <Label>Upload New Documents</Label>
+        <div className="mt-1 border-2 border-dashed rounded-lg p-3 text-center">
+          <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileUpload} />
+          <Button type="button" variant="outline" size="sm" className="gap-2"
+            onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+            <Upload className="w-4 h-4" />
+            {uploading ? 'Uploading...' : 'Choose files'}
+          </Button>
+          <p className="text-xs text-muted-foreground mt-1">Files will be stored under the NTT folder</p>
+        </div>
+        {uploadError && <p className="text-xs text-red-600 mt-1">{uploadError}</p>}
+      </div>
+
+      {/* Current attachments — uploaded files + ticked existing tender documents */}
+      {value.attachments.length > 0 && (
+        <div>
+          <Label>Attachments ({value.attachments.length})</Label>
+          <div className="mt-1 space-y-1">
+            {value.attachments.map((f, i) => (
+              <div key={f.file_url || i} className="flex items-center justify-between gap-2 text-xs bg-green-50 border border-green-200 rounded px-2 py-1.5">
+                <span className="text-green-800 break-all">{f.file_name}</span>
+                <button onClick={() => removeAttachment(f.file_url)} className="text-green-600 hover:text-red-500 flex-shrink-0">
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Select from existing tender docs */}
+      {tenderDocs.length > 0 && (
+        <div>
+          <Label>Or select from existing tender documents</Label>
+          <div className="mt-1 border rounded-lg divide-y max-h-48 overflow-y-auto">
+            {tenderDocs.map((doc, i) => {
+              const selected = value.attachments.some(a => a.file_url === doc.file_url);
+              return (
+                <label key={i} className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-muted/30">
+                  <input type="checkbox" checked={selected} onChange={() => toggleTenderDoc(doc)} className="rounded flex-shrink-0" />
+                  <span className="text-sm break-all">{doc.name}</span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // ── Edit NTT Dialog (Draft only) ──────────────────────────────────────────────
 
 function EditNTTDialog({ tender, notice, onClose, onSaved }) {
@@ -398,7 +573,9 @@ function EditNTTDialog({ tender, notice, onClose, onSaved }) {
     description:         notice.description || '',
     noticeType:          notice.notice_type || '',
     proposedNewCloseDate: notice.proposed_new_close_date || '',
+    attachments:          (notice.attachments || []).map(a => ({ file_url: a.file_url, file_name: a.file_name })),
   });
+  const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState('');
 
@@ -406,12 +583,14 @@ function EditNTTDialog({ tender, notice, onClose, onSaved }) {
     if (!form.title || !form.noticeType) { setError('Title and notice type are required.'); return; }
     setSaving(true); setError('');
     try {
-      await TenderNotice.update(notice.id, {
-        title:                   form.title,
-        description:             form.description || null,
-        notice_type:             form.noticeType,
-        proposed_new_close_date: form.noticeType === 'Closing Date Extension' ? form.proposedNewCloseDate || null : null,
-        updated_at:              new Date().toISOString(),
+      await invokeFunction('issueNTT', {
+        action:      'updateNotice',
+        noticeId:    notice.id,
+        title:       form.title,
+        description: form.description || null,
+        noticeType:  form.noticeType,
+        proposedNewCloseDate: form.noticeType === 'Closing Date Extension' ? form.proposedNewCloseDate || null : null,
+        attachments: form.attachments,
       });
       onSaved();
     } catch (e) {
@@ -423,43 +602,13 @@ function EditNTTDialog({ tender, notice, onClose, onSaved }) {
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="w-[95vw] max-w-none sm:max-w-2xl max-h-[85vh] p-0 gap-0 flex flex-col">
+        <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0">
           <DialogTitle>Edit Draft — {notice.notice_number}</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4 py-2">
-          <div>
-            <Label>Title *</Label>
-            <Input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
-              placeholder="e.g. Clarification on Structural Drawings" className="mt-1" />
-          </div>
-          <div>
-            <Label>Notice Type *</Label>
-            <Select value={form.noticeType} onValueChange={v => setForm(f => ({ ...f, noticeType: v }))}>
-              <SelectTrigger className="mt-1"><SelectValue placeholder="Select type..." /></SelectTrigger>
-              <SelectContent>
-                {NOTICE_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label>Description</Label>
-            <Textarea value={form.description}
-              onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-              rows={5} placeholder="Describe the notice in full..." className="mt-1" />
-          </div>
-          {form.noticeType === 'Closing Date Extension' && (
-            <div>
-              <Label>Proposed New Closing Date</Label>
-              <Input type="date" value={form.proposedNewCloseDate}
-                onChange={e => setForm(f => ({ ...f, proposedNewCloseDate: e.target.value }))}
-                className="mt-1" />
-              <p className="text-xs text-muted-foreground mt-1">
-                Current close date: {tender.closing_date?.split('T')[0] || '—'}
-              </p>
-            </div>
-          )}
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4">
+          <NTTForm value={form} onChange={setForm} tender={tender} uploading={uploading} setUploading={setUploading} />
           {error && (
             <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
               <AlertTriangle className="w-4 h-4 flex-shrink-0" /> {error}
@@ -467,9 +616,9 @@ function EditNTTDialog({ tender, notice, onClose, onSaved }) {
           )}
         </div>
 
-        <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
-          <Button onClick={handleSave} disabled={saving || !form.title || !form.noticeType}>
+        <DialogFooter className="px-6 py-4 border-t shrink-0 gap-2">
+          <Button variant="outline" onClick={onClose} disabled={saving || uploading}>Cancel</Button>
+          <Button onClick={handleSave} disabled={saving || uploading || !form.title || !form.noticeType}>
             {saving ? 'Saving...' : 'Save Changes'}
           </Button>
         </DialogFooter>
@@ -482,57 +631,23 @@ function EditNTTDialog({ tender, notice, onClose, onSaved }) {
 
 function CreateNTTDialog({ tender, onClose, onCreated }) {
   const [form, setForm] = useState({
-    title: '', description: '', noticeType: '', proposedNewCloseDate: '',
+    title: '', description: '', noticeType: '', proposedNewCloseDate: '', attachments: [],
   });
-  const [attachments, setAttachments]     = useState([]); // existing tender docs selected
-  const [uploadedFiles, setUploadedFiles] = useState([]); // newly uploaded files
-  const [uploading, setUploading]         = useState(false);
-  const [saving, setSaving]               = useState(false);
-  const [error, setError]                 = useState('');
-  const fileInputRef                      = useRef(null);
-
-  const tenderDocs = tender?.documents || [];
-
-  const handleFileUpload = async (e) => {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
-    setUploading(true);
-    setError('');
-    try {
-      const results = [];
-      for (const file of files) {
-        // NTT attachments are sent to suppliers and viewed on the public portal —
-        // keep them in the public Documents bucket (permanent public URL).
-        const { file_url } = await uploadFile(file, 'Documents');
-        results.push({ file_url, file_name: file.name });
-      }
-      setUploadedFiles(prev => [...prev, ...results]);
-    } catch (e) {
-      setError(e?.message || 'Upload failed');
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  };
-
-  const removeUploadedFile = (idx) =>
-    setUploadedFiles(prev => prev.filter((_, i) => i !== idx));
+  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving]       = useState(false);
+  const [error, setError]         = useState('');
 
   const handleSaveDraft = async () => {
     if (!form.title || !form.noticeType) { setError('Title and notice type are required.'); return; }
     setSaving(true); setError('');
     try {
-      const allAttachments = [
-        ...attachments,
-        ...uploadedFiles,
-      ];
       await invokeFunction('issueNTT', {
         action:      'createNotice',
         tenderId:    tender.id,
         title:       form.title,
         description: form.description,
         noticeType:  form.noticeType,
-        attachments: allAttachments,
+        attachments: form.attachments,
         proposedNewCloseDate: form.noticeType === 'Closing Date Extension' ? form.proposedNewCloseDate || null : null,
       });
       onCreated();
@@ -543,110 +658,19 @@ function CreateNTTDialog({ tender, onClose, onCreated }) {
     }
   };
 
-  const toggleAttachment = (doc) => {
-    setAttachments(prev => {
-      const exists = prev.find(a => a.file_url === doc.file_url);
-      return exists ? prev.filter(a => a.file_url !== doc.file_url) : [...prev, { file_url: doc.file_url, file_name: doc.name }];
-    });
-  };
-
-  const totalAttachments = attachments.length + uploadedFiles.length;
-
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="w-[95vw] max-w-none sm:max-w-2xl max-h-[85vh] p-0 gap-0 flex flex-col">
+        <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0">
           <DialogTitle>Create Notice to Tenderers</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4 py-2">
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4">
           <div>
             <Label>Notice Number</Label>
             <Input value="Auto-generated" disabled className="bg-muted text-muted-foreground mt-1" />
           </div>
-          <div>
-            <Label>Title *</Label>
-            <Input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
-              placeholder="e.g. Clarification on Structural Drawings" className="mt-1" />
-          </div>
-          <div>
-            <Label>Notice Type *</Label>
-            <Select value={form.noticeType} onValueChange={v => setForm(f => ({ ...f, noticeType: v }))}>
-              <SelectTrigger className="mt-1"><SelectValue placeholder="Select type..." /></SelectTrigger>
-              <SelectContent>
-                {NOTICE_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label>Description</Label>
-            <Textarea value={form.description}
-              onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-              rows={4} placeholder="Describe the notice in full..." className="mt-1" />
-          </div>
-
-          {form.noticeType === 'Closing Date Extension' && (
-            <div>
-              <Label>Proposed New Closing Date</Label>
-              <Input type="date" value={form.proposedNewCloseDate}
-                onChange={e => setForm(f => ({ ...f, proposedNewCloseDate: e.target.value }))}
-                className="mt-1" />
-              <p className="text-xs text-muted-foreground mt-1">
-                Current close date: {tender.closing_date?.split('T')[0] || '—'}
-              </p>
-            </div>
-          )}
-
-          {/* Upload new documents */}
-          <div>
-            <Label>Upload New Documents</Label>
-            <div className="mt-1 border-2 border-dashed rounded-lg p-3 text-center">
-              <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileUpload} />
-              <Button type="button" variant="outline" size="sm" className="gap-2"
-                onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-                <Upload className="w-4 h-4" />
-                {uploading ? 'Uploading...' : 'Choose files'}
-              </Button>
-              <p className="text-xs text-muted-foreground mt-1">Files will be stored under the NTT folder</p>
-            </div>
-            {uploadedFiles.length > 0 && (
-              <div className="mt-2 space-y-1">
-                {uploadedFiles.map((f, i) => (
-                  <div key={i} className="flex items-center justify-between text-xs bg-green-50 border border-green-200 rounded px-2 py-1">
-                    <span className="text-green-800 truncate">{f.file_name}</span>
-                    <button onClick={() => removeUploadedFile(i)} className="text-green-600 hover:text-red-500 ml-2 flex-shrink-0">
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Select from existing tender docs */}
-          {tenderDocs.length > 0 && (
-            <div>
-              <Label>Or select from existing tender documents</Label>
-              <div className="mt-1 border rounded-lg divide-y max-h-36 overflow-y-auto">
-                {tenderDocs.map((doc, i) => {
-                  const selected = attachments.some(a => a.file_url === doc.file_url);
-                  return (
-                    <label key={i} className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-muted/30">
-                      <input type="checkbox" checked={selected} onChange={() => toggleAttachment(doc)} className="rounded" />
-                      <span className="text-sm truncate">{doc.name}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {totalAttachments > 0 && (
-            <p className="text-xs text-muted-foreground">
-              {totalAttachments} attachment{totalAttachments !== 1 ? 's' : ''} total
-            </p>
-          )}
-
+          <NTTForm value={form} onChange={setForm} tender={tender} uploading={uploading} setUploading={setUploading} />
           {error && (
             <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
               <AlertTriangle className="w-4 h-4 flex-shrink-0" /> {error}
@@ -654,7 +678,7 @@ function CreateNTTDialog({ tender, onClose, onCreated }) {
           )}
         </div>
 
-        <DialogFooter className="gap-2">
+        <DialogFooter className="px-6 py-4 border-t shrink-0 gap-2">
           <Button variant="outline" onClick={onClose} disabled={saving || uploading}>Cancel</Button>
           <Button onClick={handleSaveDraft} disabled={saving || uploading || !form.title || !form.noticeType}>
             {saving ? 'Saving...' : 'Save Draft'}
