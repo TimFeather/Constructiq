@@ -92,7 +92,7 @@ export default function MyTenders() {
     queryKey: ['my-tenders'],
     queryFn: async () => {
       const res = await invokeFunction('subcontractorPortal', { action: 'listMine' });
-      return res?.tenders ?? [];
+      return res?.data?.tenders ?? [];
     },
   });
 
