@@ -151,7 +151,7 @@ Deno.serve(async (req: Request) => {
     const tpl         = templates.find((t: any) => t.template_key === 'tender_invitation');
     // Plain-text fallback mirroring lib/emailTemplates.js tender_invitation content
     // (kept as text so the email's text variant stays clean; DB template overrides this)
-    const defaultBody = `Dear {invitee_name},\n\n{company_name} invites you to submit a tender for the following project:\n\nTender Number: {tender_number}\nProject: {title}\nLocation: {location}\nClosing Date: {closing_date}\nTrade Package(s): {trade_packages}\n\nScope:\n{description}\n\nView the tender and submit pricing: {submission_link}\n\nRegards,\n{sender_name}\n{sender_email}\n{company_name}`;
+    const defaultBody = `Dear {invitee_name},\n\n{company_name} invites you to submit a tender for the following project:\n\nTender Number: {tender_number}\nProject: {title}\nLocation: {location}\nClosing Date: {closing_date}\nTrade Package(s): {trade_packages}\n\nScope:\n{description}\n\nView the tender and submit pricing: {submission_link}\n\nNew to {company_name}? Create a free account to see every tender we send you, past and present, in one place: {register_link}\n\nRegards,\n{sender_name}\n{sender_email}\n{company_name}`;
 
     const appUrl = Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz';
     const submissionLink = `${appUrl}/tender-submit/${invitationRecord.token}`;
@@ -166,6 +166,9 @@ Deno.serve(async (req: Request) => {
       trade_packages:  (tender.trade_packages || []).join(', '),
       description:     tender.description || '',
       submission_link: submissionLink,
+      // Same token as submission_link — registerInvited falls back to tender_invitations
+      // when a token isn't in invited_users, so this doubles as a registration link.
+      register_link:   `${appUrl}/register?token=${invitationRecord.token}`,
       sender_name:     branding.sender_name || branding.company_name || 'ConstructIQ',
       sender_email:    senderEmail,
     };

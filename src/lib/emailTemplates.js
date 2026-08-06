@@ -66,6 +66,7 @@ export const DEFAULT_TEMPLATES = {
 <p style="margin-top:24px;">
   <a href="{submission_link}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View Tender &amp; Submit Pricing</a>
 </p>
+<p style="margin-top:20px;padding-top:16px;border-top:1px solid #e5e7eb;font-size:13px;color:#6b7280;">New to {company_name}? <a href="{register_link}" style="color:#1a56db;font-weight:500;">Create a free account</a> to see every tender we send you, past and present, in one place.</p>
 <p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br><strong>{sender_name}</strong><br>{sender_email}<br>{company_name}</p>`,
   },
   tender_question_posted: {
@@ -357,6 +358,7 @@ export const TEMPLATE_VARIABLES = {
     { key: 'architect_name', desc: 'Architect name' },
     { key: 'project_manager_name', desc: 'Project manager name' },
     { key: 'submission_link', desc: 'Unique link for subcontractor to submit pricing' },
+    { key: 'register_link', desc: 'Link to create a My Tenders account for this invitee (their email is pre-filled from the invitation)' },
     { key: 'sender_name', desc: 'Name of the THS employee issuing the invitation' },
     { key: 'sender_email', desc: 'Email of the THS employee issuing the invitation' },
   ],
