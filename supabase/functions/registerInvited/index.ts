@@ -68,29 +68,49 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── Validate the invitation ──────────────────────────────────────────────
+    // Two possible token sources, both uuid so there's no ambiguity between them:
+    //   invited_users     — staff invites (Settings → People → Invite to ConstructIQ)
+    //   tender_invitations — subcontractor tender invites, registering for the
+    //                        first time off their "My Tenders" strip
+    // A malformed (non-uuid) token makes Postgres throw a cast error on either
+    // .eq('token', token) call; only `data` is destructured, so it stays null
+    // and falls through to the same 403 either way.
     const { data: invite } = await supabaseAdmin
       .from('invited_users')
       .select('*')
       .eq('token', token)
       .maybeSingle();
 
-    if (!invite) {
-      return Response.json(
-        { error: 'This invitation link is not valid. Please ask your administrator to resend your invitation.' },
-        { status: 403, headers: corsHeaders },
-      );
-    }
-    if (invite.status === 'Cancelled') {
-      return Response.json({ error: 'This invitation has been cancelled.' }, { status: 403, headers: corsHeaders });
-    }
-    if (invite.token_expires_at && new Date(invite.token_expires_at) < new Date()) {
-      return Response.json(
-        { error: 'This invitation has expired. Please ask your administrator to resend it.' },
-        { status: 403, headers: corsHeaders },
-      );
+    let email: string;
+    if (invite) {
+      if (invite.status === 'Cancelled') {
+        return Response.json({ error: 'This invitation has been cancelled.' }, { status: 403, headers: corsHeaders });
+      }
+      if (invite.token_expires_at && new Date(invite.token_expires_at) < new Date()) {
+        return Response.json(
+          { error: 'This invitation has expired. Please ask your administrator to resend it.' },
+          { status: 403, headers: corsHeaders },
+        );
+      }
+      email = normalizeEmail(invite.email);
+    } else {
+      // Not a staff invite — fall back to a tender invitation. That table has
+      // no expiry column, by design: a sub registering off a years-old tender
+      // link is harmless and gets a working account.
+      const { data: invitation } = await supabaseAdmin
+        .from('tender_invitations')
+        .select('invitee_email')
+        .eq('token', token)
+        .maybeSingle();
+      if (!invitation) {
+        return Response.json(
+          { error: 'This invitation link is not valid. Please ask your administrator to resend your invitation.' },
+          { status: 403, headers: corsHeaders },
+        );
+      }
+      email = normalizeEmail(invitation.invitee_email);
     }
 
-    const email = normalizeEmail(invite.email);
     if (!email) {
       return Response.json({ error: 'This invitation has no email on file.' }, { status: 422, headers: corsHeaders });
     }

@@ -2,7 +2,7 @@ import { invokeFunction } from '@/api/supabaseClient';
 import React, { useState, useEffect } from 'react';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,10 +10,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import SanitizedHtml from '@/components/shared/SanitizedHtml';
+import { useAuth } from '@/lib/AuthContext';
 import {
   HardHat, Calendar, MapPin, Download, CheckCircle2,
   AlertCircle, Mail, Phone, Building2, FileText, Bell, MessageSquare, X,
-  Plus, Loader2, RefreshCw, FolderOpen, FolderClosed, ChevronRight, ChevronDown,
+  Plus, Loader2, RefreshCw, FolderOpen, FolderClosed, ChevronRight, ChevronDown, ArrowLeft,
 } from 'lucide-react';
 import { format, parseISO, isPast } from 'date-fns';
 
@@ -80,6 +81,7 @@ function DownloadAllButton({ documents, tenderTitle }) {
 
 export default function TenderSubmit() {
   const { token } = useParams();
+  const { authChecked, isAuthenticated } = useAuth();
   const [loading, setLoading]           = useState(true);
   const [error, setError]               = useState(null);
   const [tender, setTender]             = useState(null);
@@ -280,6 +282,8 @@ export default function TenderSubmit() {
 
   // ── Error ────────────────────────────────────────────────────────────────────
   if (error) {
+    // This branch returns before PortalHeader, so a logged-in sub who hits a
+    // rotated or deleted token would otherwise have no navigation at all.
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <Card className="max-w-md w-full">
@@ -296,6 +300,11 @@ export default function TenderSubmit() {
             <p className="text-sm text-muted-foreground">
               If you believe this is an error, please contact the person who sent you this invitation and ask them to resend the link.
             </p>
+            {authChecked && isAuthenticated && (
+              <Link to="/my-tenders" className="inline-flex items-center gap-1.5 text-primary hover:underline font-medium text-sm mt-4">
+                <ArrowLeft className="w-3.5 h-3.5" /> Back to My Tenders
+              </Link>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -313,7 +322,7 @@ export default function TenderSubmit() {
     const submittedFiles = pricingFiles.filter(f => f.status === 'done');
     return (
       <div className="min-h-screen bg-background">
-        <PortalHeader tender={tender} invitee={invitee} isOverdue={isOverdue} branding={branding}
+        <PortalHeader tender={tender} invitee={invitee} isOverdue={isOverdue} branding={branding} token={token}
           onSubmitClick={() => { setEditingSubmission(true); setActiveTab('submit'); }} showSubmitBtn={!isOverdue} />
         <div className="max-w-3xl mx-auto px-4 py-12 flex items-center justify-center">
           <div className="text-center space-y-5 max-w-md w-full">
@@ -383,7 +392,7 @@ export default function TenderSubmit() {
   // ── Main portal ──────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-background">
-      <PortalHeader tender={tender} invitee={invitee} isOverdue={isOverdue} branding={branding}
+      <PortalHeader tender={tender} invitee={invitee} isOverdue={isOverdue} branding={branding} token={token}
         onSubmitClick={() => setActiveTab('submit')} showSubmitBtn={!isOverdue && !submitted} />
 
       <div className="max-w-5xl mx-auto px-4 py-6">
@@ -918,9 +927,28 @@ function DocTree({ docs }) {
   );
 }
 
-function PortalHeader({ tender, invitee, isOverdue, branding, onSubmitClick, showSubmitBtn }) {
+function PortalHeader({ tender, invitee, isOverdue, branding, onSubmitClick, showSubmitBtn, token }) {
+  // Reads auth directly (no prop drilling) — works here even on this public
+  // route because App.jsx nests AuthProvider above the router, so context is
+  // available before the auth gate this route otherwise short-circuits.
+  const { authChecked, isAuthenticated, user } = useAuth();
   return (
     <div className="bg-card border-b shadow-sm">
+      {authChecked && (
+        <div className="max-w-5xl mx-auto px-4 py-2 text-sm flex items-center justify-between gap-2 flex-wrap border-b">
+          {isAuthenticated ? (
+            <Link to="/my-tenders" className="inline-flex items-center gap-1.5 text-primary hover:underline font-medium">
+              <ArrowLeft className="w-3.5 h-3.5" /> Back to My Tenders
+              <span className="text-muted-foreground font-normal">— signed in as {user?.email}</span>
+            </Link>
+          ) : (
+            <span className="text-muted-foreground">
+              See all your tenders in one place —{' '}
+              <a href={`/register?token=${token}`} className="text-primary hover:underline font-medium">create an account</a>
+            </span>
+          )}
+        </div>
+      )}
       <div className="max-w-5xl mx-auto px-4 py-4">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3 min-w-0">

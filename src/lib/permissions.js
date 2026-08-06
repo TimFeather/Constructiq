@@ -79,6 +79,12 @@ const MODULE_RULES = {
     delete: ['admin'],
     manage: ['admin'],
   },
+  my_tenders: {
+    // Every tender invitation ever sent to the logged-in user's own email.
+    // Self-scoping (server filters by JWT), so any role can hold the module —
+    // the nav item itself is what's restricted to 'external' (see Sidebar/MobileNav).
+    access: ['admin', 'pricing', 'internal', 'external'],
+  },
 };
 
 // ─── Role definitions (derived from MODULE_RULES) ────────────────────────────

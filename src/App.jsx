@@ -30,6 +30,7 @@ import Tenders from '@/pages/Tenders';
 import TenderDetail from '@/pages/TenderDetail';
 import TenderSubmit from '@/pages/TenderSubmit';
 import TenderTestSuite from '@/pages/TenderTestSuite';
+import MyTenders from '@/pages/MyTenders';
 import AccountDeactivated from '@/pages/AccountDeactivated';
 
 const TendersRoute = ({ children }) => {
@@ -100,6 +101,7 @@ const AuthenticatedApp = () => {
           <Route path="/tenders" element={<TendersRoute><ErrorBoundary><Tenders /></ErrorBoundary></TendersRoute>} />
           <Route path="/tenders/:id" element={<TendersRoute><ErrorBoundary><TenderDetail /></ErrorBoundary></TendersRoute>} />
           <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
+          <Route path="/my-tenders" element={<ErrorBoundary><MyTenders /></ErrorBoundary>} />
           <Route path="/tender-tests" element={<TendersRoute><TenderTestSuite /></TendersRoute>} />
         </Route>
       </Route>

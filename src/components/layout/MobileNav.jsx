@@ -2,11 +2,11 @@ import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, FolderKanban,
-  MessageSquareMore, GanttChart, FileSignature,
+  MessageSquareMore, GanttChart, FileSignature, ListChecks,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/AuthContext';
-import { canAccess } from '@/lib/permissions';
+import { canAccess, getRole } from '@/lib/permissions';
 
 export default function MobileNav() {
   const location = useLocation();
@@ -17,6 +17,7 @@ export default function MobileNav() {
     { path: '/projects',  icon: FolderKanban,      label: 'Projects', show: true },
     { path: '/rfis',      icon: MessageSquareMore, label: 'RFIs',     show: true },
     { path: '/tenders',   icon: FileSignature,     label: 'Tenders',  show: canAccess(user, 'tenders') },
+    { path: '/my-tenders', icon: ListChecks,       label: 'My Tenders', show: getRole(user) === 'external' },
     { path: '/programme', icon: GanttChart,        label: 'Gantt',    show: true },
   ].filter(item => item.show);
 

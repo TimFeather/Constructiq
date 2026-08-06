@@ -2,11 +2,11 @@ import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, FolderKanban, FileText, MessageSquareMore,
-  GanttChart, Settings, ChevronLeft, ChevronRight, HardHat, FileSignature,
+  GanttChart, Settings, ChevronLeft, ChevronRight, HardHat, FileSignature, ListChecks,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/AuthContext';
-import { canAccess, isAdmin } from '@/lib/permissions';
+import { canAccess, isAdmin, getRole } from '@/lib/permissions';
 
 export default function Sidebar({ collapsed, onToggle }) {
   const location = useLocation();
@@ -20,6 +20,7 @@ export default function Sidebar({ collapsed, onToggle }) {
     { path: '/rfis', icon: MessageSquareMore, label: 'RFIs', show: true },
     { path: '/programme', icon: GanttChart, label: 'Programme', show: true },
     { path: '/tenders', icon: FileSignature, label: 'Tenders', show: canAccess(user, 'tenders') },
+    { path: '/my-tenders', icon: ListChecks, label: 'My Tenders', show: getRole(user) === 'external' },
     { path: '/settings', icon: Settings, label: 'Settings', show: isAdmin(user) },
   ];
   const companyName = user?.company_name || 'ConstructIQ';
