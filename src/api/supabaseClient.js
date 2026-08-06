@@ -16,6 +16,16 @@ export async function invokeFunction(name, payload = {}) {
     } catch (inner) {
       if (inner?.message && inner.message !== error.message) throw inner;
     }
+    // 546 = the worker was killed for exceeding its CPU/memory/wall-clock budget. There
+    // is no JSON body to read in that case, so without this the user only ever sees
+    // "Edge Function returned a non-2xx status code".
+    // https://supabase.com/docs/guides/troubleshooting/edge-function-546-error-response
+    if (error.context?.status === 546) {
+      throw new Error(
+        `The server ran out of resources handling this request (${name}). This usually means ` +
+        `the file or data was too large. Try a smaller file, or contact your administrator.`
+      );
+    }
     throw error;
   }
   return { data };

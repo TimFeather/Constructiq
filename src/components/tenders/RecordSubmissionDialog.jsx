@@ -78,8 +78,15 @@ export default function RecordSubmissionDialog({ tender, invitees, submissions =
   const handleFileSelect = async (e) => {
     const picked = Array.from(e.target.files || []);
     if (!picked.length) return;
-    const oversized = picked.find(f => f.size > 500 * 1024 * 1024);
-    if (oversized) { setError(`${oversized.name} must be under 500 MB.`); e.target.value = ''; return; }
+    // 40 MB, not the app-wide 500 MB: these files go base64-in-JSON through the
+    // recordSubmission edge function, which is killed (HTTP 546, no error body) if the
+    // payload is too big to hold in the worker. Mirrors MAX_UPLOAD_BYTES there.
+    const oversized = picked.find(f => f.size > 40 * 1024 * 1024);
+    if (oversized) {
+      setError(`${oversized.name} is ${(oversized.size / 1024 / 1024).toFixed(1)} MB — recorded submissions are limited to 40 MB per file. Split it, compress it, or ask the subcontractor to lodge it through their tender portal link.`);
+      e.target.value = '';
+      return;
+    }
     const entries = picked.map((file, i) => ({
       id: `new-${Date.now()}-${i}`, file_name: file.name, status: 'uploading', error: null, file,
     }));

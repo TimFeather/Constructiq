@@ -15,6 +15,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { Resend } from 'npm:resend@4.0.0';
 import { escapeHtml } from '../_shared/escapeHtml.ts';
+import { decodeBase64, base64ByteLength } from '../_shared/decodeBase64.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz',
@@ -27,7 +28,13 @@ const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
 const BUCKET = 'tender-submissions';
 const ALLOWED_EXTS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'dwg', 'dxf', 'png', 'jpg', 'jpeg', 'zip', 'csv', 'ppt', 'pptx'];
-const MAX_UPLOAD_BYTES = 500 * 1024 * 1024; // 500 MB
+// The file travels here base64-encoded inside a JSON body, so the isolate holds the
+// request buffer, the parsed string AND the decoded bytes at once (~3-4x the file
+// size) against a 512 MB worker. Anything much past this is killed as HTTP 546 with
+// no error body, so reject it up front with a message the admin can act on. This is
+// deliberately lower than the app-wide 500 MB uploadFile() ceiling — that path streams
+// straight to Storage from the browser and has no isolate in the middle.
+const MAX_UPLOAD_BYTES = 40 * 1024 * 1024; // 40 MB
 
 // Same +12:00 convention as tenderPublicApi (tenderPublicApi/index.ts:403) — the app
 // treats closing_date as end-of-day NZ time regardless of the server's local timezone.
@@ -68,10 +75,17 @@ Deno.serve(async (req: Request) => {
         return Response.json({ error: `File type .${ext} is not allowed. Accepted: ${ALLOWED_EXTS.join(', ')}` }, { status: 400, headers: corsHeaders });
       }
 
-      const binary = Uint8Array.from(atob(fileData), (c) => c.charCodeAt(0));
-      if (binary.length > MAX_UPLOAD_BYTES) {
-        return Response.json({ error: `File exceeds 500 MB limit (${(binary.length / 1024 / 1024).toFixed(1)} MB)` }, { status: 400, headers: corsHeaders });
+      // Size-check BEFORE decoding — decoding an oversized payload is exactly what
+      // kills the worker, so the guard has to run on the encoded string.
+      const declaredBytes = base64ByteLength(fileData);
+      if (declaredBytes > MAX_UPLOAD_BYTES) {
+        return Response.json({
+          error: `File is ${(declaredBytes / 1024 / 1024).toFixed(1)} MB — recorded submissions are limited to ${MAX_UPLOAD_BYTES / 1024 / 1024} MB per file. Split it, compress it, or ask the subcontractor to lodge it through the tender portal link.`,
+        }, { status: 400, headers: corsHeaders });
       }
+
+      console.log(`[recordSubmission] UPLOAD START fileName=${fileName} fileType=${fileType} bytes=${declaredBytes}`);
+      const binary = await decodeBase64(fileData);
       const mimeType = fileType || 'application/octet-stream';
 
       // 'manual' segment (instead of an invitation id) makes off-platform files
