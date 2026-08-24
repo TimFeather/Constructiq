@@ -127,6 +127,34 @@ async function logSent(type: string, entityId: string, email: string): Promise<{
   return {};
 }
 
+/**
+ * A portal Decline can't be recorded on tender_invitations — its CHECK
+ * constraint only permits ('Sent','Viewed','Submitted'), so a declined
+ * sub stays 'Sent' there and would otherwise keep getting nagged. The
+ * parallel write to tender_invitees *does* succeed and does allow
+ * 'Declined', so this is the only place that fact is visible. (Owned
+ * properly by PLAN_APP_AUDIT finding F4 — this is the reminder-side
+ * workaround, not the fix.)
+ */
+async function getDeclinedOrArchived(tenderId: string): Promise<{ ids: Set<string>; emails: Set<string> }> {
+  const { data, error } = await supabaseAdmin
+    .from('tender_invitees')
+    .select('id, email')
+    .eq('tender_id', tenderId)
+    .in('status', ['Declined', 'Archived']);
+  if (error) {
+    console.warn(`[sendReminders] could not read tender_invitees for ${tenderId}: ${error.message}`);
+    return { ids: new Set(), emails: new Set() };
+  }
+  const ids = new Set<string>();
+  const emails = new Set<string>();
+  for (const row of (data || [])) {
+    ids.add(row.id);
+    if (row.email) emails.add(String(row.email).toLowerCase());
+  }
+  return { ids, emails };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -245,8 +273,20 @@ Deno.serve(async (req: Request) => {
           details.push({ type: 'tender_ext', id: tender.id, title: tender.title, days, action: 'skipped', reason: 'no invitees pending' });
         }
 
+        const declined = await getDeclinedOrArchived(tender.id);
+
         for (const inv of (invitations || [])) {
           if (!inv.invitee_email) continue;
+          // tender_invitations can't record a Decline (see getDeclinedOrArchived) -
+          // match on invitee_id, falling back to email for older null-invitee_id rows.
+          const isDeclined = (inv.invitee_id && declined.ids.has(inv.invitee_id))
+            || declined.emails.has(inv.invitee_email.toLowerCase());
+          if (isDeclined) {
+            totalSkipped++;
+            details.push({ type: 'tender_ext', id: tender.id, title: tender.title, days, action: 'skipped', reason: 'declined', recipients: [inv.invitee_email] });
+            continue;
+          }
+
           const logKey = `tender_ext_${tender.id}_${closingDay}_${daysB}d`;
           const dedup = await alreadySent(logKey, tender.id, inv.invitee_email);
           if (dedup.skip) {
@@ -327,7 +367,8 @@ Deno.serve(async (req: Request) => {
         const { data: adminUsers } = await supabaseAdmin
           .from('users')
           .select('email, full_name')
-          .in('role', ['admin', 'pricing']);
+          .in('role', ['admin', 'pricing'])
+          .eq('disabled', false);
 
         const recipients = new Set<string>();
         (adminUsers || []).forEach(u => u.email && recipients.add(u.email));
@@ -421,8 +462,18 @@ Deno.serve(async (req: Request) => {
           details.push({ type: 'rfi_reminder', id: tender.id, title: tender.title, days, action: 'skipped', reason: 'no invitees pending' });
         }
 
+        const declined = await getDeclinedOrArchived(tender.id);
+
         for (const inv of (invitations || [])) {
           if (!inv.invitee_email) continue;
+          const isDeclined = (inv.invitee_id && declined.ids.has(inv.invitee_id))
+            || declined.emails.has(inv.invitee_email.toLowerCase());
+          if (isDeclined) {
+            totalSkipped++;
+            details.push({ type: 'rfi_reminder', id: tender.id, title: tender.title, days, action: 'skipped', reason: 'declined', recipients: [inv.invitee_email] });
+            continue;
+          }
+
           const dedup = await alreadySent(logKey, tender.id, inv.invitee_email);
           if (dedup.skip) {
             totalSkipped++;
