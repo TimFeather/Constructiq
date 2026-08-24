@@ -239,11 +239,17 @@ Deno.serve(async (req: Request) => {
     if (extSetting?.enabled) {
       const daysB = extSetting.days_before || 2;
 
+      // Each reminder type runs in its own try/catch: a query failure here
+      // is load-bearing for THIS type (there is nothing to loop over without
+      // it), so it throws — but caught locally, not by the outer handler, so
+      // it can't silence the internal or RFI reminders that run after it.
+      try {
       // Find all Issued tenders where closing_date is exactly daysB days away
-      const { data: tenders } = await supabaseAdmin
+      const { data: tenders, error: tendersErr } = await supabaseAdmin
         .from('tenders')
         .select('id, title, tender_number, location, closing_date')
         .eq('status', 'Issued');
+      if (tendersErr) throw new Error(`tenders query failed: ${tendersErr.message}`);
 
       const tpl = getTemplate('tender_reminder_external');
 
@@ -263,11 +269,16 @@ Deno.serve(async (req: Request) => {
         }
 
         // Get invitees who haven't submitted
-        const { data: invitations } = await supabaseAdmin
+        const { data: invitations, error: invErr } = await supabaseAdmin
           .from('tender_invitations')
           .select('id, token, invitee_email, invitee_name, invitee_id')
           .eq('tender_id', tender.id)
           .in('status', ['Sent', 'Viewed']);
+
+        if (invErr) {
+          details.push({ type: 'tender_ext', id: tender.id, title: tender.title, days, action: 'skipped', reason: `query failed: ${invErr.message}` });
+          continue;
+        }
 
         if (!invitations || invitations.length === 0) {
           details.push({ type: 'tender_ext', id: tender.id, title: tender.title, days, action: 'skipped', reason: 'no invitees pending' });
@@ -328,6 +339,10 @@ Deno.serve(async (req: Request) => {
           }
         }
       }
+      } catch (e: any) {
+        console.error(`[sendReminders] tender_external block failed: ${e.message}`);
+        details.push({ type: 'tender_ext', id: null, title: null, days: null, action: 'skipped', reason: `query failed: ${e.message}` });
+      }
     } else {
       details.push({ type: 'tender_ext', id: null, title: null, days: null, action: 'skipped', reason: 'settings disabled' });
     }
@@ -337,10 +352,12 @@ Deno.serve(async (req: Request) => {
     if (intSetting?.enabled) {
       const daysB = intSetting.days_before || 1;
 
-      const { data: tenders } = await supabaseAdmin
+      try {
+      const { data: tenders, error: tendersErr } = await supabaseAdmin
         .from('tenders')
         .select('id, title, tender_number, closing_date, tender_lead_email, created_by_email')
         .eq('status', 'Issued');
+      if (tendersErr) throw new Error(`tenders query failed: ${tendersErr.message}`);
 
       const tpl = getTemplate('tender_reminder_internal');
 
@@ -358,17 +375,28 @@ Deno.serve(async (req: Request) => {
         }
 
         // Count submissions + invitees
-        const [{ count: subCount }, { count: invCount }] = await Promise.all([
+        const [subRes, invRes] = await Promise.all([
           supabaseAdmin.from('tender_submissions').select('*', { count: 'exact', head: true }).eq('tender_id', tender.id),
           supabaseAdmin.from('tender_invitees').select('*', { count: 'exact', head: true }).eq('tender_id', tender.id),
         ]);
+        if (subRes.error || invRes.error) {
+          const msg = subRes.error?.message || invRes.error?.message;
+          details.push({ type: 'tender_int', id: tender.id, title: tender.title, days, action: 'skipped', reason: `query failed: ${msg}` });
+          continue;
+        }
+        const subCount = subRes.count;
+        const invCount = invRes.count;
 
         // Get all admins + tender lead
-        const { data: adminUsers } = await supabaseAdmin
+        const { data: adminUsers, error: usersErr } = await supabaseAdmin
           .from('users')
           .select('email, full_name')
           .in('role', ['admin', 'pricing'])
           .eq('disabled', false);
+        if (usersErr) {
+          details.push({ type: 'tender_int', id: tender.id, title: tender.title, days, action: 'skipped', reason: `query failed: ${usersErr.message}` });
+          continue;
+        }
 
         const recipients = new Set<string>();
         (adminUsers || []).forEach(u => u.email && recipients.add(u.email));
@@ -420,6 +448,10 @@ Deno.serve(async (req: Request) => {
           }
         }
       }
+      } catch (e: any) {
+        console.error(`[sendReminders] tender_internal block failed: ${e.message}`);
+        details.push({ type: 'tender_int', id: null, title: null, days: null, action: 'skipped', reason: `query failed: ${e.message}` });
+      }
     } else {
       details.push({ type: 'tender_int', id: null, title: null, days: null, action: 'skipped', reason: 'settings disabled' });
     }
@@ -429,11 +461,13 @@ Deno.serve(async (req: Request) => {
     if (rfiSetting?.enabled) {
       const daysB = rfiSetting.days_before || 1;
 
-      const { data: tenders } = await supabaseAdmin
+      try {
+      const { data: tenders, error: tendersErr } = await supabaseAdmin
         .from('tenders')
         .select('id, title, tender_number, questions_date')
         .eq('status', 'Issued')
         .not('questions_date', 'is', null);
+      if (tendersErr) throw new Error(`tenders query failed: ${tendersErr.message}`);
 
       const tpl = getTemplate('rfi_reminder');
 
@@ -450,11 +484,16 @@ Deno.serve(async (req: Request) => {
           continue;
         }
 
-        const { data: invitations } = await supabaseAdmin
+        const { data: invitations, error: invErr } = await supabaseAdmin
           .from('tender_invitations')
           .select('id, token, invitee_email, invitee_name, invitee_id')
           .eq('tender_id', tender.id)
           .in('status', ['Sent', 'Viewed']);
+
+        if (invErr) {
+          details.push({ type: 'rfi_reminder', id: tender.id, title: tender.title, days, action: 'skipped', reason: `query failed: ${invErr.message}` });
+          continue;
+        }
 
         const logKey = `rfi_rem_${tender.id}_${questionsDay}_${daysB}d`;
 
@@ -512,6 +551,10 @@ Deno.serve(async (req: Request) => {
             details.push({ type: 'rfi_reminder', id: tender.id, title: tender.title, days, action: 'skipped', reason: 'send error', recipients: [inv.invitee_email] });
           }
         }
+      }
+      } catch (e: any) {
+        console.error(`[sendReminders] rfi_reminder block failed: ${e.message}`);
+        details.push({ type: 'rfi_reminder', id: null, title: null, days: null, action: 'skipped', reason: `query failed: ${e.message}` });
       }
     } else {
       details.push({ type: 'rfi_reminder', id: null, title: null, days: null, action: 'skipped', reason: 'settings disabled' });
