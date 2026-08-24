@@ -15,7 +15,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { Save, Bell, Mail, Palette, Tag, Trash2, FolderOpen, FileSignature, Users, FlaskConical, PlayCircle, Loader2 } from 'lucide-react';
+import { Save, Bell, Mail, Palette, Tag, Trash2, FolderOpen, FileSignature, Users, FlaskConical, PlayCircle, Loader2, AlertTriangle } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { useToast } from '@/components/ui/use-toast';
 import PageHeader from '@/components/shared/PageHeader';
@@ -525,6 +525,31 @@ const REMINDER_LABELS = {
   rfi_reminder:    { label: 'RFI Questions Deadline Reminder', desc: 'Sent to invitees before the questions deadline.' },
 };
 
+// A dead cron and a quiet week where nothing was due look identical unless
+// this line calls it out — red when the last run errored, or when nothing
+// has run in the last 48h (the daily schedule should mean this never happens).
+function LastRunLine({ lastRun }) {
+  if (!lastRun) {
+    return (
+      <p className="text-xs font-medium text-destructive flex items-center gap-1.5">
+        <AlertTriangle className="w-3.5 h-3.5" /> Last run: never
+      </p>
+    );
+  }
+  const ranAt = new Date(lastRun.ran_at);
+  const isStale = Date.now() - ranAt.getTime() > 48 * 60 * 60 * 1000;
+  const isError = !!lastRun.error;
+  const isBad = isStale || isError;
+
+  return (
+    <p className={`text-xs flex items-center gap-1.5 ${isBad ? 'font-medium text-destructive' : 'text-muted-foreground'}`}>
+      {isBad && <AlertTriangle className="w-3.5 h-3.5 shrink-0" />}
+      Last run: {formatDistanceToNow(ranAt, { addSuffix: true })} ({lastRun.trigger})
+      {isError ? ` — failed: ${lastRun.error}` : ` — ${lastRun.sent} sent, ${lastRun.skipped} skipped`}
+    </p>
+  );
+}
+
 function ReminderSettingsPanel() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -554,6 +579,21 @@ function ReminderSettingsPanel() {
     staleTime: 60_000,
   });
 
+  const { data: lastRun, isLoading: lastRunLoading } = useQuery({
+    queryKey: ['reminder_runs_latest'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('reminder_runs')
+        .select('*')
+        .order('ran_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data || null;
+    },
+    staleTime: 60_000,
+  });
+
   const updateMutation = useMutation({
     mutationFn: async ({ id, changes }) => {
       const { error } = await supabase.from('reminder_settings').update({ ...changes, updated_at: new Date().toISOString() }).eq('id', id);
@@ -571,10 +611,14 @@ function ReminderSettingsPanel() {
     onSuccess: (data) => {
       setRunResult(data);
       queryClient.invalidateQueries({ queryKey: ['reminder_log_recent'] });
+      queryClient.invalidateQueries({ queryKey: ['reminder_runs_latest'] });
       toast({ title: `Reminders run: ${data?.sent ?? 0} sent, ${data?.skipped ?? 0} skipped` });
     },
     onError: (e) => {
       setRunResult({ error: e.message });
+      // The edge function records a reminder_runs row on its own failure
+      // path too (before returning the error), so this is worth a refresh.
+      queryClient.invalidateQueries({ queryKey: ['reminder_runs_latest'] });
       toast({ title: 'Reminder run failed', description: e.message, variant: 'destructive' });
     },
   });
@@ -624,9 +668,16 @@ function ReminderSettingsPanel() {
           </div>
         ))}
 
-        <p className="text-xs text-muted-foreground border-t pt-3">
-          Reminders run automatically once a day at 7:00 AM NZ. Use Run now to test.
-        </p>
+        <div className="border-t pt-3 space-y-1">
+          {lastRunLoading ? (
+            <div className="h-4 w-48 bg-muted rounded animate-pulse" />
+          ) : (
+            <LastRunLine lastRun={lastRun} />
+          )}
+          <p className="text-xs text-muted-foreground">
+            Reminders run automatically once a day at 7:00 AM NZ. Use Run now to test.
+          </p>
+        </div>
 
         <AlertDialog>
           <AlertDialogTrigger asChild>

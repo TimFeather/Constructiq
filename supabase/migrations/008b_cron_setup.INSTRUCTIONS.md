@@ -7,6 +7,15 @@ placeholders first. **Never commit the real service-role key to git.**
 - `<PROJECT-REF>` — your project ref (the subdomain in your Supabase dashboard URL)
 - `<SERVICE_ROLE_KEY>` — Settings → API → `service_role` secret
 
+**Why 19:00 UTC is safe.** The edge runtime's clock is UTC, and at this slot it is already
+tomorrow in NZ (07:00 NZST / 08:00 NZDT). That only works because `sendReminders` converts
+"today" into `Pacific/Auckland` before comparing it against a tender's closing date
+(`supabase/functions/_shared/reminderWindow.ts`, added by `PLAN_REMINDERS_2026-08-25` Phase
+2) — before that fix, every "days until closing" read one day too high at this exact slot.
+If you ever change this schedule, keep it paired with that NZ-timezone conversion; don't
+"fix" the drift by moving the cron time back to local-looking hours, or the off-by-one comes
+back.
+
 ```sql
 create extension if not exists pg_cron;
 create extension if not exists pg_net;
@@ -41,6 +50,11 @@ order by start_time desc limit 5;
 
 -- Reminders actually sent:
 select * from public.reminder_log order by sent_at desc limit 20;
+
+-- One row per invocation, sent or not (migration 029) — the fastest way to
+-- tell "cron is dead" apart from "nothing was due today". trigger='cron'
+-- confirms pg_cron actually fired, not just a manual Run now in Settings:
+select * from public.reminder_runs order by ran_at desc limit 10;
 ```
 
 ## Check reminder settings exist

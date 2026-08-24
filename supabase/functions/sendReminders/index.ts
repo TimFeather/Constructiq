@@ -155,16 +155,48 @@ async function getDeclinedOrArchived(tenderId: string): Promise<{ ids: Set<strin
   return { ids, emails };
 }
 
+/**
+ * A run that sends nothing currently leaves no trace at all, so a dead
+ * cron and a quiet week are indistinguishable — precisely how this went
+ * unnoticed since June. One row per invocation, written at the very end
+ * (both the success path and the outer catch), makes that visible in
+ * Settings. This must never throw and never block the response — a
+ * broken reminder_runs write is not a reason to fail (or re-fail) a
+ * reminder send.
+ */
+async function logRun(trigger: 'cron' | 'manual', result: { sent: number; skipped: number; error?: string; details?: unknown }) {
+  try {
+    const { error } = await supabaseAdmin.from('reminder_runs').insert({
+      trigger,
+      sent: result.sent,
+      skipped: result.skipped,
+      error: result.error ?? null,
+      details: result.details ?? null,
+    });
+    if (error) {
+      console.error(`[sendReminders] failed to record reminder_runs row: ${error.message}`);
+    }
+  } catch (e: any) {
+    console.error(`[sendReminders] logRun threw: ${e?.message}`);
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
+
+  // Set as soon as we know it (right after the auth check below) so it's
+  // available in the outer catch too — a dead cron and a broken manual
+  // trigger should both leave an accurate reminder_runs row.
+  let triggerType: 'cron' | 'manual' = 'manual';
 
   try {
     // Auth: require SERVICE_ROLE_KEY (pg_cron) or admin/pricing JWT (manual trigger)
     const authHeader = req.headers.get('authorization') || '';
     const token = authHeader.replace('Bearer ', '');
     const isServiceRole = token === SERVICE_ROLE_KEY;
+    triggerType = isServiceRole ? 'cron' : 'manual';
 
     if (!isServiceRole) {
       if (!authHeader) {
@@ -210,6 +242,10 @@ Deno.serve(async (req: Request) => {
     }
 
     const branding: any = brandingRes.data || {};
+    // reminder_settings.send_time is read by nothing here and exposed by
+    // nothing in Settings — the pg_cron schedule is the only real control
+    // over when this runs. Left in the schema rather than dropped; not
+    // worth a migration on its own.
     const settings: any[] = settingsRes.data || [];
     const templates: any[] = templatesRes.data || [];
 
@@ -561,10 +597,12 @@ Deno.serve(async (req: Request) => {
     }
 
     console.log(`[sendReminders] DONE sent=${totalSent} skipped=${totalSkipped}`);
+    await logRun(triggerType, { sent: totalSent, skipped: totalSkipped, details });
     return Response.json({ success: true, sent: totalSent, skipped: totalSkipped, details }, { headers: corsHeaders });
 
   } catch (e: any) {
     console.error('[sendReminders] ERROR:', e.message);
+    await logRun(triggerType, { sent: 0, skipped: 0, error: e.message });
     return Response.json({ error: e.message }, { status: 500, headers: corsHeaders });
   }
 });
