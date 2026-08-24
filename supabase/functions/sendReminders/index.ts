@@ -87,23 +87,44 @@ function formatDate(dateStr: string): string {
   }
 }
 
-async function alreadySent(type: string, entityId: string, email: string): Promise<boolean> {
-  const { data } = await supabaseAdmin
+/**
+ * A missed reminder is recoverable tomorrow; a mailout loop to
+ * subcontractors because dedup silently failed open is not. So a read
+ * error here fails CLOSED: treat it as "already sent" rather than "not
+ * sent", and surface which case it was so the Phase 1 panel can tell them
+ * apart.
+ */
+async function alreadySent(type: string, entityId: string, email: string): Promise<{ skip: boolean; reason?: string }> {
+  const { data, error } = await supabaseAdmin
     .from('reminder_log')
     .select('id')
     .eq('reminder_type', type)
     .eq('entity_id', entityId)
     .eq('recipient_email', email)
     .limit(1);
-  return (data?.length ?? 0) > 0;
+  if (error) {
+    console.warn(`[sendReminders] dedup check failed for ${type}/${email}: ${error.message}`);
+    return { skip: true, reason: 'dedup check failed' };
+  }
+  return { skip: (data?.length ?? 0) > 0, reason: 'already sent (dedup)' };
 }
 
-async function logSent(type: string, entityId: string, email: string) {
-  await supabaseAdmin.from('reminder_log').insert({
+/**
+ * If this insert fails silently, the email already went out and nothing
+ * recorded it — tomorrow it sends again. Surface the failure to the
+ * caller instead of swallowing it.
+ */
+async function logSent(type: string, entityId: string, email: string): Promise<{ error?: string }> {
+  const { error } = await supabaseAdmin.from('reminder_log').insert({
     reminder_type: type,
     entity_id: entityId,
     recipient_email: email,
-  }).then(() => {});
+  });
+  if (error) {
+    console.error(`[sendReminders] failed to log sent reminder ${type}/${email}: ${error.message}`);
+    return { error: error.message };
+  }
+  return {};
 }
 
 Deno.serve(async (req: Request) => {
@@ -200,6 +221,9 @@ Deno.serve(async (req: Request) => {
 
       for (const tender of (tenders || [])) {
         if (!tender.closing_date) continue;
+        // Extracted next to daysUntilNZ so the dedup key's date component
+        // and the days-remaining calculation can never drift apart.
+        const closingDay = tender.closing_date.split('T')[0];
         const days = daysUntilNZ(tender.closing_date);
         if (days === null) {
           details.push({ type: 'tender_ext', id: tender.id, title: tender.title, days: null, action: 'skipped', reason: 'unparseable closing date' });
@@ -223,10 +247,11 @@ Deno.serve(async (req: Request) => {
 
         for (const inv of (invitations || [])) {
           if (!inv.invitee_email) continue;
-          const logKey = `tender_ext_${tender.id}_${daysB}d`;
-          if (await alreadySent(logKey, tender.id, inv.invitee_email)) {
+          const logKey = `tender_ext_${tender.id}_${closingDay}_${daysB}d`;
+          const dedup = await alreadySent(logKey, tender.id, inv.invitee_email);
+          if (dedup.skip) {
             totalSkipped++;
-            details.push({ type: 'tender_ext', id: tender.id, title: tender.title, days, action: 'skipped', reason: 'already sent (dedup)', recipients: [inv.invitee_email] });
+            details.push({ type: 'tender_ext', id: tender.id, title: tender.title, days, action: 'skipped', reason: dedup.reason, recipients: [inv.invitee_email] });
             continue;
           }
 
@@ -254,9 +279,9 @@ Deno.serve(async (req: Request) => {
               { from: fromEmail, to: inv.invitee_email, subject, html: buildWrapper(replaceVars(rawBody, vars), branding) },
               { kind: 'reminder_tender_external', tenderId: tender.id, inviteeId: inv.invitee_id },
             );
-            await logSent(logKey, tender.id, inv.invitee_email);
+            const logResult = await logSent(logKey, tender.id, inv.invitee_email);
             totalSent++;
-            details.push({ type: 'tender_ext', id: tender.id, title: tender.title, days, action: 'sent', recipients: [inv.invitee_email] });
+            details.push({ type: 'tender_ext', id: tender.id, title: tender.title, days, action: 'sent', reason: logResult.error ? 'sent but not logged' : undefined, recipients: [inv.invitee_email] });
           } catch (_e) {
             totalSkipped++;
             details.push({ type: 'tender_ext', id: tender.id, title: tender.title, days, action: 'skipped', reason: 'send error', recipients: [inv.invitee_email] });
@@ -281,6 +306,7 @@ Deno.serve(async (req: Request) => {
 
       for (const tender of (tenders || [])) {
         if (!tender.closing_date) continue;
+        const closingDay = tender.closing_date.split('T')[0];
         const days = daysUntilNZ(tender.closing_date);
         if (days === null) {
           details.push({ type: 'tender_int', id: tender.id, title: tender.title, days: null, action: 'skipped', reason: 'unparseable closing date' });
@@ -309,16 +335,17 @@ Deno.serve(async (req: Request) => {
         if (tender.created_by_email) recipients.add(tender.created_by_email);
 
         const adminUrl = `${APP_URL}/tenders/${tender.id}`;
-        const logKey = `tender_int_${tender.id}_${daysB}d`;
+        const logKey = `tender_int_${tender.id}_${closingDay}_${daysB}d`;
 
         if (recipients.size === 0) {
           details.push({ type: 'tender_int', id: tender.id, title: tender.title, days, action: 'skipped', reason: 'no invitees pending' });
         }
 
         for (const email of recipients) {
-          if (await alreadySent(logKey, tender.id, email)) {
+          const dedup = await alreadySent(logKey, tender.id, email);
+          if (dedup.skip) {
             totalSkipped++;
-            details.push({ type: 'tender_int', id: tender.id, title: tender.title, days, action: 'skipped', reason: 'already sent (dedup)', recipients: [email] });
+            details.push({ type: 'tender_int', id: tender.id, title: tender.title, days, action: 'skipped', reason: dedup.reason, recipients: [email] });
             continue;
           }
 
@@ -343,9 +370,9 @@ Deno.serve(async (req: Request) => {
               { from: fromEmail, to: email, subject, html: buildWrapper(replaceVars(rawBody, vars), branding) },
               { kind: 'reminder_tender_internal', tenderId: tender.id },
             );
-            await logSent(logKey, tender.id, email);
+            const logResult = await logSent(logKey, tender.id, email);
             totalSent++;
-            details.push({ type: 'tender_int', id: tender.id, title: tender.title, days, action: 'sent', recipients: [email] });
+            details.push({ type: 'tender_int', id: tender.id, title: tender.title, days, action: 'sent', reason: logResult.error ? 'sent but not logged' : undefined, recipients: [email] });
           } catch (_e) {
             totalSkipped++;
             details.push({ type: 'tender_int', id: tender.id, title: tender.title, days, action: 'skipped', reason: 'send error', recipients: [email] });
@@ -371,6 +398,7 @@ Deno.serve(async (req: Request) => {
 
       for (const tender of (tenders || [])) {
         if (!tender.questions_date) continue;
+        const questionsDay = tender.questions_date.split('T')[0];
         const days = daysUntilNZ(tender.questions_date);
         if (days === null) {
           details.push({ type: 'rfi_reminder', id: tender.id, title: tender.title, days: null, action: 'skipped', reason: 'unparseable closing date' });
@@ -387,7 +415,7 @@ Deno.serve(async (req: Request) => {
           .eq('tender_id', tender.id)
           .in('status', ['Sent', 'Viewed']);
 
-        const logKey = `rfi_rem_${tender.id}_${daysB}d`;
+        const logKey = `rfi_rem_${tender.id}_${questionsDay}_${daysB}d`;
 
         if (!invitations || invitations.length === 0) {
           details.push({ type: 'rfi_reminder', id: tender.id, title: tender.title, days, action: 'skipped', reason: 'no invitees pending' });
@@ -395,9 +423,10 @@ Deno.serve(async (req: Request) => {
 
         for (const inv of (invitations || [])) {
           if (!inv.invitee_email) continue;
-          if (await alreadySent(logKey, tender.id, inv.invitee_email)) {
+          const dedup = await alreadySent(logKey, tender.id, inv.invitee_email);
+          if (dedup.skip) {
             totalSkipped++;
-            details.push({ type: 'rfi_reminder', id: tender.id, title: tender.title, days, action: 'skipped', reason: 'already sent (dedup)', recipients: [inv.invitee_email] });
+            details.push({ type: 'rfi_reminder', id: tender.id, title: tender.title, days, action: 'skipped', reason: dedup.reason, recipients: [inv.invitee_email] });
             continue;
           }
 
@@ -424,9 +453,9 @@ Deno.serve(async (req: Request) => {
               { from: fromEmail, to: inv.invitee_email, subject, html: buildWrapper(replaceVars(rawBody, vars), branding) },
               { kind: 'reminder_questions_deadline', tenderId: tender.id, inviteeId: inv.invitee_id },
             );
-            await logSent(logKey, tender.id, inv.invitee_email);
+            const logResult = await logSent(logKey, tender.id, inv.invitee_email);
             totalSent++;
-            details.push({ type: 'rfi_reminder', id: tender.id, title: tender.title, days, action: 'sent', recipients: [inv.invitee_email] });
+            details.push({ type: 'rfi_reminder', id: tender.id, title: tender.title, days, action: 'sent', reason: logResult.error ? 'sent but not logged' : undefined, recipients: [inv.invitee_email] });
           } catch (_e) {
             totalSkipped++;
             details.push({ type: 'rfi_reminder', id: tender.id, title: tender.title, days, action: 'skipped', reason: 'send error', recipients: [inv.invitee_email] });
