@@ -13,9 +13,10 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 import { Resend } from 'npm:resend@4.0.0';
 import { escapeHtml } from '../_shared/escapeHtml.ts';
 import { sendTrackedEmail } from '../_shared/emailLog.ts';
+import { daysUntilNZ } from '../_shared/reminderWindow.ts';
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz',
+  'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://constructiq-beige.vercel.app',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
@@ -71,12 +72,11 @@ function replaceVars(template: string, vars: Record<string, string>): string {
   return template.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? '');
 }
 
-function daysUntil(dateStr: string): number {
-  const target = new Date(dateStr);
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  target.setHours(0, 0, 0, 0);
-  return Math.round((target.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+/** "today" / "tomorrow" / "in N days" for a non-negative days-remaining count. */
+function daysLabel(days: number): string {
+  if (days === 0) return 'today';
+  if (days === 1) return 'tomorrow';
+  return `in ${days} days`;
 }
 
 function formatDate(dateStr: string): string {
@@ -200,7 +200,11 @@ Deno.serve(async (req: Request) => {
 
       for (const tender of (tenders || [])) {
         if (!tender.closing_date) continue;
-        const days = daysUntil(tender.closing_date);
+        const days = daysUntilNZ(tender.closing_date);
+        if (days === null) {
+          details.push({ type: 'tender_ext', id: tender.id, title: tender.title, days: null, action: 'skipped', reason: 'unparseable closing date' });
+          continue;
+        }
         if (days < 0 || days > daysB) {
           details.push({ type: 'tender_ext', id: tender.id, title: tender.title, days, action: 'skipped', reason: 'outside window' });
           continue;
@@ -234,13 +238,14 @@ Deno.serve(async (req: Request) => {
             location:        escapeHtml(tender.location || ''),
             closing_date:    formatDate(tender.closing_date),
             days_remaining:  String(days),
+            days_label:      daysLabel(days),
             submission_link: portalUrl,
             sender_name:     escapeHtml(fromName),
             company_name:    escapeHtml(branding.company_name || 'ConstructIQ'),
           };
 
-          const rawBody = tpl?.body_html || `<p>Dear <strong>{invitee_name}</strong>,</p><p>This is a reminder that tender <strong>{tender_number}: {title}</strong> closes in <strong>{days_remaining} day(s)</strong> on {closing_date}.</p><p style="margin-top:24px;"><a href="{submission_link}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#fff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">Submit Pricing Now</a></p><p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br>{sender_name}<br>{company_name}</p>`;
-          const subject = tpl?.subject ? replaceVars(tpl.subject, vars) : `Reminder: ${tender.tender_number} — ${tender.title} closes in ${days} day(s)`;
+          const rawBody = tpl?.body_html || `<p>Dear <strong>{invitee_name}</strong>,</p><p>This is a reminder that tender <strong>{tender_number}: {title}</strong> closes <strong>{days_label}</strong> on {closing_date}.</p><p style="margin-top:24px;"><a href="{submission_link}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#fff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">Submit Pricing Now</a></p><p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br>{sender_name}<br>{company_name}</p>`;
+          const subject = tpl?.subject ? replaceVars(tpl.subject, vars) : `Reminder: ${tender.tender_number} — ${tender.title} closes ${daysLabel(days)}`;
 
           try {
             await sendTrackedEmail(
@@ -276,7 +281,11 @@ Deno.serve(async (req: Request) => {
 
       for (const tender of (tenders || [])) {
         if (!tender.closing_date) continue;
-        const days = daysUntil(tender.closing_date);
+        const days = daysUntilNZ(tender.closing_date);
+        if (days === null) {
+          details.push({ type: 'tender_int', id: tender.id, title: tender.title, days: null, action: 'skipped', reason: 'unparseable closing date' });
+          continue;
+        }
         if (days < 0 || days > daysB) {
           details.push({ type: 'tender_int', id: tender.id, title: tender.title, days, action: 'skipped', reason: 'outside window' });
           continue;
@@ -318,13 +327,14 @@ Deno.serve(async (req: Request) => {
             title:            escapeHtml(tender.title || ''),
             closing_date:     formatDate(tender.closing_date),
             days_remaining:   String(days),
+            days_label:       daysLabel(days),
             submission_count: String(subCount || 0),
             invitee_count:    String(invCount || 0),
             admin_url:        adminUrl,
           };
 
-          const rawBody = tpl?.body_html || `<p>Hi,</p><p>Tender <strong>{tender_number}: {title}</strong> closes in <strong>{days_remaining} day(s)</strong> on {closing_date}.</p><p>{submission_count} of {invitee_count} invitees have submitted.</p><p style="margin-top:24px;"><a href="{admin_url}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#fff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View Tender</a></p>`;
-          const subject = tpl?.subject ? replaceVars(tpl.subject, vars) : `Reminder: ${tender.tender_number} — ${tender.title} closes in ${days} day(s)`;
+          const rawBody = tpl?.body_html || `<p>Hi,</p><p>Tender <strong>{tender_number}: {title}</strong> closes <strong>{days_label}</strong> on {closing_date}.</p><p>{submission_count} of {invitee_count} invitees have submitted.</p><p style="margin-top:24px;"><a href="{admin_url}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#fff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">View Tender</a></p>`;
+          const subject = tpl?.subject ? replaceVars(tpl.subject, vars) : `Reminder: ${tender.tender_number} — ${tender.title} closes ${daysLabel(days)}`;
 
           try {
             await sendTrackedEmail(
@@ -361,7 +371,11 @@ Deno.serve(async (req: Request) => {
 
       for (const tender of (tenders || [])) {
         if (!tender.questions_date) continue;
-        const days = daysUntil(tender.questions_date);
+        const days = daysUntilNZ(tender.questions_date);
+        if (days === null) {
+          details.push({ type: 'rfi_reminder', id: tender.id, title: tender.title, days: null, action: 'skipped', reason: 'unparseable closing date' });
+          continue;
+        }
         if (days < 0 || days > daysB) {
           details.push({ type: 'rfi_reminder', id: tender.id, title: tender.title, days, action: 'skipped', reason: 'outside window' });
           continue;
@@ -394,13 +408,14 @@ Deno.serve(async (req: Request) => {
             title:          escapeHtml(tender.title || ''),
             questions_date: formatDate(tender.questions_date),
             days_remaining: String(days),
+            days_label:     daysLabel(days),
             submission_link: portalUrl,
             sender_name:    escapeHtml(fromName),
             company_name:   escapeHtml(branding.company_name || 'ConstructIQ'),
           };
 
-          const rawBody = tpl?.body_html || `<p>Dear <strong>{invitee_name}</strong>,</p><p>This is a reminder that the questions deadline for tender <strong>{tender_number}: {title}</strong> is in <strong>{days_remaining} day(s)</strong> on {questions_date}.</p><p style="margin-top:24px;"><a href="{submission_link}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#fff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">Submit a Question</a></p><p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br>{sender_name}<br>{company_name}</p>`;
-          const subject = tpl?.subject ? replaceVars(tpl.subject, vars) : `Reminder: Questions close in ${days} day(s) — ${tender.tender_number}: ${tender.title}`;
+          const rawBody = tpl?.body_html || `<p>Dear <strong>{invitee_name}</strong>,</p><p>This is a reminder that the questions deadline for tender <strong>{tender_number}: {title}</strong> is <strong>{days_label}</strong> on {questions_date}.</p><p style="margin-top:24px;"><a href="{submission_link}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#fff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">Submit a Question</a></p><p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br>{sender_name}<br>{company_name}</p>`;
+          const subject = tpl?.subject ? replaceVars(tpl.subject, vars) : `Reminder: Questions close ${daysLabel(days)} — ${tender.tender_number}: ${tender.title}`;
 
           try {
             await sendTrackedEmail(
