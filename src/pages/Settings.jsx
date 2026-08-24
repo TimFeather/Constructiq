@@ -1,4 +1,4 @@
-import { supabase } from '@/api/supabaseClient';
+import { supabase, invokeFunction } from '@/api/supabaseClient';
 import React, { useState, useEffect } from 'react';
 import { EmailBranding, EmailTemplate, User, TradeTemplate } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -10,7 +10,13 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Save, Bell, Mail, Palette, Tag, Trash2, FolderOpen, FileSignature, Users, FlaskConical } from 'lucide-react';
+import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+import { Save, Bell, Mail, Palette, Tag, Trash2, FolderOpen, FileSignature, Users, FlaskConical, PlayCircle, Loader2 } from 'lucide-react';
+import { format, formatDistanceToNow } from 'date-fns';
 import { useToast } from '@/components/ui/use-toast';
 import PageHeader from '@/components/shared/PageHeader';
 import { DEFAULT_TEMPLATES } from '@/lib/emailTemplates';
@@ -522,6 +528,7 @@ const REMINDER_LABELS = {
 function ReminderSettingsPanel() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [runResult, setRunResult] = useState(null);
 
   const { data: settings = [], isLoading } = useQuery({
     queryKey: ['reminder_settings'],
@@ -531,6 +538,20 @@ function ReminderSettingsPanel() {
       return data || [];
     },
     staleTime: 5 * 60_000,
+  });
+
+  const { data: recentLog = [], isLoading: logLoading } = useQuery({
+    queryKey: ['reminder_log_recent'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('reminder_log')
+        .select('*')
+        .order('sent_at', { ascending: false })
+        .limit(20);
+      if (error) throw error;
+      return data || [];
+    },
+    staleTime: 60_000,
   });
 
   const updateMutation = useMutation({
@@ -544,6 +565,26 @@ function ReminderSettingsPanel() {
     },
     onError: (e) => toast({ title: 'Failed to save', description: e.message, variant: 'destructive' }),
   });
+
+  const runMutation = useMutation({
+    mutationFn: async () => invokeFunction('sendReminders'),
+    onSuccess: (data) => {
+      setRunResult(data);
+      queryClient.invalidateQueries({ queryKey: ['reminder_log_recent'] });
+      toast({ title: `Reminders run: ${data?.sent ?? 0} sent, ${data?.skipped ?? 0} skipped` });
+    },
+    onError: (e) => {
+      setRunResult({ error: e.message });
+      toast({ title: 'Reminder run failed', description: e.message, variant: 'destructive' });
+    },
+  });
+
+  // Group run details by reminder type for display, matching REMINDER_LABELS keys.
+  const detailsByType = (runResult?.details || []).reduce((acc, d) => {
+    const key = d.type === 'tender_ext' ? 'tender_external' : d.type === 'tender_int' ? 'tender_internal' : d.type;
+    (acc[key] = acc[key] || []).push(d);
+    return acc;
+  }, {});
 
   return (
     <Card>
@@ -582,6 +623,116 @@ function ReminderSettingsPanel() {
             </span>
           </div>
         ))}
+
+        <p className="text-xs text-muted-foreground border-t pt-3">
+          Reminders run automatically once a day at 7:00 AM NZ. Use Run now to test.
+        </p>
+
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button variant="outline" size="sm" className="gap-2" disabled={runMutation.isPending}>
+              {runMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <PlayCircle className="w-3.5 h-3.5" />}
+              Run reminders now
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Run reminders now?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This sends real reminder emails to subcontractors immediately. Reminders already sent are skipped.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={() => runMutation.mutate()}>
+                Yes, run now
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {runResult && (
+          <div className="border rounded-lg p-4 space-y-3">
+            {runResult.error ? (
+              <p className="text-sm text-destructive">Run failed: {runResult.error}</p>
+            ) : (
+              <>
+                <p className="text-sm font-medium">
+                  {runResult.sent ?? 0} sent, {runResult.skipped ?? 0} skipped
+                </p>
+                {Object.entries(detailsByType).map(([type, rows]) => (
+                  <div key={type} className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      {REMINDER_LABELS[type]?.label || type}
+                    </p>
+                    <div className="border rounded-md overflow-hidden">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="text-xs h-8">Tender</TableHead>
+                            <TableHead className="text-xs h-8">Days</TableHead>
+                            <TableHead className="text-xs h-8">Action</TableHead>
+                            <TableHead className="text-xs h-8">Reason</TableHead>
+                            <TableHead className="text-xs h-8">Recipients</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {rows.map((d, i) => (
+                            <TableRow key={i} className={d.reason === 'settings disabled' ? 'bg-amber-50' : ''}>
+                              <TableCell className="text-xs py-1.5">{d.title || '—'}</TableCell>
+                              <TableCell className="text-xs py-1.5">{d.days ?? '—'}</TableCell>
+                              <TableCell className="text-xs py-1.5">
+                                <span className={d.action === 'sent' ? 'text-green-700 font-medium' : 'text-muted-foreground'}>
+                                  {d.action}
+                                </span>
+                              </TableCell>
+                              <TableCell className={`text-xs py-1.5 ${d.reason === 'settings disabled' ? 'font-medium text-amber-700' : ''}`}>
+                                {d.reason || '—'}
+                              </TableCell>
+                              <TableCell className="text-xs py-1.5">{(d.recipients || []).join(', ') || '—'}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        )}
+
+        <div className="border-t pt-3 space-y-2">
+          <p className="text-xs font-medium text-muted-foreground">Recently sent</p>
+          {logLoading ? (
+            <div className="h-16 bg-muted rounded animate-pulse" />
+          ) : recentLog.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No reminders have been sent yet.</p>
+          ) : (
+            <div className="border rounded-md overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-xs h-8">Type</TableHead>
+                    <TableHead className="text-xs h-8">Recipient</TableHead>
+                    <TableHead className="text-xs h-8">Sent</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {recentLog.map(row => (
+                    <TableRow key={row.id}>
+                      <TableCell className="text-xs py-1.5 font-mono">{row.reminder_type}</TableCell>
+                      <TableCell className="text-xs py-1.5">{row.recipient_email}</TableCell>
+                      <TableCell className="text-xs py-1.5" title={row.sent_at ? format(new Date(row.sent_at), 'PPpp') : ''}>
+                        {row.sent_at ? formatDistanceToNow(new Date(row.sent_at), { addSuffix: true }) : '—'}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
