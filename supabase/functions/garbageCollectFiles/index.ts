@@ -33,7 +33,7 @@
  */
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
-const APP_URL = Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz';
+const APP_URL = Deno.env.get('APP_URL') || 'https://constructiq-beige.vercel.app';
 function corsFor(req: Request) {
   const origin = req.headers.get('Origin') || '';
   const allow = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin) ? origin : APP_URL;

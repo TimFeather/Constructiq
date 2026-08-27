@@ -18,7 +18,7 @@ import { escapeHtml } from '../_shared/escapeHtml.ts';
 import { decodeBase64, base64ByteLength } from '../_shared/decodeBase64.ts';
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz',
+  'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://constructiq-beige.vercel.app',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 

@@ -20,7 +20,7 @@ import { Resend } from 'npm:resend@4.0.0';
 import { sendTrackedEmail } from '../_shared/emailLog.ts';
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz',
+  'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://constructiq-beige.vercel.app',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
@@ -87,7 +87,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // --- Generate the recovery link ---
-    const appUrl = Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz';
+    const appUrl = Deno.env.get('APP_URL') || 'https://constructiq-beige.vercel.app';
     const { data: linkData, error: linkErr } = await supabaseAdmin.auth.admin.generateLink({
       type: 'recovery',
       email: target.email,

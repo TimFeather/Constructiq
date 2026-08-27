@@ -4,13 +4,13 @@ import { escapeHtml } from '../_shared/escapeHtml.ts';
 import { upsertTenderContact } from '../_shared/upsertTenderContact.ts';
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz',
+  'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://constructiq-beige.vercel.app',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-const APP_URL = Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz';
+const APP_URL = Deno.env.get('APP_URL') || 'https://constructiq-beige.vercel.app';
 const TOKEN_EXPIRY_DAYS = 30;
 const VALID_APP_ROLES = ['admin', 'internal', 'pricing', 'external'];
 

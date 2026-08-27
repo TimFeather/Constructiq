@@ -17,7 +17,7 @@ import { Resend } from 'npm:resend@4.0.0';
 import { sendTrackedEmail } from '../_shared/emailLog.ts';
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz',
+  'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://constructiq-beige.vercel.app',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
@@ -25,7 +25,7 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
-const APP_URL = Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz';
+const APP_URL = Deno.env.get('APP_URL') || 'https://constructiq-beige.vercel.app';
 
 // Mirrors MAX_ATTACHMENT_B64 in src/pages/Programme.jsx. The client guard is not
 // trustworthy on its own — this is a public-ish endpoint behind a JWT.

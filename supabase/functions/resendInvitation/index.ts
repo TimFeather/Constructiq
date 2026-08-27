@@ -12,7 +12,7 @@ import { sendTrackedEmail } from '../_shared/emailLog.ts';
 import { formatClosingDateTime } from '../_shared/formatDate.ts';
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz',
+  'Access-Control-Allow-Origin': Deno.env.get('APP_URL') || 'https://constructiq-beige.vercel.app',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
@@ -153,7 +153,7 @@ Deno.serve(async (req: Request) => {
     // (kept as text so the email's text variant stays clean; DB template overrides this)
     const defaultBody = `Dear {invitee_name},\n\n{company_name} invites you to submit a tender for the following project:\n\nTender Number: {tender_number}\nProject: {title}\nLocation: {location}\nClosing Date: {closing_date}\nTrade Package(s): {trade_packages}\n\nScope:\n{description}\n\nView the tender and submit pricing: {submission_link}\n\nNew to {company_name}? Create a free account to see every tender we send you, past and present, in one place: {register_link}\n\nRegards,\n{sender_name}\n{sender_email}\n{company_name}`;
 
-    const appUrl = Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz';
+    const appUrl = Deno.env.get('APP_URL') || 'https://constructiq-beige.vercel.app';
     const submissionLink = `${appUrl}/tender-submit/${invitationRecord.token}`;
 
     const vars: Record<string, string> = {

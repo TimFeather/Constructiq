@@ -17,7 +17,7 @@
  */
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
-const APP_URL = Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz';
+const APP_URL = Deno.env.get('APP_URL') || 'https://constructiq-beige.vercel.app';
 // Reflect localhost origins for dev; otherwise lock to the app origin.
 // (tenderPublicApi doesn't do this, which is why it can't be exercised from
 // local dev — copied from registerInvited so this function can be.)

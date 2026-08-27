@@ -32,7 +32,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 // runnable from both localhost (dev) and the deployed app. Reflect the caller's
 // Origin so the browser preflight passes in either environment. (Safe here: the
 // function authenticates via a bearer JWT and sends no credentialed cookies.)
-const APP_URL = Deno.env.get('APP_URL') || 'https://app.constructiq.co.nz';
+const APP_URL = Deno.env.get('APP_URL') || 'https://constructiq-beige.vercel.app';
 function corsFor(req: Request) {
   const origin = req.headers.get('Origin') || '';
   const allow = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin) ? origin : APP_URL;
