@@ -64,8 +64,8 @@ export const AuthProvider = ({ children }) => {
 
       if (error && error.code !== 'PGRST116') throw error;
 
-      // If the user just verified via email link, their profile row exists but has no name/phone/business
-      // (those were stored as Supabase auth metadata at signup). Sync them now, once.
+      // Fallback for a profile row that never got its details: registerInvited fills these
+      // in server-side but treats failure as non-fatal, and they also live in auth metadata.
       const meta = authUser.user_metadata || {};
       if (profile && !profile.first_name && meta.first_name) {
         // NB: full_name is a GENERATED column in public.users — never write it

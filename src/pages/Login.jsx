@@ -10,6 +10,7 @@ import AuthLayout from "@/components/AuthLayout";
 export default function Login() {
   const [searchParams] = useSearchParams();
   const resetSuccess = searchParams.get("reset") === "success";
+  const justRegistered = searchParams.get("registered") === "1";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -24,7 +25,17 @@ export default function Login() {
       if (signInError) throw signInError;
       window.location.href = "/dashboard";
     } catch (err) {
-      setError(err.message || "Invalid email or password");
+      // "Email not confirmed" is Supabase's wording for an account left
+      // unverified by the old registration flow (which emailed a one-time link
+      // that mail scanners routinely consumed). Registration now confirms on
+      // creation, so re-opening the invite link repairs the account — say so,
+      // because the raw message tells the user nothing they can act on.
+      const raw = err.message || "";
+      setError(
+        /email not confirmed/i.test(raw)
+          ? "This account was never activated. Open the \"Create a free account\" link in your invitation email again to finish setting it up — you can reuse this email address and choose a new password."
+          : raw || "Invalid email or password"
+      );
     } finally {
       setLoading(false);
     }
@@ -44,6 +55,12 @@ export default function Login() {
       {resetSuccess && !error && (
         <div className="mb-4 p-3 rounded-lg bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-400 text-sm">
           Your password has been reset. Log in with your new password.
+        </div>
+      )}
+
+      {justRegistered && !error && (
+        <div className="mb-4 p-3 rounded-lg bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-400 text-sm">
+          Your account is ready. Log in with the email you were invited on and the password you just chose.
         </div>
       )}
 

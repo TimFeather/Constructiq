@@ -1,10 +1,33 @@
+import { useEffect } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import {
   HardHat, FileSignature, FolderKanban, MessageSquareMore,
-  FileText, ArrowRight, Shield, Users, CheckCircle
+  FileText, ArrowRight, Shield, Users, CheckCircle, AlertTriangle
 } from 'lucide-react';
+
+// Supabase bounces failed email links back to the site root with the reason in
+// the URL fragment (#error=access_denied&error_code=otp_expired&...). Until this
+// existed the page just rendered the marketing hero, so a subcontractor whose
+// verification link had already been consumed by their employer's mail scanner
+// saw no explanation at all and assumed the whole thing was broken.
+//
+// Captured at module scope, synchronously, because supabase-js clears the
+// fragment once it has processed it.
+const AUTH_REDIRECT_ERROR = (() => {
+  if (typeof window === 'undefined') return null;
+  const hash = window.location.hash?.startsWith('#') ? window.location.hash.slice(1) : '';
+  if (!hash) return null;
+  const params = new URLSearchParams(hash);
+  const code = params.get('error_code');
+  if (!code) return null;
+  return {
+    code,
+    // error_description arrives '+'-encoded, which URLSearchParams decodes for us.
+    description: params.get('error_description') || 'That link could not be used.',
+  };
+})();
 
 const FEATURES = [
   {
@@ -40,12 +63,44 @@ const FEATURES = [
 export default function Landing() {
   const { user, isLoadingAuth } = useAuth();
 
+  // Drop the fragment once captured so a refresh doesn't resurrect the banner.
+  useEffect(() => {
+    if (AUTH_REDIRECT_ERROR && window.location.hash) {
+      window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search);
+    }
+  }, []);
+
   if (!isLoadingAuth && user) {
     return <Navigate to="/dashboard" replace />;
   }
 
+  const expiredLink = AUTH_REDIRECT_ERROR && /otp_expired|access_denied/.test(AUTH_REDIRECT_ERROR.code);
+
   return (
     <div className="min-h-screen flex flex-col">
+
+      {AUTH_REDIRECT_ERROR && (
+        <div className="bg-amber-50 border-b border-amber-200 px-6 py-4">
+          <div className="max-w-3xl mx-auto flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" aria-hidden="true" />
+            <div className="text-sm text-amber-900 leading-relaxed">
+              <p className="font-semibold">That link has already been used or has expired.</p>
+              {expiredLink ? (
+                <p className="mt-1">
+                  Email links can only be opened once, and some company mail systems open them
+                  automatically before you get the chance. Go back to your invitation email and
+                  click <strong>&ldquo;Create a free account&rdquo;</strong> again — you can reuse
+                  the same email address and choose a new password. If you already have a working
+                  account, just{' '}
+                  <Link to="/login" className="underline font-medium">log in</Link>.
+                </p>
+              ) : (
+                <p className="mt-1">{AUTH_REDIRECT_ERROR.description}</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Hero ── */}
       <div className="bg-sidebar flex flex-col">

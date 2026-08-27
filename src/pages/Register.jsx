@@ -5,7 +5,7 @@ import { clearClientAuthState } from "@/lib/clientAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { UserPlus, Lock, Loader2, Phone, Building2, ShieldAlert, MailCheck } from "lucide-react";
+import { UserPlus, Lock, Loader2, Phone, Building2, ShieldAlert } from "lucide-react";
 import AuthLayout from "@/components/AuthLayout";
 
 export default function Register() {
@@ -22,8 +22,6 @@ export default function Register() {
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [sent, setSent] = useState(false);
-  const [sentEmail, setSentEmail] = useState("");
 
   // On mount: clear any stale onboarding/auth state for a clean slate.
   useEffect(() => {
@@ -72,36 +70,28 @@ export default function Register() {
       if (data?.error) throw new Error(data.error);
       if (!data?.email) throw new Error("Registration failed — please try again.");
 
-      // A verification link has been emailed — the user must click it to activate
-      // and sign in. Show the "check your inbox" screen.
-      setSentEmail(data.email);
-      setSent(true);
+      // The account is created already confirmed (the invite token proved the
+      // address), so sign in right here rather than emailing a one-time
+      // verification link — those get eaten by corporate mail scanners and
+      // stranded people with an account they could neither use nor recreate.
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: data.email,
+        password: form.password,
+      });
+      if (signInError) {
+        // The account exists and works — only the automatic sign-in fell over.
+        // Send them to the login screen rather than leaving them on a dead form.
+        window.location.href = "/login?registered=1";
+        return;
+      }
+      // Full page load so AuthProvider re-initialises with the new session
+      // (it also runs processPendingAssignments, which marks the invite Accepted).
+      window.location.href = data.kind === "tender" ? "/my-tenders" : "/dashboard";
     } catch (err) {
       setError(err.message || "Registration failed");
-    } finally {
       setLoading(false);
     }
   };
-
-  // Verification email sent — tell the user to check their inbox.
-  if (sent) {
-    return (
-      <AuthLayout
-        icon={MailCheck}
-        title="Check your inbox"
-        subtitle={`We sent a verification link to ${sentEmail}`}
-        footer={<>Already verified?{" "}<Link to="/login" className="text-primary font-medium hover:underline">Log in</Link></>}
-      >
-        <div className="p-4 rounded-lg bg-muted/50 text-sm text-center text-foreground leading-relaxed">
-          Click the <strong>verification link</strong> in that email to activate your
-          account. You'll be signed in automatically once verified.
-        </div>
-        <p className="text-center text-xs text-muted-foreground mt-4">
-          Didn't get it? Check your spam folder, or contact your administrator.
-        </p>
-      </AuthLayout>
-    );
-  }
 
   // No token → no registration. Show an invite-only notice.
   if (!inviteToken) {
