@@ -6,6 +6,9 @@
  *   - tender_internal: admins/lead, X days before closing
  *   - rfi_reminder:    invitees, X days before questions_date
  *
+ * "Closing" means the THS RFT closing date when the tender has one, falling
+ * back to closing_date — the same date the invitation email shows.
+ *
  * Deduped via reminder_log (unique: type + entity_id + recipient_email)
  * Triggered daily via pg_cron or Supabase scheduled function.
  */
@@ -280,21 +283,28 @@ Deno.serve(async (req: Request) => {
       // it), so it throws — but caught locally, not by the outer handler, so
       // it can't silence the internal or RFI reminders that run after it.
       try {
-      // Find all Issued tenders where closing_date is exactly daysB days away
+      // Load every Issued tender; the per-tender window check below decides
+      // which ones are within daysB of their closing date.
       const { data: tenders, error: tendersErr } = await supabaseAdmin
         .from('tenders')
-        .select('id, title, tender_number, location, closing_date')
+        .select('id, title, tender_number, location, closing_date, ths_rft_closing_date')
         .eq('status', 'Issued');
       if (tendersErr) throw new Error(`tenders query failed: ${tendersErr.message}`);
 
       const tpl = getTemplate('tender_reminder_external');
 
       for (const tender of (tenders || [])) {
-        if (!tender.closing_date) continue;
+        // Reminders count down to the THS RFT closing date — the date invitees
+        // work to, and the one the invitation email shows — falling back to the
+        // portal closing datetime when no RFT date is set. One reference date
+        // drives the window, the countdown, the dedup key and {closing_date}, so
+        // a reminder can never say "closes tomorrow" next to a different date.
+        const referenceDate = tender.ths_rft_closing_date || tender.closing_date;
+        if (!referenceDate) continue;
         // Extracted next to daysUntilNZ so the dedup key's date component
         // and the days-remaining calculation can never drift apart.
-        const closingDay = tender.closing_date.split('T')[0];
-        const days = daysUntilNZ(tender.closing_date);
+        const closingDay = String(referenceDate).split('T')[0];
+        const days = daysUntilNZ(referenceDate);
         if (days === null) {
           details.push({ type: 'tender_ext', id: tender.id, title: tender.title, days: null, action: 'skipped', reason: 'unparseable closing date' });
           continue;
@@ -348,7 +358,9 @@ Deno.serve(async (req: Request) => {
             tender_number:   escapeHtml(tender.tender_number || ''),
             title:           escapeHtml(tender.title || ''),
             location:        escapeHtml(tender.location || ''),
-            closing_date:    formatDate(tender.closing_date),
+            closing_date:    formatDate(referenceDate),
+            ths_rft_closing_date: tender.ths_rft_closing_date ? formatDate(tender.ths_rft_closing_date) : '',
+            tender_closing_date:  tender.closing_date ? formatDate(tender.closing_date) : '',
             days_remaining:  String(days),
             days_label:      daysLabel(days),
             submission_link: portalUrl,
@@ -391,16 +403,19 @@ Deno.serve(async (req: Request) => {
       try {
       const { data: tenders, error: tendersErr } = await supabaseAdmin
         .from('tenders')
-        .select('id, title, tender_number, closing_date, tender_lead_email, created_by_email')
+        .select('id, title, tender_number, closing_date, ths_rft_closing_date, tender_lead_email, created_by_email')
         .eq('status', 'Issued');
       if (tendersErr) throw new Error(`tenders query failed: ${tendersErr.message}`);
 
       const tpl = getTemplate('tender_reminder_internal');
 
       for (const tender of (tenders || [])) {
-        if (!tender.closing_date) continue;
-        const closingDay = tender.closing_date.split('T')[0];
-        const days = daysUntilNZ(tender.closing_date);
+        // Same reference date as the external reminder above: RFT close first,
+        // portal close as the fallback.
+        const referenceDate = tender.ths_rft_closing_date || tender.closing_date;
+        if (!referenceDate) continue;
+        const closingDay = String(referenceDate).split('T')[0];
+        const days = daysUntilNZ(referenceDate);
         if (days === null) {
           details.push({ type: 'tender_int', id: tender.id, title: tender.title, days: null, action: 'skipped', reason: 'unparseable closing date' });
           continue;
@@ -457,7 +472,9 @@ Deno.serve(async (req: Request) => {
           const vars: Record<string, string> = {
             tender_number:    escapeHtml(tender.tender_number || ''),
             title:            escapeHtml(tender.title || ''),
-            closing_date:     formatDate(tender.closing_date),
+            closing_date:     formatDate(referenceDate),
+            ths_rft_closing_date: tender.ths_rft_closing_date ? formatDate(tender.ths_rft_closing_date) : '',
+            tender_closing_date:  tender.closing_date ? formatDate(tender.closing_date) : '',
             days_remaining:   String(days),
             days_label:       daysLabel(days),
             submission_count: String(subCount || 0),

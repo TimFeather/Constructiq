@@ -12,6 +12,8 @@
  *   tenderId   – Tender record ID
  *   tenderInfo – { title, tender_number, location, closing_date, description,
  *                  trade_packages, client_name, architect_name, project_manager_name }
+ *                 The invitee-facing closing date is read from the tender row
+ *                 (ths_rft_closing_date), not from this payload.
  *   appUrl     – window.location.origin
  */
 import { createClient } from 'npm:@supabase/supabase-js@2';
@@ -85,6 +87,15 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    // The date invitees are shown is the THS RFT closing date, which lives on
+    // the tender row. Read it here rather than trusting the client payload so
+    // a cached frontend can't send a stale one.
+    const { data: tenderRow } = await supabaseAdmin
+      .from('tenders')
+      .select('ths_rft_closing_date')
+      .eq('id', tenderId)
+      .maybeSingle();
+
     // Load branding + templates
     const [{ data: templatesData }, { data: brandingsData }] = await Promise.all([
       supabaseAdmin.from('email_templates').select('*'),
@@ -103,6 +114,13 @@ Deno.serve(async (req: Request) => {
     // (kept as text so the email's text variant stays clean; DB template overrides this)
     const defaultBody = `Dear {invitee_name},\n\n{company_name} invites you to submit a tender for the following project:\n\nTender Number: {tender_number}\nProject: {title}\nLocation: {location}\nClosing Date: {closing_date}\nTrade Package(s): {trade_packages}\n\nScope:\n{description}\n\nView the tender and submit pricing: {submission_link}\n\nNew to {company_name}? Create a free account to see every tender we send you, past and present, in one place: {register_link}\n\nRegards,\n{sender_name}\n{sender_email}\n{company_name}`;
     const sentDate    = new Date().toISOString();
+
+    // {closing_date} renders the THS RFT closing date — the date invitees work
+    // to. Falls back to the tender's portal closing datetime when no RFT date
+    // is set, so tenders predating the field still show a date. Templates that
+    // need one specifically can use {ths_rft_closing_date}/{tender_closing_date}.
+    const tenderClosing = formatClosingDateTime(tenderInfo.closing_date || '');
+    const rftClosing    = formatClosingDateTime(tenderRow?.ths_rft_closing_date || '');
 
     let sent = 0, failed = 0;
     const errors: string[] = [];
@@ -183,7 +201,9 @@ Deno.serve(async (req: Request) => {
         invitee_name:    escapeHtml(inv.full_name || ''),
         company_name:    escapeHtml(branding.company_name || 'ConstructIQ'),
         location:        escapeHtml(tenderInfo.location || ''),
-        closing_date:    escapeHtml(formatClosingDateTime(tenderInfo.closing_date || '')),
+        closing_date:    escapeHtml(rftClosing || tenderClosing),
+        ths_rft_closing_date: escapeHtml(rftClosing),
+        tender_closing_date:  escapeHtml(tenderClosing),
         trade_packages:  escapeHtml((tenderInfo.trade_packages || []).join(', ')),
         // description is HTML authored via RichTextEditor — sanitize (don't escape)
         // so formatting survives while script/event-handler vectors are stripped.

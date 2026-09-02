@@ -153,6 +153,12 @@ Deno.serve(async (req: Request) => {
     // (kept as text so the email's text variant stays clean; DB template overrides this)
     const defaultBody = `Dear {invitee_name},\n\n{company_name} invites you to submit a tender for the following project:\n\nTender Number: {tender_number}\nProject: {title}\nLocation: {location}\nClosing Date: {closing_date}\nTrade Package(s): {trade_packages}\n\nScope:\n{description}\n\nView the tender and submit pricing: {submission_link}\n\nNew to {company_name}? Create a free account to see every tender we send you, past and present, in one place: {register_link}\n\nRegards,\n{sender_name}\n{sender_email}\n{company_name}`;
 
+    // {closing_date} renders the THS RFT closing date, matching
+    // sendTenderInvitations. Falls back to the tender's portal closing
+    // datetime when no RFT date is set.
+    const tenderClosing = formatClosingDateTime(tender.closing_date || '');
+    const rftClosing    = formatClosingDateTime(tender.ths_rft_closing_date || '');
+
     const appUrl = Deno.env.get('APP_URL') || 'https://constructiq-beige.vercel.app';
     const submissionLink = `${appUrl}/tender-submit/${invitationRecord.token}`;
 
@@ -162,7 +168,9 @@ Deno.serve(async (req: Request) => {
       invitee_name:    invitee.full_name || '',
       company_name:    branding.company_name || 'ConstructIQ',
       location:        tender.location || '',
-      closing_date:    formatClosingDateTime(tender.closing_date || ''),
+      closing_date:    rftClosing || tenderClosing,
+      ths_rft_closing_date: rftClosing,
+      tender_closing_date:  tenderClosing,
       trade_packages:  (tender.trade_packages || []).join(', '),
       description:     tender.description || '',
       submission_link: submissionLink,
