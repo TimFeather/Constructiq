@@ -10,11 +10,12 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import SanitizedHtml from '@/components/shared/SanitizedHtml';
+import FilePreviewModal, { PREVIEWABLE_RE } from '@/components/shared/FilePreviewModal';
 import { useAuth } from '@/lib/AuthContext';
 import {
   HardHat, Calendar, MapPin, Download, CheckCircle2,
   AlertCircle, Mail, Phone, Building2, FileText, Bell, MessageSquare, X,
-  Plus, Loader2, RefreshCw, FolderOpen, FolderClosed, ChevronRight, ChevronDown, ArrowLeft,
+  Plus, Loader2, RefreshCw, Eye, FolderOpen, FolderClosed, ChevronRight, ChevronDown, ArrowLeft,
 } from 'lucide-react';
 import { format, parseISO, isPast } from 'date-fns';
 
@@ -863,18 +864,37 @@ function buildDocTree(docs) {
   return root;
 }
 
-function DocFileRow({ doc, depth }) {
-  return (
-    <a href={doc.file_url} target="_blank" rel="noopener noreferrer"
-       className="flex items-center gap-3 px-4 py-3 hover:bg-muted/40 transition-colors"
-       style={{ paddingLeft: `${16 + depth * 20}px` }}>
+const isPreviewableDoc = (doc) =>
+  PREVIEWABLE_RE.test(doc.name || '') || PREVIEWABLE_RE.test(doc.file_url || '');
+
+// PDFs/images open in the flick-through preview; anything else opens as before.
+// The download icon is always a plain link to the file.
+function DocFileRow({ doc, depth, onPreview }) {
+  const previewable = isPreviewableDoc(doc);
+  const body = (
+    <>
       <FileText className="w-4 h-4 text-primary flex-shrink-0" />
       <span className="flex-1 text-sm font-medium truncate">{doc.name}</span>
       {doc.category && (
         <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded hidden sm:inline">{doc.category}</span>
       )}
-      <Download className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-    </a>
+      {previewable && <Eye className="w-4 h-4 text-muted-foreground flex-shrink-0" />}
+    </>
+  );
+  const rowClass = 'flex-1 min-w-0 flex items-center gap-3 py-3 text-left';
+  return (
+    <div className="flex items-center gap-2 px-4 hover:bg-muted/40 transition-colors"
+         style={{ paddingLeft: `${16 + depth * 20}px` }}>
+      {previewable ? (
+        <button type="button" className={rowClass} onClick={() => onPreview(doc)} title="Preview">{body}</button>
+      ) : (
+        <a href={doc.file_url} target="_blank" rel="noopener noreferrer" className={rowClass}>{body}</a>
+      )}
+      <a href={doc.file_url} target="_blank" rel="noopener noreferrer" title="Download"
+         className="p-1.5 -mr-1.5 rounded hover:bg-muted flex-shrink-0">
+        <Download className="w-4 h-4 text-muted-foreground" />
+      </a>
+    </div>
   );
 }
 
@@ -884,7 +904,7 @@ function countFiles(node) {
   return n;
 }
 
-function DocFolderNode({ node, depth }) {
+function DocFolderNode({ node, depth, onPreview }) {
   const [open, setOpen] = useState(true);
   const total = countFiles(node);
   return (
@@ -902,10 +922,10 @@ function DocFolderNode({ node, depth }) {
       {open && (
         <div>
           {[...node.children.values()].map(child => (
-            <DocFolderNode key={child.name} node={child} depth={depth + 1} />
+            <DocFolderNode key={child.name} node={child} depth={depth + 1} onPreview={onPreview} />
           ))}
           {node.files.map(({ doc, idx }) => (
-            <DocFileRow key={idx} doc={doc} depth={depth + 1} />
+            <DocFileRow key={idx} doc={doc} depth={depth + 1} onPreview={onPreview} />
           ))}
         </div>
       )}
@@ -913,16 +933,33 @@ function DocFolderNode({ node, depth }) {
   );
 }
 
+// Docs in the same order DocTree renders them (sub-folders before files at
+// every level) — the preview modal flicks through this list.
+function docsInTreeOrder(node, out = []) {
+  node.children.forEach(child => docsInTreeOrder(child, out));
+  node.files.forEach(({ doc }) => out.push(doc));
+  return out;
+}
+
 function DocTree({ docs }) {
+  const [previewDoc, setPreviewDoc] = useState(null);
   const tree = buildDocTree(docs || []);
+  const previewItems = docsInTreeOrder(tree).filter(isPreviewableDoc);
   return (
     <>
       {[...tree.children.values()].map(child => (
-        <DocFolderNode key={child.name} node={child} depth={0} />
+        <DocFolderNode key={child.name} node={child} depth={0} onPreview={setPreviewDoc} />
       ))}
       {tree.files.map(({ doc, idx }) => (
-        <DocFileRow key={idx} doc={doc} depth={0} />
+        <DocFileRow key={idx} doc={doc} depth={0} onPreview={setPreviewDoc} />
       ))}
+      <FilePreviewModal
+        items={previewItems}
+        current={previewDoc}
+        onChange={setPreviewDoc}
+        onClose={() => setPreviewDoc(null)}
+        bucket="Documents"
+      />
     </>
   );
 }
