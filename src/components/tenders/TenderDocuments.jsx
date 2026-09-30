@@ -22,7 +22,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Upload, Download, FileText, Loader2, FolderOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import DocTable from './DocTable';
+import DocTable, { docsInDisplayOrder, isPreviewableDoc } from './DocTable';
 import UploadProgressModal from './UploadProgressModal';
 import FilePreviewModal from '@/components/shared/FilePreviewModal';
 import {
@@ -401,10 +401,11 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
 
       {/* Document quick-look preview */}
       <FilePreviewModal
-        url={previewDoc?.file_url}
-        name={previewDoc?.name}
-        open={!!previewDoc}
+        items={docsInDisplayOrder(docs).filter(isPreviewableDoc)}
+        current={previewDoc}
+        onChange={setPreviewDoc}
         onClose={() => setPreviewDoc(null)}
+        bucket="Documents"
       />
 
       {/* Upload progress / duplicate resolution modal */}

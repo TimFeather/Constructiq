@@ -50,7 +50,7 @@ function buildTree(docs) {
 }
 
 function DocRow({ doc, idx, canManage, onCategoryChange, onDelete, onPreview, onMove, folderPaths, depth }) {
-  const isPreviewable = PREVIEWABLE_RE.test(doc.name || '') || PREVIEWABLE_RE.test(doc.file_url || '');
+  const isPreviewable = isPreviewableDoc(doc);
   const currentFolder = doc.folder_path || '';
 
   return (
@@ -126,6 +126,22 @@ function DocRow({ doc, idx, canManage, onCategoryChange, onDelete, onPreview, on
       </td>
     </tr>
   );
+}
+
+// Docs in the exact order the table renders them (root files, then folders
+// alphabetically, depth-first) — the preview modal flicks through this list.
+export function docsInDisplayOrder(docs) {
+  const out = [];
+  const walk = (node) => {
+    node.files.forEach(({ doc }) => out.push(doc));
+    [...node.children.keys()].sort().forEach(k => walk(node.children.get(k)));
+  };
+  walk(buildTree(docs));
+  return out;
+}
+
+export function isPreviewableDoc(doc) {
+  return PREVIEWABLE_RE.test(doc.name || '') || PREVIEWABLE_RE.test(doc.file_url || '');
 }
 
 function countAllFiles(node) {

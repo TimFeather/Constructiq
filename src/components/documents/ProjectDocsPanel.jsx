@@ -2,7 +2,8 @@ import { uploadFile, sendEmail, removeFile, getSignedUrl, isStoredUrl } from '@/
 import { logDocumentEvent } from '@/lib/auditLog';
 import { logProjectActivity } from '@/lib/activityLog';
 import { useToast } from '@/components/ui/use-toast';
-import SecureFileLink, { useSignedUrl } from '@/components/shared/SecureFileLink';
+import SecureFileLink from '@/components/shared/SecureFileLink';
+import FilePreviewModal, { PREVIEWABLE_RE } from '@/components/shared/FilePreviewModal';
 import React, { useState, useRef } from 'react';
 import { Document, DocumentFolderTemplate, Project, AuditLog } from '@/api/entities';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
@@ -15,7 +16,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import StatusBadge from '@/components/shared/StatusBadge';
-import { Upload, Download, ExternalLink, FileText, Folder, FolderOpen, GripVertical, ChevronDown, ChevronRight, FolderPlus, Trash2, Eye, Archive, RefreshCw, Search, X, CheckSquare, History, Users, Lock, Loader2 } from 'lucide-react';
+import { Upload, Download, ExternalLink, FileText, Folder, FolderOpen, GripVertical, ChevronDown, ChevronRight, FolderPlus, Trash2, Eye, Archive, Search, X, CheckSquare, History, Users, Lock, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
@@ -533,10 +534,6 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
 
   const toggleFolder = (f) => setCollapsedFolders(prev => ({ ...prev, [f]: !prev[f] }));
 
-  // Preview modal renders the file inline (<img>/<iframe>), so the URL must be
-  // resolved before render — sign it up front (no-op for legacy public URLs).
-  const preview = useSignedUrl(previewDoc?.file_url, { bucket: 'project-files' });
-
   // Per-document audit history (admin/internal only — matches audit_logs_select RLS).
   const { data: historyLogs = [], isLoading: historyLoading } = useQuery({
     queryKey: ['documentAudit', historyDoc?.id],
@@ -565,6 +562,11 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
     if (grouped[key] === undefined) { grouped[UNFILED].push(d); return; } // folder not visible to this role — show in unfiled
     grouped[key].push(d);
   });
+
+  // Files the preview modal can step through, in the same order the folders list them.
+  const previewItems = [...folders, ...(isInternal ? [UNFILED] : [])]
+    .flatMap(key => grouped[key] || [])
+    .filter(d => PREVIEWABLE_RE.test(d.file_url || ''));
 
   const renderDoc = (doc, index) => (
     <Draggable key={doc.id} draggableId={doc.id} index={index}>
@@ -629,7 +631,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
               </button>
             );
           })()}
-          {(/\.(pdf|png|jpg|jpeg|gif|webp|svg)$/i.test(doc.file_url || '')) && (
+          {PREVIEWABLE_RE.test(doc.file_url || '') && (
             <button
               onClick={(e) => { e.stopPropagation(); setPreviewDoc(doc); }}
               title="Preview"
@@ -890,47 +892,14 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
         </DragDropContext>
       )}
 
-      {/* Document Preview */}
-      <Dialog open={!!previewDoc} onOpenChange={open => !open && setPreviewDoc(null)}>
-        <DialogContent className="max-w-4xl w-full h-[85vh] flex flex-col p-0">
-          <DialogHeader className="px-4 pt-4 pb-2 border-b flex-shrink-0">
-            <DialogTitle className="text-sm font-medium truncate">{previewDoc?.name}</DialogTitle>
-          </DialogHeader>
-          <div className="flex-1 overflow-hidden">
-            {previewDoc?.file_url && preview.loading && (
-              <div className="flex items-center justify-center h-full text-sm text-muted-foreground">Loading preview…</div>
-            )}
-            {previewDoc?.file_url && preview.error && (
-              <div className="flex flex-col items-center justify-center h-full gap-3 text-sm text-destructive">
-                <span>Could not load preview. The link may have expired.</span>
-                <Button variant="outline" size="sm" className="gap-1.5" onClick={() => preview.refresh()}>
-                  <RefreshCw className="w-3.5 h-3.5" /> Refresh preview
-                </Button>
-              </div>
-            )}
-            {previewDoc?.file_url && preview.url && (
-              /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(previewDoc.file_url) ? (
-                <div className="flex items-center justify-center h-full p-4 bg-muted/30">
-                  <img src={preview.url} alt={previewDoc.name} className="max-h-full max-w-full object-contain rounded" />
-                </div>
-              ) : (
-                <iframe src={preview.url} title={previewDoc.name} className="w-full h-full border-0" />
-              )
-            )}
-          </div>
-          <div className="px-4 py-3 border-t flex justify-between flex-shrink-0">
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" asChild>
-                <SecureFileLink value={previewDoc?.file_url}>Open in new tab</SecureFileLink>
-              </Button>
-              <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => preview.refresh()} title="Re-load the preview">
-                <RefreshCw className="w-3.5 h-3.5" /> Refresh
-              </Button>
-            </div>
-            <Button variant="ghost" size="sm" onClick={() => setPreviewDoc(null)}>Close</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Document Preview — flick through every previewable file in on-screen order */}
+      <FilePreviewModal
+        items={previewItems}
+        current={previewDoc}
+        onChange={setPreviewDoc}
+        onClose={() => setPreviewDoc(null)}
+        bucket="project-files"
+      />
 
       {/* Document History */}
       <Dialog open={!!historyDoc} onOpenChange={open => !open && setHistoryDoc(null)}>
