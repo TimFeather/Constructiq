@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
+import ImportCalendarWarning from '@/components/programme/ImportCalendarWarning';
 
 const EM_DASH = '—';
 
@@ -105,7 +106,7 @@ function MissingTaskRow({ task }) {
   );
 }
 
-export default function ImportDiffDialog({ open, onOpenChange, diff, onConfirm, onCancel, fileName }) {
+export default function ImportDiffDialog({ open, onOpenChange, diff, onConfirm, onCancel, fileName, calendarWarning }) {
   const added = diff?.added || [];
   const changed = diff?.changed || [];
   const missing = diff?.missing || [];
@@ -132,6 +133,8 @@ export default function ImportDiffDialog({ open, onOpenChange, diff, onConfirm, 
             {summary}
           </DialogDescription>
         </DialogHeader>
+
+        <ImportCalendarWarning warning={calendarWarning} />
 
         {hasNoChanges ? (
           <div className="py-10 text-center text-sm text-muted-foreground">

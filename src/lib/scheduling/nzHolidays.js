@@ -186,33 +186,52 @@ function regionalAnniversary(year, region) {
 const warnedMatarikiYears = new Set();
 
 export function getNzHolidays(year, options = {}) {
+  const dateStrings = namedNzHolidays(year, options).map(h => h.date);
+  return Array.from(new Set(dateStrings)).sort();
+}
+
+const ANNIVERSARY_NAMES = {
+  'hawkes-bay': "Hawke's Bay Anniversary Day",
+  auckland: 'Auckland Anniversary Day',
+  wellington: 'Wellington Anniversary Day',
+  canterbury: 'Canterbury Show Day',
+};
+
+/** getNzHolidays with names: [{ date: 'yyyy-MM-dd', name }] in calendar order. */
+function namedNzHolidays(year, options = {}) {
   const { region = 'hawkes-bay' } = options;
-  const dates = [];
+  const holidays = [];
+  // `actual` is the calendar date before mondayisation, so moved days read "(observed)"
+  const push = (date, name, actual = date) => holidays.push({
+    date: formatDate(date),
+    name: formatDate(date) === formatDate(actual) ? name : `${name} (observed)`,
+  });
 
   // New Year's Day / Day after New Year's Day (paired mondayisation)
   const [newYearsDay, dayAfterNewYears] = mondayisePair(
     makeDate(year, 1, 1),
     makeDate(year, 1, 2)
   );
-  dates.push(newYearsDay, dayAfterNewYears);
+  push(newYearsDay, "New Year's Day", makeDate(year, 1, 1));
+  push(dayAfterNewYears, "Day after New Year's Day", makeDate(year, 1, 2));
 
   // Waitangi Day (mondayised, 2014+)
-  dates.push(mondayise(makeDate(year, 2, 6)));
+  push(mondayise(makeDate(year, 2, 6)), 'Waitangi Day', makeDate(year, 2, 6));
 
   // Good Friday / Easter Monday (never mondayised)
   const easterSunday = calculateEasterSunday(year);
-  dates.push(addDays(easterSunday, -2)); // Good Friday
-  dates.push(addDays(easterSunday, 1)); // Easter Monday
+  push(addDays(easterSunday, -2), 'Good Friday');
+  push(addDays(easterSunday, 1), 'Easter Monday');
 
   // ANZAC Day (mondayised)
-  dates.push(mondayise(makeDate(year, 4, 25)));
+  push(mondayise(makeDate(year, 4, 25)), 'ANZAC Day', makeDate(year, 4, 25));
 
   // King's Birthday: first Monday of June
-  dates.push(nthWeekdayOfMonth(year, 6, 1, 1));
+  push(nthWeekdayOfMonth(year, 6, 1, 1), "King's Birthday");
 
   // Matariki: hardcoded Gazette dates, omitted if not tabulated
   if (MATARIKI_DATES[year]) {
-    dates.push(new Date(`${MATARIKI_DATES[year]}T00:00:00`));
+    push(new Date(`${MATARIKI_DATES[year]}T00:00:00`), 'Matariki');
   } else if (year > 2035 && !warnedMatarikiYears.has(year)) {
     warnedMatarikiYears.add(year);
     console.warn(
@@ -222,21 +241,37 @@ export function getNzHolidays(year, options = {}) {
   }
 
   // Labour Day: fourth Monday of October
-  dates.push(nthWeekdayOfMonth(year, 10, 1, 4));
+  push(nthWeekdayOfMonth(year, 10, 1, 4), 'Labour Day');
 
   // Christmas Day / Boxing Day (paired mondayisation)
   const [christmasDay, boxingDay] = mondayisePair(
     makeDate(year, 12, 25),
     makeDate(year, 12, 26)
   );
-  dates.push(christmasDay, boxingDay);
+  push(christmasDay, 'Christmas Day', makeDate(year, 12, 25));
+  push(boxingDay, 'Boxing Day', makeDate(year, 12, 26));
 
   // Regional anniversary day
   const anniversary = regionalAnniversary(year, region);
-  if (anniversary) dates.push(anniversary);
+  if (anniversary) push(anniversary, ANNIVERSARY_NAMES[region]);
 
-  const dateStrings = dates.map(formatDate);
-  return Array.from(new Set(dateStrings)).sort();
+  return holidays;
+}
+
+/**
+ * Holiday names keyed by date across an inclusive range of years, for
+ * explaining why a day is non-working.
+ *
+ * @returns {Map<string, string>} 'yyyy-MM-dd' → name, e.g. "Day after New Year's Day (observed)"
+ */
+export function getNzHolidayNames(startYear, endYear, options = {}) {
+  const names = new Map();
+  for (let year = startYear; year <= endYear; year++) {
+    for (const h of namedNzHolidays(year, options)) {
+      if (!names.has(h.date)) names.set(h.date, h.name);
+    }
+  }
+  return names;
 }
 
 /**

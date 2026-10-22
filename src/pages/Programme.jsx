@@ -35,8 +35,10 @@ import ProgressModal from '@/components/programme/ProgressModal';
 import { parseXML, parseMPX, parseExcelCSV } from '@/lib/scheduleImportParsers';
 import { computeImportDiff, isUpdateImport } from '@/lib/scheduleImportDiff';
 import { executeFreshImport, executeUpdateImport } from '@/lib/scheduleImportService';
+import { parseMspdiCalendar, compareImportCalendar } from '@/lib/scheduleImportCalendar';
 import { downloadMspdi, downloadProgrammeExcel } from '@/lib/scheduleExport';
 import ImportDiffDialog from '@/components/programme/ImportDiffDialog';
+import ImportCalendarWarning from '@/components/programme/ImportCalendarWarning';
 import AddTaskDialog from '@/components/programme/AddTaskDialog';
 import ScheduleSettingsPopover from '@/components/programme/ScheduleSettingsPopover';
 import BaselineManager from '@/components/programme/BaselineManager';
@@ -86,8 +88,11 @@ export default function Programme() {
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [mppFile, setMppFile] = useState(null);
   const [importProgress, setImportProgress] = useState(null); // { stage, pct, statusText, error }
-  // Update-import review: { diff, fileName } — shown before committing a re-import
+  // Update-import review: { diff, fileName, calendarWarning } — shown before committing a re-import
   const [pendingImport, setPendingImport] = useState(null);
+  // Fresh import held for confirmation: { parsedTasks, warning, fileName } — the file's
+  // MS Project calendar disagrees with CIQ's, so some dates won't match MS Project
+  const [pendingCalendarImport, setPendingCalendarImport] = useState(null);
 
   // Delete state
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -449,20 +454,50 @@ export default function Programme() {
   }, [scheduledMap]);
 
   // ─── Import with progress ────────────────────────────────────────────────────
+  const setStage = (stageIdx, pct, detail = '') => {
+    setImportProgress({
+      stage: stageIdx + 1,
+      stageOf: IMPORT_STAGES.length,
+      pct,
+      statusText: `${IMPORT_STAGES[stageIdx]}${detail ? ` — ${detail}` : ''}`,
+      error: null,
+    });
+  };
+
+  // CIQ schedules on its own calendar (NZ holidays + shutdowns), not the file's —
+  // find where they disagree so the import can warn before writing anything.
+  // A failed check must never block the import.
+  const checkImportCalendar = (text, parsedTasks) => {
+    try {
+      return compareImportCalendar(
+        parsedTasks,
+        parseMspdiCalendar(text),
+        calendarForProgramme(programme, parsedTasks),
+        { region: programme?.calendar?.region, dataDate: programme?.data_date || null },
+      );
+    } catch (err) {
+      console.warn('import calendar check failed:', err.message);
+      return null;
+    }
+  };
+
+  const commitFreshImport = async (parsedTasks) => {
+    const createdCount = await executeFreshImport(parsedTasks, selectedProjectId, setStage);
+
+    setImportProgress(p => ({ ...p, pct: 100, statusText: 'Import complete!' }));
+
+    setTimeout(async () => {
+      setImportProgress(null);
+      setMppFile(null);
+      await queryClient.refetchQueries({ queryKey: ['tasks'] });
+      toast({ title: `Schedule imported`, description: `${createdCount} tasks loaded successfully.`, duration: 4000 });
+    }, 1200);
+  };
+
   const handleMPPUpload = async () => {
     if (!canImport(user, 'programme')) return;
     if (!mppFile || !selectedProjectId || selectedProjectId === 'all') return;
     setShowImportDialog(false);
-
-    const setStage = (stageIdx, pct, detail = '') => {
-      setImportProgress({
-        stage: stageIdx + 1,
-        stageOf: IMPORT_STAGES.length,
-        pct,
-        statusText: `${IMPORT_STAGES[stageIdx]}${detail ? ` — ${detail}` : ''}`,
-        error: null,
-      });
-    };
 
     setImportProgress({ stage: 1, stageOf: 6, pct: 2, statusText: 'Reading file…', error: null });
     // Import started
@@ -489,29 +524,45 @@ export default function Programme() {
         return;
       }
 
+      const calendarWarning = ext === 'xml' ? checkImportCalendar(text, parsedTasks) : null;
+
       // Update-vs-append: an XML re-import into a programme that already has
       // MS Project UIDs goes through a diff + confirmation screen instead of
       // blindly appending duplicates.
       if (ext === 'xml' && isUpdateImport(tasks)) {
         const diff = computeImportDiff(parsedTasks, tasks);
         setImportProgress(null);
-        setPendingImport({ diff, fileName: mppFile.name });
+        setPendingImport({ diff, fileName: mppFile.name, calendarWarning });
         return;
       }
 
-      const createdCount = await executeFreshImport(parsedTasks, selectedProjectId, setStage);
-
-      setImportProgress(p => ({ ...p, pct: 100, statusText: 'Import complete!' }));
-
-      setTimeout(async () => {
+      if (calendarWarning) {
         setImportProgress(null);
-        setMppFile(null);
-        await queryClient.refetchQueries({ queryKey: ['tasks'] });
-        toast({ title: `Schedule imported`, description: `${createdCount} tasks loaded successfully.`, duration: 4000 });
-      }, 1200);
+        setPendingCalendarImport({ parsedTasks, warning: calendarWarning, fileName: mppFile.name });
+        return;
+      }
+
+      await commitFreshImport(parsedTasks);
 
     } catch (error) {
       setImportProgress(p => ({ ...p, error: error.message || 'Import failed. Please check the file and try again.' }));
+    } finally {
+      bulkOperationState.active = false;
+    }
+  };
+
+  // Commit a fresh import held back by the calendar warning
+  const handleConfirmCalendarImport = async () => {
+    const pending = pendingCalendarImport;
+    setPendingCalendarImport(null);
+    if (!pending) return;
+
+    setStage(1, 25, `${pending.parsedTasks.length} tasks found`);
+    bulkOperationState.active = true;
+    try {
+      await commitFreshImport(pending.parsedTasks);
+    } catch (error) {
+      setImportProgress(p => ({ ...(p || {}), error: error.message || 'Import failed. Please check the file and try again.' }));
     } finally {
       bulkOperationState.active = false;
     }
@@ -522,16 +573,6 @@ export default function Programme() {
     const pending = pendingImport;
     setPendingImport(null);
     if (!pending) return;
-
-    const setStage = (stageIdx, pct, detail = '') => {
-      setImportProgress({
-        stage: stageIdx + 1,
-        stageOf: IMPORT_STAGES.length,
-        pct,
-        statusText: `${IMPORT_STAGES[stageIdx]}${detail ? ` — ${detail}` : ''}`,
-        error: null,
-      });
-    };
 
     bulkOperationState.active = true;
     try {
@@ -1044,9 +1085,33 @@ export default function Programme() {
         onOpenChange={open => { if (!open) setPendingImport(null); }}
         diff={pendingImport?.diff || null}
         fileName={pendingImport?.fileName || ''}
+        calendarWarning={pendingImport?.calendarWarning || null}
         onConfirm={handleConfirmUpdateImport}
         onCancel={() => { setPendingImport(null); setMppFile(null); }}
       />
+
+      {/* Fresh import: the file's MS Project calendar disagrees with CIQ's */}
+      <AlertDialog
+        open={!!pendingCalendarImport}
+        onOpenChange={(open) => { if (!open) { setPendingCalendarImport(null); setMppFile(null); } }}
+      >
+        <AlertDialogContent className="sm:max-w-xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Some dates won&rsquo;t match MS Project</AlertDialogTitle>
+            <AlertDialogDescription>
+              <span className="font-medium text-foreground">{pendingCalendarImport?.fileName}</span> is ready
+              to import, but CIQ&rsquo;s calendar moves some of its dates.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="max-h-[50vh] overflow-y-auto">
+            <ImportCalendarWarning warning={pendingCalendarImport?.warning} />
+          </div>
+          <AlertDialogAction onClick={handleConfirmCalendarImport}>
+            Import anyway
+          </AlertDialogAction>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Import progress modal */}
       <ProgressModal
