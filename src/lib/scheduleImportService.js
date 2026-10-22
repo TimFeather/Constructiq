@@ -18,7 +18,7 @@ const UPDATE_BATCH = 15;
 
 /** Strip parser-internal fields down to a DB-insertable task row. */
 function toDbRow(parsed) {
-  const { _mspUid, _predecessorLinks, _parentUid, _outlineLevel, is_summary, constraint, predecessors, ...row } = parsed;
+  const { _mspUid, _predecessorLinks, _parentUid, _outlineLevel, _manual, is_summary, constraint, predecessors, ...row } = parsed;
   return row;
 }
 

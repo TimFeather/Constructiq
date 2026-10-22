@@ -74,6 +74,7 @@ export const parseXML = (text, projectId) => {
     const task = {
       _mspUid: parseInt(uid),
       _outlineLevel: parseInt(get('OutlineLevel')) || 0,
+      _manual: get('Manual') === '1',
       mspdi_uid: parseInt(uid),   // persisted for round-trip / re-import matching
       name,
       wbs: get('WBS'),
@@ -122,7 +123,37 @@ export const parseXML = (text, projectId) => {
     }
   });
 
+  applyManualScheduling(rawTasks);
+
   return rawTasks;
+};
+
+// The engine has no manual scheduling mode, so express what MS Project does with
+// manually scheduled tasks as constraints, or the imported dates get recomputed:
+//  - a manual summary's start is a floor for its auto-scheduled subtasks → SNET
+//    on descendant leaf tasks that carry no constraint of their own
+//  - a manual leaf task ignores its links and stays where it was typed → MSO
+const applyManualScheduling = (tasks) => {
+  const byUid = new Map(tasks.map(t => [t._mspUid, t]));
+  for (const task of tasks) {
+    if (task.is_summary) continue;
+
+    if (task._manual) {
+      if (task._predecessorLinks.length && task.start_date) {
+        task.constraint_data = { type: 'MSO', date: task.start_date };
+      }
+      continue;
+    }
+    if (task.constraint_data.type !== 'ASAP') continue;
+
+    let floor = null;
+    const seen = new Set();
+    for (let p = byUid.get(task._parentUid); p && !seen.has(p._mspUid); p = byUid.get(p._parentUid)) {
+      seen.add(p._mspUid);
+      if (p._manual && p.start_date && (!floor || p.start_date > floor)) floor = p.start_date;
+    }
+    if (floor) task.constraint_data = { type: 'SNET', date: floor };
+  }
 };
 
 // ─── MPX (legacy MS Project text format) ──────────────────────────────────────

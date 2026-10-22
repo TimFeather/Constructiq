@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { parseXML, MSPDI_TYPE_TO_DEP, DEP_TO_MSPDI_TYPE } from '../scheduleImportParsers.js';
 import { computeImportDiff, isUpdateImport } from '../scheduleImportDiff.js';
 import { buildMspdiXml, outlineOrder } from '../scheduleExport.js';
+import { runScheduleEngine } from '../scheduling/scheduleEngine.js';
 
 const FIXTURE = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Project xmlns="http://schemas.microsoft.com/project">
@@ -73,6 +74,82 @@ describe('parseXML', () => {
   it('parses constraints', () => {
     const excavate = tasks.find(t => t.name === 'Excavate');
     expect(excavate.constraint_data).toEqual({ type: 'SNET', date: '2026-01-05' });
+  });
+});
+
+// Mirrors 26-28 Plowman: a manually scheduled summary (typed start Mon 2 Nov)
+// holds its auto-scheduled subtasks back even though their links allow 19/20 Oct.
+const MANUAL_FIXTURE = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Project xmlns="http://schemas.microsoft.com/project">
+  <Tasks>
+    <Task><UID>10</UID><ID>1</ID><Name>Site establishment</Name><OutlineLevel>1</OutlineLevel><Summary>1</Summary><Manual>1</Manual>
+      <Start>2026-11-02T08:00:00</Start><Finish>2026-11-02T17:00:00</Finish><Duration>PT8H0M0S</Duration>
+    </Task>
+    <Task><UID>11</UID><ID>2</ID><Name>Prestart meeting</Name><OutlineLevel>2</OutlineLevel><Summary>0</Summary><Manual>0</Manual>
+      <Start>2026-10-19T08:00:00</Start><Finish>2026-10-19T17:00:00</Finish><Duration>PT8H0M0S</Duration>
+      <ConstraintType>4</ConstraintType><ConstraintDate>2026-10-19T08:00:00</ConstraintDate>
+    </Task>
+    <Task><UID>12</UID><ID>3</ID><Name>Site set up</Name><OutlineLevel>2</OutlineLevel><Summary>0</Summary><Manual>0</Manual>
+      <Start>2026-11-02T08:00:00</Start><Finish>2026-11-02T17:00:00</Finish><Duration>PT8H0M0S</Duration>
+      <PredecessorLink><PredecessorUID>11</PredecessorUID><Type>3</Type><LinkLag>0</LinkLag></PredecessorLink>
+    </Task>
+    <Task><UID>13</UID><ID>4</ID><Name>Council sign-off</Name><OutlineLevel>2</OutlineLevel><Summary>0</Summary><Manual>0</Manual>
+      <Start>2026-11-02T08:00:00</Start><Finish>2026-11-02T08:00:00</Finish><Duration>PT0H0M0S</Duration><Milestone>1</Milestone>
+      <PredecessorLink><PredecessorUID>11</PredecessorUID><Type>1</Type><LinkLag>0</LinkLag></PredecessorLink>
+    </Task>
+    <Task><UID>14</UID><ID>5</ID><Name>Services</Name><OutlineLevel>2</OutlineLevel><Summary>1</Summary><Manual>0</Manual>
+      <Start>2026-11-03T08:00:00</Start><Finish>2026-11-04T17:00:00</Finish><Duration>PT16H0M0S</Duration>
+    </Task>
+    <Task><UID>15</UID><ID>6</ID><Name>Temp power</Name><OutlineLevel>3</OutlineLevel><Summary>0</Summary><Manual>0</Manual>
+      <Start>2026-11-03T08:00:00</Start><Finish>2026-11-04T17:00:00</Finish><Duration>PT16H0M0S</Duration>
+      <PredecessorLink><PredecessorUID>12</PredecessorUID><Type>1</Type><LinkLag>0</LinkLag></PredecessorLink>
+    </Task>
+    <Task><UID>16</UID><ID>7</ID><Name>Disconnections</Name><OutlineLevel>1</OutlineLevel><Summary>0</Summary><Manual>1</Manual>
+      <Start>2026-11-09T08:00:00</Start><Finish>2026-11-09T17:00:00</Finish><Duration>PT8H0M0S</Duration>
+      <PredecessorLink><PredecessorUID>11</PredecessorUID><Type>1</Type><LinkLag>0</LinkLag></PredecessorLink>
+    </Task>
+  </Tasks>
+</Project>`;
+
+describe('parseXML — manually scheduled tasks', () => {
+  const tasks = parseXML(MANUAL_FIXTURE, 'p1');
+  const byName = Object.fromEntries(tasks.map(t => [t.name, t]));
+
+  it('floors auto-scheduled subtasks of a manual summary at its start (SNET)', () => {
+    expect(byName['Site set up'].constraint_data).toEqual({ type: 'SNET', date: '2026-11-02' });
+    expect(byName['Council sign-off'].constraint_data).toEqual({ type: 'SNET', date: '2026-11-02' });
+    expect(byName['Temp power'].constraint_data).toEqual({ type: 'SNET', date: '2026-11-02' });
+  });
+
+  it("keeps a subtask's own constraint and leaves summaries unconstrained", () => {
+    expect(byName['Prestart meeting'].constraint_data).toEqual({ type: 'SNET', date: '2026-10-19' });
+    expect(byName['Services'].constraint_data.type).toBe('ASAP');
+    expect(byName['Site establishment'].constraint_data.type).toBe('ASAP');
+  });
+
+  it('pins a linked manual task to its typed start (MSO)', () => {
+    expect(byName['Disconnections'].constraint_data).toEqual({ type: 'MSO', date: '2026-11-09' });
+  });
+
+  it('engine reproduces the MS Project dates for every leaf task', () => {
+    const engineTasks = tasks.map(pt => ({
+      id: String(pt.mspdi_uid),
+      parent_id: pt._parentUid != null ? String(pt._parentUid) : null,
+      start_date: pt.start_date,
+      end_date: pt.end_date,
+      duration: pt.duration,
+      is_milestone: pt.is_milestone,
+      percent_complete: pt.percent_complete,
+      constraint: pt.constraint_data,
+      predecessors: pt._predecessorLinks.map(l => ({
+        predecessor_id: String(l._predUid), type: l.type, lag_hours: l.lag_hours,
+      })),
+    }));
+    const result = runScheduleEngine(engineTasks, '2026-10-19');
+    for (const pt of tasks.filter(t => !t.is_summary)) {
+      const r = result.get(String(pt.mspdi_uid));
+      expect([pt.name, r.startStr, r.finishStr]).toEqual([pt.name, pt.start_date, pt.end_date]);
+    }
   });
 });
 
