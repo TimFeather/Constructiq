@@ -194,12 +194,15 @@ export default function Programme() {
     setExpandedIds(new Set());
   }, []);
 
-  // Seed expandedIds when tasks first load (expand root tasks)
+  // Seed expandedIds once per project, as soon as its tasks arrive (expand root tasks).
+  // Must wait for the fetch — on a cold load tasks is [] at mount, and an imported
+  // programme with a single project-summary root would otherwise open as one collapsed row.
+  const seededProjectRef = useRef(null);
   useEffect(() => {
-    if (tasks.length > 0) {
-      setExpandedIds(new Set(tasks.filter(t => !t.parent_id).map(t => t.id)));
-    }
-  }, [selectedProjectId]);
+    if (tasks.length === 0 || seededProjectRef.current === selectedProjectId) return;
+    seededProjectRef.current = selectedProjectId;
+    setExpandedIds(new Set(tasks.filter(t => !t.parent_id).map(t => t.id)));
+  }, [selectedProjectId, tasks]);
 
   // ─── Single visible task list — shared by TaskList + GanttChart ─────────────
   const visibleTasks = useMemo(() => getVisibleTasks(tasks, expandedIds), [tasks, expandedIds]);
