@@ -1,24 +1,25 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
 import { addDays, format } from 'date-fns';
-import { exportProgrammePdf, programmePdfBase64 } from './pdfExport';
+import { buildProgrammePdfDoc, exportProgrammePdf, programmePdfBase64 } from './pdfExport';
+import { getVisibleTasks } from './visibleTasks';
 
-function buildScenario({ n = 60, spanDays = 500 } = {}) {
-  const base = new Date('2026-01-05T00:00:00');
+function buildScenario({ n = 60, spanDays = 500, base = '2026-01-05' } = {}) {
+  const start0 = new Date(`${base}T00:00:00`);
   const tasks = [];
   const scheduledMap = new Map();
   const baselineMap = new Map();
 
   // one parent summary + n children with a chain of FS/SS/FF/SF deps
-  tasks.push({ id: 'p1', name: 'Phase 1', parent_id: null, duration: spanDays, is_milestone: false, percent_complete: 40, sort_order: 0 });
+  tasks.push({ id: 'p1', name: 'Phase 1', parent_id: null, duration: spanDays, is_milestone: false, percent_complete: 40, wbs: '1', sort_order: 0 });
   for (let i = 0; i < n; i++) {
-    const start = addDays(base, Math.floor((i / n) * spanDays));
+    const start = addDays(start0, Math.floor((i / n) * spanDays));
     const dur = i % 7 === 0 ? 0 : 3 + (i % 5);
     const finish = addDays(start, Math.max(0, dur - 1));
     const id = `t${i}`;
     tasks.push({
       id,
-      name: `Task ${i} - ${'x'.repeat(i % 20)}`,
+      name: `Task ${i}`,
       parent_id: 'p1',
       duration: dur,
       is_milestone: dur === 0,
@@ -31,6 +32,7 @@ function buildScenario({ n = 60, spanDays = 500 } = {}) {
       start, finish,
       isCritical: i % 4 === 0,
       totalFloat: (i % 6) * 8,
+      durationDays: dur,
       startStr: format(start, 'yyyy-MM-dd'),
       finishStr: format(finish, 'yyyy-MM-dd'),
     });
@@ -39,58 +41,95 @@ function buildScenario({ n = 60, spanDays = 500 } = {}) {
     }
   }
   scheduledMap.set('p1', {
-    start: base, finish: addDays(base, spanDays - 1), isCritical: false, totalFloat: 0, rolledProgress: 42,
+    start: start0, finish: addDays(start0, spanDays - 1), isCritical: false, totalFloat: 0, rolledProgress: 42, durationDays: 123,
   });
 
   return { tasks, scheduledMap, programme: { data_date: '2026-06-01' }, projectName: 'Smoke Test Project', baselineMap };
 }
 
-// jsPDF's doc.save() calls file-saver, which needs `document` — absent in the
-// node test environment. That's expected here; we only care that every
-// drawing/geometry call before save() succeeds without throwing.
-function runExport(args) {
-  try {
-    exportProgrammePdf(args);
-  } catch (err) {
-    if (/document is not defined/i.test(err.message)) return;
-    throw err;
-  }
-}
+// jsPDF keeps each page's content stream uncompressed in memory.
+const pageStreams = (doc) => doc.internal.pages.slice(1).map(ops => ops.join('\n'));
+const drawnStrings = (doc) => pageStreams(doc).flatMap(s => [...s.matchAll(/\((.*?)\) Tj/g)].map(m => m[1]));
+const CRITICAL_RED = /0\.9 0\.27 0\.27 rg/; // RGB.critical fill
 
-describe('exportProgrammePdf smoke tests', () => {
-  it('short single-page schedule (week tier)', () => {
-    const scenario = buildScenario({ n: 10, spanDays: 20 });
-    expect(() => runExport(scenario)).not.toThrow();
+describe('buildProgrammePdfDoc', () => {
+  it('builds every timescale tier, on A4 and A3', () => {
+    for (const spanDays of [10, 60, 300, 1500]) {
+      for (const paper of ['a4', 'a3']) {
+        expect(buildProgrammePdfDoc({ ...buildScenario({ n: 40, spanDays }), paper })).not.toBeNull();
+      }
+    }
   });
 
-  it('medium multi-page schedule (month tier)', () => {
+  it('fits the timeline to the page width: pages only break downwards, no task printed twice', () => {
+    for (const spanDays of [60, 300, 1500]) {
+      const scenario = buildScenario({ n: 80, spanDays });
+      const doc = buildProgrammePdfDoc(scenario);
+      const rowsPerPage = 31; // A4 landscape
+      expect(doc.getNumberOfPages()).toBe(Math.ceil(81 / rowsPerPage));
+      const strings = drawnStrings(doc);
+      for (const t of scenario.tasks) {
+        expect(strings.filter(s => s === t.wbs)).toHaveLength(1);
+      }
+    }
+  });
+
+  it('A3 fits more rows per page than A4', () => {
     const scenario = buildScenario({ n: 80, spanDays: 300 });
-    expect(() => runExport(scenario)).not.toThrow();
+    expect(buildProgrammePdfDoc({ ...scenario, paper: 'a3' }).getNumberOfPages())
+      .toBeLessThan(buildProgrammePdfDoc(scenario).getNumberOfPages());
   });
 
-  it('long multi-year schedule (year tier) with many rows (row+date tiling)', () => {
-    const scenario = buildScenario({ n: 200, spanDays: 1500 });
-    expect(() => runExport(scenario)).not.toThrow();
+  it('never wraps a timescale label (jsPDF stacks wrapped words down over the rows)', () => {
+    // A 2 March start pads back into February, leaving a sliver of a month at the left edge.
+    for (const spanDays of [10, 40, 120, 270, 380, 800]) {
+      const doc = buildProgrammePdfDoc(buildScenario({ n: 30, spanDays, base: '2026-03-02' }));
+      for (const stream of pageStreams(doc)) expect(stream).not.toMatch(/T\*/);
+    }
   });
 
-  it('criticalOnly filter', () => {
+  it('prints only the rows it is given, so collapsed groups print collapsed', () => {
+    const scenario = buildScenario({ n: 20, spanDays: 60 });
+    const doc = buildProgrammePdfDoc({ ...scenario, visibleTasks: getVisibleTasks(scenario.tasks, new Set()) });
+    const strings = drawnStrings(doc);
+    expect(strings).toContain('Phase 1');
+    expect(strings).not.toContain('Task 1');
+  });
+
+  it('defaults to every task, expanded', () => {
+    const scenario = buildScenario({ n: 20, spanDays: 60 });
+    const strings = drawnStrings(buildProgrammePdfDoc(scenario));
+    for (const t of scenario.tasks) expect(strings).toContain(t.name);
+  });
+
+  it('critical tasks go red only when highlighted, and highlighting keeps every row', () => {
     const scenario = buildScenario({ n: 40, spanDays: 200 });
-    expect(() => runExport({ ...scenario, criticalOnly: true })).not.toThrow();
+    const plain = buildProgrammePdfDoc(scenario);
+    const highlighted = buildProgrammePdfDoc({ ...scenario, highlightCritical: true });
+    expect(pageStreams(plain).join('\n')).not.toMatch(CRITICAL_RED);
+    expect(pageStreams(highlighted).join('\n')).toMatch(CRITICAL_RED);
+    const strings = drawnStrings(highlighted);
+    for (const t of scenario.tasks) expect(strings).toContain(t.name);
   });
 
-  it('empty task list is a no-op', () => {
-    expect(exportProgrammePdf({ tasks: [], scheduledMap: new Map() })).toBe(false);
+  it('summary duration is the engine roll-up, as in the task list', () => {
+    expect(drawnStrings(buildProgrammePdfDoc(buildScenario({ n: 10, spanDays: 30 })))).toContain('123d');
   });
 
   it('milestones and missing baseline/scheduledMap entries do not throw', () => {
     const scenario = buildScenario({ n: 15, spanDays: 60 });
     scenario.scheduledMap.delete('t3'); // task with no resolved schedule
-    expect(() => runExport(scenario)).not.toThrow();
+    expect(buildProgrammePdfDoc(scenario)).not.toBeNull();
+  });
+
+  it('empty task list draws nothing', () => {
+    expect(buildProgrammePdfDoc({ tasks: [], scheduledMap: new Map() })).toBeNull();
+    expect(exportProgrammePdf({ tasks: [], scheduledMap: new Map() })).toBe(false);
   });
 });
 
 describe('programmePdfBase64', () => {
-  it('returns raw base64 PDF bytes across all three tiling tiers', () => {
+  it('returns raw base64 PDF bytes across the timescale tiers', () => {
     for (const opts of [{ n: 10, spanDays: 20 }, { n: 80, spanDays: 300 }, { n: 200, spanDays: 1500 }]) {
       const out = programmePdfBase64(buildScenario(opts));
       expect(out).not.toBeNull();
@@ -106,11 +145,9 @@ describe('programmePdfBase64', () => {
     expect(programmePdfBase64({ tasks: [], scheduledMap: new Map() })).toBeNull();
   });
 
-  it('criticalOnly:false yields more content than criticalOnly:true', () => {
-    // Locks in that the publish path sends the FULL programme — a regression that
-    // reintroduces showCriticalPath would shrink the attachment.
-    const s = buildScenario({ n: 40, spanDays: 200 });
-    expect(programmePdfBase64({ ...s, criticalOnly: false }).bytes)
-      .toBeGreaterThan(programmePdfBase64({ ...s, criticalOnly: true }).bytes);
+  it('builds the A3 landscape sheet the publish email attaches', () => {
+    const pdf = atob(programmePdfBase64({ ...buildScenario({ n: 40, spanDays: 200 }), paper: 'a3' }).base64);
+    const [w, h] = /\/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/.exec(pdf).slice(1).map(Number);
+    expect([Math.round(w), Math.round(h)]).toEqual([1191, 842]); // A3 landscape, in points
   });
 });

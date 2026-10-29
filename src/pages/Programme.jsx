@@ -612,8 +612,10 @@ export default function Programme() {
     toast({ title: 'Exported', description: 'MS Project XML downloaded — opens via File → Open in Microsoft Project.', duration: 4000 });
   };
 
-  // ─── Print (multi-page vector PDF, MS-Project-style tiling) ────────────────
-  const handlePrint = useCallback(() => {
+  // ─── Print (multi-page vector PDF, MS Project "fit to 1 page wide") ────────
+  // Prints what's on screen: the visible rows (collapsed groups stay
+  // collapsed) and the Critical toggle's red highlighting.
+  const handlePrint = useCallback((paper) => {
     setIsExportingPdf(true);
     // Defer to next tick so the disabled/spinner state paints before the
     // synchronous (and, for large schedules, non-trivial) PDF draw loop runs.
@@ -621,11 +623,13 @@ export default function Programme() {
       try {
         exportProgrammePdf({
           tasks,
+          visibleTasks,
           scheduledMap,
           programme,
           projectName: selectedProjectName,
           baselineMap,
-          criticalOnly: showCriticalPath,
+          highlightCritical: showCriticalPath,
+          paper,
         });
       } catch (err) {
         toast({ title: 'PDF export failed', description: err.message, variant: 'destructive' });
@@ -633,10 +637,12 @@ export default function Programme() {
         setIsExportingPdf(false);
       }
     }, 0);
-  }, [tasks, scheduledMap, programme, selectedProjectName, baselineMap, showCriticalPath, toast]);
+  }, [tasks, visibleTasks, scheduledMap, programme, selectedProjectName, baselineMap, showCriticalPath, toast]);
 
-  // Build the publish attachment. Deliberately criticalOnly:false — the emailed
-  // programme must never be silently filtered by the on-screen Critical toggle.
+  // Build the publish attachment: always A3 landscape. Deliberately NOT the
+  // on-screen view: the emailed programme is every task, expanded, with no
+  // critical highlighting, whatever happens to be collapsed or toggled on the
+  // publisher's screen.
   // Wrapped in setTimeout so the disabled/spinner state paints before the
   // synchronous draw loop blocks the main thread (same reason as handlePrint).
   const buildPublishPdf = useCallback(() => new Promise((resolve) => {
@@ -648,7 +654,7 @@ export default function Programme() {
           programme,
           projectName: selectedProjectName,
           baselineMap,
-          criticalOnly: false,
+          paper: 'a3',
         }) });
       } catch (err) {
         resolve({ ok: false, error: err });
@@ -894,7 +900,15 @@ export default function Programme() {
             <Button variant="outline" size="sm" onClick={collapseAll} title="Collapse all" className="gap-1.5 text-xs h-9"><ChevronsDownUp className="w-3.5 h-3.5" />Collapse</Button>
             <Button variant="outline" size="icon" onClick={() => cycleZoom('out')} title={`Zoom out (${zoom})`}><ZoomOut className="w-4 h-4" /></Button>
             <Button variant="outline" size="icon" onClick={() => cycleZoom('in')} title={`Zoom in (${zoom})`}><ZoomIn className="w-4 h-4" /></Button>
-            <Button variant="outline" size="icon" onClick={handlePrint} disabled={isExportingPdf || selectedProjectId === 'all' || tasks.length === 0} title="Export PDF"><Printer className={`w-4 h-4 ${isExportingPdf ? 'animate-pulse' : ''}`} /></Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="icon" disabled={isExportingPdf || selectedProjectId === 'all' || tasks.length === 0} title="Print to PDF"><Printer className={`w-4 h-4 ${isExportingPdf ? 'animate-pulse' : ''}`} /></Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => handlePrint('a4')}>PDF — A4 landscape</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handlePrint('a3')}>PDF — A3 landscape</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             {canImportExport && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
