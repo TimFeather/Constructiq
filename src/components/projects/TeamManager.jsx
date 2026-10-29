@@ -316,6 +316,9 @@ export default function TeamManager({ project }) {
                         <Badge variant="outline" className="text-xs text-red-600 border-red-300 bg-red-50">Deactivated</Badge>
                       )}
                     </div>
+                    <div className="text-xs text-muted-foreground mt-0.5">
+                      {[member.business_name, member.user_email, member.phone].filter(Boolean).join(' · ')}
+                    </div>
                   </div>
                 </div>
                 );
