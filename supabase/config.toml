@@ -1,0 +1,53 @@
+# ════════════════════════════════════════════════════════════════════
+# Supabase CLI project config
+#
+# ⚠ DO NOT RUN `supabase config push` ⚠
+# That command pushes this WHOLE file to the linked project, and every
+# setting not written here is reset to CLI defaults — including the auth
+# Redirect URLs allow-list that the password-reset flow depends on, the
+# Site URL, and the SMTP/auth settings. This file is deliberately minimal,
+# so pushing it would wipe live project configuration.
+#
+# ── What this file does and does not do ─────────────────────────────
+# The `verify_jwt` key below is NOT applied by `supabase functions deploy`
+# on CLI 2.107.0 — verified 2026-09-02: deploying with this file present
+# left resendWebhook at verify_jwt = true. It is read by local dev
+# (`supabase start` / `functions serve`) and by `config push` (see above).
+#
+# It is kept here as the declaration of intent, and because newer CLI
+# versions are expected to honour it on deploy. Until that is confirmed,
+# the ONLY thing that actually keeps the gateway open is the flag:
+#
+#     supabase functions deploy resendWebhook --no-verify-jwt
+#
+# The flag is per-deploy and not stored state. A deploy-all
+# (`supabase functions deploy` with no function name) always omits it.
+# That is exactly how the webhook broke on 2026-08-27: Resend sends only
+# Svix headers, so the gateway rejected every delivery with
+# 401 UNAUTHORIZED_NO_AUTH_HEADER before the function booted. Resend
+# retried, kept failing, and disabled the endpoint.
+#
+# After ANY deploy of resendWebhook, confirm the gateway is still open:
+#
+#     curl -s -X POST \
+#       https://axrknhdinnjhrjrmwher.supabase.co/functions/v1/resendWebhook \
+#       -H 'Content-Type: application/json' -d '{}'
+#
+#     want: {"error":"Missing signature headers"}   <- function answering
+#     bad:  {"code":"UNAUTHORIZED_NO_AUTH_HEADER"}  <- flag was dropped
+# ════════════════════════════════════════════════════════════════════
+
+project_id = "axrknhdinnjhrjrmwher"
+
+# Called by Resend, which has no Supabase session and sends no
+# Authorization header. Auth is the Svix signature instead: the handler
+# fails closed and rejects everything unless RESEND_WEBHOOK_SECRET is set
+# and the signature verifies. See supabase/functions/resendWebhook/index.ts
+# and supabase/migrations/020b_resend_webhook.INSTRUCTIONS.md.
+[functions.resendWebhook]
+verify_jwt = false
+
+# Every other function is left at the default (verify_jwt = true) and must
+# not be added here. tenderPublicApi and subcontractorPortal look public,
+# but both are only ever reached from the browser via invokeFunction, which
+# attaches the anon key automatically — their gateway check already passes.
