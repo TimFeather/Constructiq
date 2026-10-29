@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { Task } from '@/api/entities';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { normalizeDuration } from '@/lib/scheduling/duration';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -67,7 +68,7 @@ export default function TaskInlineEditor({ task, tasks = [], scheduleOptions, ed
         : null;
       const payload = {
         name: data.name,
-        duration: task.is_milestone ? 0 : Math.max(1, Number(data.duration) || 1),
+        duration: task.is_milestone ? 0 : normalizeDuration(data.duration),
         start_date: data.start_date || null,
         constraint,
         predecessors: data.predecessors
@@ -164,7 +165,7 @@ export default function TaskInlineEditor({ task, tasks = [], scheduleOptions, ed
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <Label className="text-xs">Duration (working days)</Label>
-                    <Input type="number" min={1} value={form.duration} disabled={isMilestone}
+                    <Input type="number" min={0.25} step="any" value={form.duration} disabled={isMilestone}
                       onChange={e => setForm(f => ({ ...f, duration: e.target.value }))} className="mt-1" />
                   </div>
                   <div>

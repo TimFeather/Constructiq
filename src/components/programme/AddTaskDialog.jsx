@@ -94,7 +94,7 @@ export default function AddTaskDialog({ open, onOpenChange, projectId, tasks, sc
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>Duration (working days)</Label>
-              <Input type="number" min={1} value={form.duration} disabled={form.is_milestone}
+              <Input type="number" min={0.25} step="any" value={form.duration} disabled={form.is_milestone}
                 onChange={e => setForm(f => ({ ...f, duration: e.target.value }))} className="mt-1" />
             </div>
             <div>

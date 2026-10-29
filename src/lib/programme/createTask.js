@@ -8,6 +8,7 @@ import { Task } from '@/api/entities';
 import { updateTaskDependency } from '@/lib/scheduleUpdateService';
 import { bulkUpdateTaskWbs } from '@/api/programmeData';
 import { computeWBS } from '@/lib/wbsUtils';
+import { normalizeDuration } from '@/lib/scheduling/duration';
 
 function todayStr() {
   const d = new Date();
@@ -92,7 +93,7 @@ export async function createTaskInline({
   const created = await Task.create({
     project_id: projectId,
     name: name.trim(),
-    duration: isMilestone ? 0 : Math.max(1, Number(duration) || 1),
+    duration: isMilestone ? 0 : normalizeDuration(duration),
     is_milestone: isMilestone,
     start_date: startDate || scheduleOptions?.dataDate || todayStr(),
     end_date: null,

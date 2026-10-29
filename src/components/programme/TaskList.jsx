@@ -5,6 +5,7 @@ import { format } from 'date-fns';
 import { calculateVariance } from '@/lib/scheduling/baselineEngine';
 import { predecessorLabel, wbsLabelMap } from '@/lib/scheduleExport';
 import { parsePredecessorInput } from '@/lib/programme/predecessorParse';
+import { normalizeDuration } from '@/lib/scheduling/duration';
 import TaskContextMenu from './TaskContextMenu';
 import { Task } from '@/api/entities';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -155,8 +156,8 @@ export default function TaskList({
         break;
       }
       case 'duration': {
-        const n = parseInt(rawValue, 10);
-        if (Number.isFinite(n) && n >= 1 && n !== ctx.duration) onDurationCommit?.(task.id, n);
+        const n = normalizeDuration(rawValue, null);
+        if (n !== null && n !== ctx.duration) onDurationCommit?.(task.id, n);
         break;
       }
       case 'start': {

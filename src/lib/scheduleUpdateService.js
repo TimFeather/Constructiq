@@ -20,6 +20,7 @@
 import { runScheduleEngine, wouldCreateCycle } from './scheduling/scheduleEngine.js';
 import { validateLink } from './scheduling/dependencyGraph.js';
 import { validateCalendar } from './scheduling/calendarEngine.js';
+import { normalizeDuration } from './scheduling/duration.js';
 import { Task, TaskChangeLog } from '@/api/entities';
 import { bulkUpdateSchedule, setTaskDependencies } from '@/api/programmeData';
 
@@ -188,7 +189,7 @@ export async function applyScheduleUpdate(taskId, changes, allTasks, options = {
 export async function updateTaskDuration(taskId, newDuration, allTasks, options) {
   return applyScheduleUpdate(
     taskId,
-    { duration: Math.max(1, newDuration) },
+    { duration: normalizeDuration(newDuration) },
     allTasks,
     options
   );
@@ -260,10 +261,8 @@ export async function updateTaskConstraint(taskId, constraint, allTasks, options
  * date — reruns the engine so late-finishing predecessors push their
  * successors (and early finishes pull them in).
  */
-export async function updateTaskProgress(taskId, percent_complete, allTasks, options = {}) {
-  const task = allTasks.find(t => t.id === taskId);
-  if (!task) throw new Error(`Task ${taskId} not found`);
-
+/** The progress fields a % update writes: backfilled actual start, set/cleared actual finish. */
+function progressChanges(task, percent_complete) {
   const todayStr = (() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -284,6 +283,14 @@ export async function updateTaskProgress(taskId, percent_complete, allTasks, opt
   if (percent_complete < 100 && task.actual_finish) {
     changes.actual_finish = null; // un-completing a task clears its finish
   }
+  return changes;
+}
+
+export async function updateTaskProgress(taskId, percent_complete, allTasks, options = {}) {
+  const task = allTasks.find(t => t.id === taskId);
+  if (!task) throw new Error(`Task ${taskId} not found`);
+
+  const changes = progressChanges(task, percent_complete);
 
   const finishSlipped = percent_complete >= 100
     && (changes.actual_finish || task.actual_finish)
@@ -305,6 +312,69 @@ export async function updateTaskProgress(taskId, percent_complete, allTasks, opt
   const mergedTasks = allTasks.map(t => (t.id === taskId ? { ...t, ...changes } : t));
   const scheduledMap = runScheduleEngine(mergedTasks, options.projectStart, options.calendar, { dataDate: options.dataDate, criticalToleranceDays: options.criticalToleranceDays || 0 });
   return { patches: [], scheduledMap, mergedTasks };
+}
+
+/**
+ * The duration that pushes a task's finish out by `extraDays` working days.
+ *
+ * Usually that's duration + extraDays. But once the programme has a data date,
+ * an in-progress task finishes at data date + ceil(duration × (1 − %)) whole
+ * days (see criticalPath.js), so the duration is scaled to add `extraDays` of
+ * REMAINING work instead — whole days only on that path, so ½ counts as 1.
+ *
+ * @param {Object} task
+ * @param {number} extraDays - working days to add (> 0)
+ * @param {{ percent?: number, dataDate?: string|null }} [opts] - % being saved alongside
+ */
+export function extendedDuration(task, extraDays, { percent = task.percent_complete || 0, dataDate = null } = {}) {
+  const duration = Number(task.duration) || 1;
+  if (!(dataDate && percent > 0 && percent < 100)) return normalizeDuration(duration + extraDays);
+
+  // Same expression the engine uses, so the result lands exactly on target
+  const remaining = (d) => Math.max(1, Math.ceil(d * (1 - percent / 100)));
+  const target = remaining(duration) + Math.ceil(extraDays);
+  const step = (d, by) => Math.round((d + by) * 100) / 100;
+  let next = Math.floor((target / (1 - percent / 100)) * 100) / 100;
+  while (remaining(next) > target) next = step(next, -0.01);
+  while (remaining(next) < target) next = step(next, 0.01);
+  return next;
+}
+
+/**
+ * Changes for a field update from site: the % complete, plus extra working
+ * days when the task needs more time.
+ */
+export function fieldUpdateChanges(task, { percent_complete, extraDays = 0 }, { dataDate = null } = {}) {
+  const changes = progressChanges(task, percent_complete);
+  if (extraDays > 0) {
+    changes.duration = extendedDuration(task, extraDays, { percent: percent_complete, dataDate });
+  }
+  return changes;
+}
+
+/**
+ * What a field update would do, without saving: the task's resulting
+ * duration and finish date.
+ *
+ * @returns {{ duration: number, finishStr: string|null }}
+ */
+export function previewFieldUpdate(taskId, update, allTasks, options = {}) {
+  const task = allTasks.find(t => t.id === taskId);
+  if (!task) throw new Error(`Task ${taskId} not found`);
+  const changes = fieldUpdateChanges(task, update, options);
+  const mergedTasks = allTasks.map(t => (t.id === taskId ? { ...t, ...changes } : t));
+  const scheduledMap = runScheduleEngine(mergedTasks, options.projectStart, options.calendar, { dataDate: options.dataDate, criticalToleranceDays: options.criticalToleranceDays || 0 });
+  return { duration: changes.duration ?? task.duration, finishStr: scheduledMap.get(taskId)?.finishStr || null };
+}
+
+/**
+ * Save a field update that adds days: progress and the longer duration go
+ * through ONE engine run, so the slip cascades once with one audit trail.
+ */
+export async function extendTask(taskId, update, allTasks, options = {}) {
+  const task = allTasks.find(t => t.id === taskId);
+  if (!task) throw new Error(`Task ${taskId} not found`);
+  return applyScheduleUpdate(taskId, fieldUpdateChanges(task, update, options), allTasks, options);
 }
 
 /**
@@ -348,8 +418,8 @@ export function validateScheduleIntegrity(tasks, calendar) {
   }
 
   for (const task of tasks) {
-    // Negative or zero duration (non-milestone)
-    if (!task.is_milestone && task.duration !== 0 && task.duration < 1) {
+    // Negative duration (0 = milestone; fractions like 0.5d are valid)
+    if (!task.is_milestone && task.duration < 0) {
       errors.push(`Task "${task.name}" has invalid duration: ${task.duration}`);
     }
 

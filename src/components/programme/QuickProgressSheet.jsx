@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Drawer,
   DrawerContent,
@@ -9,6 +9,7 @@ import {
   DrawerClose,
 } from '@/components/ui/drawer';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Slider } from '@/components/ui/slider';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
@@ -20,11 +21,22 @@ import {
   SelectContent,
   SelectItem,
 } from '@/components/ui/select';
-import { Camera, X, AlertTriangle } from 'lucide-react';
-import { format } from 'date-fns';
+import { Camera, X, AlertTriangle, Lock } from 'lucide-react';
+import { format, addDays } from 'date-fns';
 import { cn } from '@/lib/utils';
 
 const QUICK_STEPS = [0, 25, 50, 75, 100];
+
+// "Need more time?" — working days to add
+const EXTEND_STEPS = [
+  { days: 0.5, label: '+½ day' },
+  { days: 1, label: '+1 day' },
+  { days: 2, label: '+2 days' },
+  { days: 5, label: '+5 days' },
+];
+
+const fmtDay = (dateStr) => format(new Date(`${dateStr}T00:00:00`), 'EEE d MMM');
+const daysLabel = (n) => `${n} day${n === 1 ? '' : 's'}`;
 
 const DELAY_REASONS = [
   { value: 'weather', label: 'Weather' },
@@ -44,12 +56,24 @@ function todayStr() {
   return `${y}-${m}-${day}`;
 }
 
-export default function QuickProgressSheet({ task, planned, projectName, open, onOpenChange, saving, onSave }) {
+/**
+ * @param {boolean} [canExtend] - show "Need more time?" (task not a milestone, programme not locked)
+ * @param {boolean} [locked] - programme is locked, so explain why days can't be added
+ * @param {Function} [previewExtension] - (percent, extraDays) => { duration, finishStr }
+ * @param {Function} [extraDaysForFinish] - (currentFinishStr, newFinishStr) => working days
+ */
+export default function QuickProgressSheet({
+  task, planned, projectName, open, onOpenChange, saving, onSave,
+  canExtend = false, locked = false, previewExtension, extraDaysForFinish,
+}) {
   const [percent, setPercent] = useState(0);
   const [note, setNote] = useState('');
   const [delayReason, setDelayReason] = useState('');
   const [photoFile, setPhotoFile] = useState(null);
   const [photoUrl, setPhotoUrl] = useState(null);
+  // Extension: a quick step, or working days derived from a picked finish date
+  const [stepDays, setStepDays] = useState(0);
+  const [newFinish, setNewFinish] = useState('');
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -58,8 +82,22 @@ export default function QuickProgressSheet({ task, planned, projectName, open, o
       setNote('');
       setDelayReason('');
       setPhotoFile(null);
+      setStepDays(0);
+      setNewFinish('');
     }
   }, [task, open]);
+
+  // Finishing the task makes "more time" moot — the actual finish records the slip
+  const extending = canExtend && percent < 100;
+  const extraDays = !extending ? 0
+    : newFinish ? (extraDaysForFinish?.(planned?.finishStr, newFinish) || 0)
+    : stepDays;
+
+  const preview = useMemo(
+    // previewExtension is a fresh closure each render; task/percent/days decide the result
+    () => (extraDays > 0 ? previewExtension?.(percent, extraDays) : null),
+    [task?.id, percent, extraDays],
+  );
 
   useEffect(() => {
     if (photoFile) {
@@ -75,7 +113,15 @@ export default function QuickProgressSheet({ task, planned, projectName, open, o
   const today = todayStr();
   const runningLate = !!(planned?.finishStr && planned.finishStr < today && percent < 100);
   const completedLate = !!(percent >= 100 && planned?.finishStr && today > planned.finishStr);
-  const showDelayReason = runningLate || completedLate;
+  // Adding days always needs a reason, so the programme shows why it slipped
+  const reasonRequired = extraDays > 0;
+  const showDelayReason = runningLate || completedLate || reasonRequired;
+  const missingReason = reasonRequired && !delayReason;
+
+  const pickStep = (days) => {
+    setNewFinish('');
+    setStepDays(prev => (prev === days ? 0 : days));
+  };
 
   const handleSave = () => {
     onSave({
@@ -83,12 +129,13 @@ export default function QuickProgressSheet({ task, planned, projectName, open, o
       note: note.trim() || null,
       delayReason: delayReason || null,
       photoFile,
+      extraDays,
     });
   };
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent>
+      <DrawerContent className="max-h-[92dvh]">
         <DrawerHeader>
           <DrawerTitle className="flex items-center gap-2 flex-wrap">
             <span className="truncate">{task.name}</span>
@@ -126,6 +173,53 @@ export default function QuickProgressSheet({ task, planned, projectName, open, o
               />
             </div>
           </div>
+
+          {extending && (
+            <div>
+              <Label>Need more time?</Label>
+              <div className="mt-1 grid grid-cols-4 gap-2">
+                {EXTEND_STEPS.map(({ days, label }) => (
+                  <Button
+                    key={days}
+                    type="button"
+                    variant={!newFinish && stepDays === days ? 'default' : 'outline'}
+                    className="h-12 px-1 text-sm font-semibold"
+                    onClick={() => pickStep(days)}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                <span className="text-xs text-muted-foreground flex-shrink-0">or new finish date</span>
+                <Input
+                  type="date"
+                  value={newFinish}
+                  min={planned?.finishStr ? format(addDays(new Date(`${planned.finishStr}T00:00:00`), 1), 'yyyy-MM-dd') : undefined}
+                  onChange={(e) => { setStepDays(0); setNewFinish(e.target.value); }}
+                  className="h-10"
+                />
+              </div>
+              {preview?.finishStr && (
+                <div className="mt-2 p-2 rounded-md border border-amber-500/40 bg-amber-500/10 text-xs text-amber-800 dark:text-amber-200">
+                  <span className="font-semibold">Finishes {fmtDay(preview.finishStr)}</span>
+                  {planned?.finishStr ? ` (was ${fmtDay(planned.finishStr)})` : ''}
+                  {' · '}{daysLabel(task.duration ?? 1)} → {daysLabel(preview.duration)}
+                  <span className="block text-amber-700/80 dark:text-amber-200/70">Linked tasks after it move too.</span>
+                </div>
+              )}
+              {newFinish && extraDays === 0 && (
+                <p className="mt-2 text-xs text-muted-foreground">Pick a working day after the planned finish.</p>
+              )}
+            </div>
+          )}
+
+          {locked && percent < 100 && !(task.is_milestone || task.duration === 0) && (
+            <div className="flex items-center gap-2 p-2 rounded-md border text-xs text-muted-foreground">
+              <Lock className="w-3.5 h-3.5 flex-shrink-0" />
+              <span>This programme is locked — ask an admin to add days.</span>
+            </div>
+          )}
 
           <div>
             <Textarea
@@ -174,11 +268,13 @@ export default function QuickProgressSheet({ task, planned, projectName, open, o
 
           {showDelayReason && (
             <div>
-              <div className="flex items-center gap-2 mb-2 p-2 rounded-md border border-amber-500/40 bg-amber-500/10 text-xs text-amber-700">
-                <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
-                <span>This task is past its planned finish</span>
-              </div>
-              <Label>Delay reason (optional)</Label>
+              {(runningLate || completedLate) && (
+                <div className="flex items-center gap-2 mb-2 p-2 rounded-md border border-amber-500/40 bg-amber-500/10 text-xs text-amber-700">
+                  <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span>This task is past its planned finish</span>
+                </div>
+              )}
+              <Label>Delay reason {reasonRequired ? '(required to add days)' : '(optional)'}</Label>
               <Select value={delayReason} onValueChange={setDelayReason}>
                 <SelectTrigger className={cn('mt-1')}>
                   <SelectValue placeholder="Select a reason" />
@@ -194,8 +290,8 @@ export default function QuickProgressSheet({ task, planned, projectName, open, o
         </div>
 
         <DrawerFooter>
-          <Button className="h-12 w-full" onClick={handleSave} disabled={saving}>
-            {saving ? 'Saving…' : 'Save'}
+          <Button className="h-12 w-full" onClick={handleSave} disabled={saving || missingReason}>
+            {saving ? 'Saving…' : missingReason ? 'Pick a delay reason to add days' : extraDays > 0 ? `Save & add ${daysLabel(extraDays)}` : 'Save'}
           </Button>
           <DrawerClose asChild>
             <Button variant="outline" className="h-12 w-full">Cancel</Button>

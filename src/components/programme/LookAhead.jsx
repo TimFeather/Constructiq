@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { format, addDays, differenceInDays } from 'date-fns';
+import { format, addDays, differenceInDays, startOfDay } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { AlertTriangle, Clock, CheckCircle2, Flag } from 'lucide-react';
@@ -21,13 +21,17 @@ export default function LookAhead({ tasks, scheduledMap, allTasks, programmesByP
   const { user } = useAuth();
   const [windowDays, setWindowDays] = useState(14);
   const [assigneeFilter, setAssigneeFilter] = useState(ASSIGNEE_ALL);
-  const today = new Date();
+  // Local midnight, so a task finishing today still counts as in the window
+  const today = startOfDay(new Date());
   const windowEnd = addDays(today, windowDays);
 
   // Quick-progress mutation — shared with the old Field page. Falls back to
   // `tasks` if the parent hasn't wired allTasks/programmesByProject, so the
   // reschedule cascade still has something to work with.
-  const { activeTask, setActiveTask, saving, handleSave } = useQuickProgress({
+  const {
+    activeTask, setActiveTask, saving, handleSave,
+    canExtend, isLocked, previewExtension, extraDaysForFinish,
+  } = useQuickProgress({
     allTasks: allTasks || tasks,
     programmesByProject,
   });
@@ -60,13 +64,15 @@ export default function LookAhead({ tasks, scheduledMap, allTasks, programmesByP
       const start = resolved?.startStr || t.start_date;
       const end = resolved?.finishStr || t.end_date;
       if (!start || !end) continue;
-      const s = new Date(start), e = new Date(end);
-      const overlaps = s <= windowEnd && e >= today;
-      if (!overlaps) continue;
-
-      const isCritical = resolved?.isCritical || false;
+      // Local-midnight parse ('yyyy-MM-dd' alone parses as UTC)
+      const s = new Date(`${start}T00:00:00`), e = new Date(`${end}T00:00:00`);
       const pct = t.percent_complete || 0;
       const isOverdue = pct < 100 && e < today;
+      const overlaps = s <= windowEnd && e >= today;
+      // Unfinished work past its finish stays listed — it's what most needs updating
+      if (!overlaps && !isOverdue) continue;
+
+      const isCritical = resolved?.isCritical || false;
 
       if (isMilestone) miles.push({ task: t, resolved, end: e });
       else if (isCritical && pct < 100) crit.push({ task: t, resolved, end: e });
@@ -270,6 +276,10 @@ export default function LookAhead({ tasks, scheduledMap, allTasks, programmesByP
           onOpenChange={open => { if (!open && !saving) setActiveTask(null); }}
           saving={saving}
           onSave={handleSave}
+          canExtend={canExtend(activeTask)}
+          locked={isLocked(activeTask)}
+          previewExtension={previewExtension}
+          extraDaysForFinish={extraDaysForFinish}
         />
       )}
     </div>
