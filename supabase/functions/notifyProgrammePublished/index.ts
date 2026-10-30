@@ -9,7 +9,12 @@
  * garbageCollectFiles for how the path is kept alive) and every send is
  * tracked in email_messages via sendTrackedEmail.
  *
- * Input: { projectId, pdfBase64?, pdfFilename? }
+ * Each recipient assigned to tasks in the next 3 weeks also gets their own
+ * list ({my_tasks}). The browser sends the list (upcomingTasks), on the
+ * engine's dates, the same ones the PDF shows.
+ *
+ * Input: { projectId, pdfBase64?, pdfFilename?,
+ *          upcomingTasks?: [{ wbs, name, start, finish, emails[] }] }
  * Returns: { success, total, sent, failed, results[], pdfAttached, pdfPath, pdfBytes }
  */
 import { createClient } from 'npm:@supabase/supabase-js@2';
@@ -38,12 +43,67 @@ const DEFAULT_TEMPLATE = {
   body_html: `<p>Hi,</p>
 <p>The construction programme for <strong>{project_name}</strong> has been updated by {sender_name}.</p>
 {pdf_note}
+{my_tasks}
 <p>Please refer to the latest schedule for current dates, and let us know if you have any questions.</p>
 <p style="margin-top:24px;">
   <a href="{login_url}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">Log in to View Programme</a>
 </p>
 <p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br>{sender_name}<br>{company_name}</p>`,
 };
+
+// upcomingTasks comes from the browser, so every field is checked and
+// escaped. It is only ever shown to recipients this function picks from
+// project.team, each seeing only rows that list their own email.
+const MAX_UPCOMING_TASKS = 500;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+type UpcomingTask = { wbs: string; name: string; start: string; finish: string; emails: string[] };
+
+function readUpcomingTasks(raw: unknown): UpcomingTask[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.slice(0, MAX_UPCOMING_TASKS)
+    .map((t: any) => ({
+      wbs:    String(t?.wbs ?? '').slice(0, 30),
+      name:   String(t?.name ?? '').slice(0, 200),
+      start:  typeof t?.start === 'string' && DATE_RE.test(t.start) ? t.start : '',
+      finish: typeof t?.finish === 'string' && DATE_RE.test(t.finish) ? t.finish : '',
+      emails: Array.isArray(t?.emails)
+        ? t.emails.slice(0, 20).map((e: unknown) => String(e).trim().toLowerCase()).filter(Boolean)
+        : [],
+    }))
+    .filter((t) => t.name && t.start && t.finish && t.emails.length);
+}
+
+function escapeHtml(s: string) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+// 'yyyy-MM-dd' → 'Mon 9 Mar', independent of the server's time zone
+function formatDay(d: string) {
+  const dt = new Date(`${d}T00:00:00Z`);
+  return `${DAYS[dt.getUTCDay()]} ${dt.getUTCDate()} ${MONTHS[dt.getUTCMonth()]}`;
+}
+
+// One recipient's {my_tasks} block; '' when they have none. "3 weeks" matches
+// UPCOMING_TASK_DAYS in src/lib/programme/assignees.js.
+function myTasksHtml(tasks: UpcomingTask[]) {
+  if (!tasks.length) return '';
+  const cell = 'padding:6px 8px;border-top:1px solid #e5e7eb;vertical-align:top;';
+  const rows = tasks.map((t) => {
+    const when = t.start === t.finish ? formatDay(t.start) : `${formatDay(t.start)} – ${formatDay(t.finish)}`;
+    return `<tr>
+  <td style="${cell}color:#6b7280;font-size:12px;white-space:nowrap;">${escapeHtml(t.wbs)}</td>
+  <td style="${cell}font-size:14px;">${escapeHtml(t.name)}</td>
+  <td style="${cell}font-size:13px;white-space:nowrap;">${when}</td>
+</tr>`;
+  }).join('\n');
+  return `<p style="margin:20px 0 6px;"><strong>Your tasks in the next 3 weeks</strong></p>
+<table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;border-bottom:1px solid #e5e7eb;">
+${rows}
+</table>`;
+}
 
 // "Log in to view" CTA appended to customised templates saved before
 // {login_url} existed, so every notification has a way into the app.
@@ -59,8 +119,10 @@ function applyVars(template: { subject: string; body_html: string }, vars: Recor
   let body    = template.body_html || '';
   Object.entries(vars).forEach(([k, v]) => {
     const re = new RegExp(`\\{${k}\\}`, 'g');
-    subject = subject.replace(re, v ?? '');
-    body    = body.replace(re, v ?? '');
+    // Replacer function: values hold user text (task names), and a plain
+    // replacement string would treat "$&" etc. in it as patterns.
+    subject = subject.replace(re, () => v ?? '');
+    body    = body.replace(re, () => v ?? '');
   });
   return { subject, body };
 }
@@ -108,7 +170,7 @@ Deno.serve(async (req: Request) => {
     }
     const sender: any = { ...senderProfile, id: authUser.id, email: authUser.email };
 
-    const { projectId, pdfBase64, pdfFilename } = await req.json();
+    const { projectId, pdfBase64, pdfFilename, upcomingTasks } = await req.json();
     if (!projectId) {
       return Response.json({ error: 'projectId is required' }, { status: 400, headers: corsHeaders });
     }
@@ -196,30 +258,40 @@ Deno.serve(async (req: Request) => {
       ? '<p>The updated programme is attached to this email as a PDF.</p>'
       : '';
 
-    const { subject, body: renderedBody } = applyVars(template, {
-      project_name: project.name || '',
-      sender_name:  sender.full_name || sender.email || '',
-      company_name: branding.company_name || 'ConstructIQ',
-      login_url:    loginUrl,
-      pdf_note:     pdfNoteHtml,
-    });
-    let bodyHtml = (template.body_html || '').includes('{login_url}')
-      ? renderedBody
-      : renderedBody + loginButtonHtml(loginUrl, 'Log in to View Programme');
-    // Same reason as the {login_url} fallback above: a template row customised in
-    // Settings before {pdf_note} existed has no placeholder to substitute into,
-    // and the attachment must not go out unmentioned.
-    if (pdfNoteHtml && !(template.body_html || '').includes('{pdf_note}')) {
-      bodyHtml += pdfNoteHtml;
-    }
-    const html = buildHtml(bodyHtml, branding);
+    const upcoming = readUpcomingTasks(upcomingTasks);
+    trace(`upcomingTasks=${upcoming.length}`);
+    const hasPlaceholder = (key: string) => (template.body_html || '').includes(`{${key}}`);
+
+    // Rendered per recipient: only {my_tasks} differs between them.
+    const renderFor = (email: string) => {
+      const myTasks = myTasksHtml(upcoming.filter((t) => t.emails.includes(email.toLowerCase())));
+      const { subject, body: renderedBody } = applyVars(template, {
+        project_name: project.name || '',
+        sender_name:  sender.full_name || sender.email || '',
+        company_name: branding.company_name || 'ConstructIQ',
+        login_url:    loginUrl,
+        pdf_note:     pdfNoteHtml,
+        // Last, so no later substitution runs over the task names inside it
+        my_tasks:     myTasks,
+      });
+      let bodyHtml = renderedBody;
+      // A template row customised in Settings before a placeholder existed has
+      // nowhere to substitute it, so append: the recipient's tasks, a way into
+      // the app ({login_url}), and a mention of the attachment ({pdf_note}).
+      if (myTasks && !hasPlaceholder('my_tasks')) bodyHtml += myTasks;
+      if (!hasPlaceholder('login_url')) bodyHtml += loginButtonHtml(loginUrl, 'Log in to View Programme');
+      if (pdfNoteHtml && !hasPlaceholder('pdf_note')) bodyHtml += pdfNoteHtml;
+      return { subject, html: buildHtml(bodyHtml, branding), hasTasks: !!myTasks };
+    };
 
     const results: any[] = [];
     let sent = 0;
     let failed = 0;
+    let withTasks = 0;
 
     for (const member of recipients) {
       try {
+        const { subject, html, hasTasks } = renderFor(member.user_email);
         const payload: Record<string, unknown> = {
           from: fromEmail,
           to:   member.user_email,
@@ -236,8 +308,9 @@ Deno.serve(async (req: Request) => {
           sentBy: authUser.id,
         });
         sent++;
-        trace(`SUCCESS ${member.user_email} messageId=${messageId}`);
-        results.push({ email: member.user_email, status: 'Sent', messageId });
+        if (hasTasks) withTasks++;
+        trace(`SUCCESS ${member.user_email} messageId=${messageId} taskList=${hasTasks}`);
+        results.push({ email: member.user_email, status: 'Sent', messageId, taskList: hasTasks });
       } catch (sendErr: any) {
         failed++;
         trace(`FAIL ${member.user_email} — ${sendErr?.message}`);
@@ -257,6 +330,7 @@ Deno.serve(async (req: Request) => {
                      + `${attachmentB64 ? ' with the programme PDF attached' : ''}`,
         metadata:    {
           sent, failed, total: recipients.length,
+          with_task_list: withTasks,
           pdf_attached: !!attachmentB64,
           pdf_filename: attachmentB64 ? attachmentName : null,
           pdf_path:     pdfPath,

@@ -54,6 +54,7 @@ import { indentTask, outdentTask } from '@/lib/wbsUtils';
 import { fetchProgrammesByProject } from '@/api/programmeData';
 import { canEdit, canImport, canExport } from '@/lib/permissions';
 import { getVisibleTasks } from '@/lib/programme/visibleTasks';
+import { upcomingAssignedTasks } from '@/lib/programme/assignees';
 import { bulkOperationState } from '@/lib/bulkOperationState';
 import { retry429 } from '@/lib/retry429';
 import TaskInlineEditor from '@/components/programme/TaskInlineEditor';
@@ -752,6 +753,8 @@ export default function Programme() {
       const { data } = await invokeFunction('notifyProgrammePublished', {
         projectId: selectedProjectId,
         ...(pdf ? { pdfBase64: pdf.base64, pdfFilename: pdf.filename } : {}),
+        // Each assignee's next 3 weeks, on the engine's dates (it runs here, not in the function)
+        upcomingTasks: upcomingAssignedTasks(tasks, scheduledMap),
       });
       const sent = data?.sent ?? 0;
       const failed = data?.failed ?? 0;
@@ -769,7 +772,7 @@ export default function Programme() {
     } finally {
       setIsNotifying(false);
     }
-  }, [selectedProjectId, toast]);
+  }, [selectedProjectId, tasks, scheduledMap, toast]);
 
   // Publish = notify every team member & subcontractor, with the programme PDF
   // attached. Does not change the lock state — lock the schedule first.

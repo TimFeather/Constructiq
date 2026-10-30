@@ -279,6 +279,7 @@ export const DEFAULT_TEMPLATES = {
     body_html: `<p>Hi,</p>
 <p>The construction programme for <strong>{project_name}</strong> has been updated by {sender_name}.</p>
 {pdf_note}
+{my_tasks}
 <p>Please refer to the latest schedule for current dates, and let us know if you have any questions.</p>
 <p style="margin-top:24px;">
   <a href="{login_url}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">Log in to View Programme</a>
@@ -492,6 +493,7 @@ export const TEMPLATE_VARIABLES = {
     { key: 'company_name', desc: 'Your company name' },
     { key: 'login_url', desc: 'Link straight into the project programme in ConstructIQ (login required)' },
     { key: 'pdf_note', desc: 'Sentence noting the attached programme PDF — empty when no PDF is attached' },
+    { key: 'my_tasks', desc: "The recipient's own tasks in the next 3 weeks, as a list — empty when they have none. Added after the message if the template leaves it out" },
   ],
   user_invite: [
     { key: 'name', desc: 'Invitee full name or email' },

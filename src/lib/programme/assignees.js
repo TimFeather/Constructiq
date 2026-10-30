@@ -6,6 +6,10 @@
 
 import { normalizeEmail } from '@/lib/normalizeEmail';
 import { assigneeKey } from '@/lib/scheduleImportResources';
+import { toDateStr } from '@/lib/scheduling/calendarEngine';
+
+/** Window for the publish email's "your tasks" list. Its heading says "next 3 weeks". */
+export const UPCOMING_TASK_DAYS = 21;
 
 export const taskAssignees = (task) => (Array.isArray(task?.assignees) ? task.assignees : []);
 
@@ -39,6 +43,35 @@ export function assigneeFilterOptions(tasks) {
 
 /** Does the task have the assignee an assigneeFilterOptions value refers to? */
 export const hasAssigneeKey = (task, key) => taskAssignees(task).some(a => assigneeKey(a) === key);
+
+/**
+ * Unfinished tasks and milestones with an emailed assignee that run within
+ * the next `days` days, for the publish email's per-recipient task list.
+ * Dates are the engine's (scheduledMap), the same ones the Gantt and the
+ * attached PDF show; stored dates can lag them.
+ *
+ * @param {Object} [opts] - { today: 'yyyy-MM-dd' (default: local today), days }
+ * @returns {Array<{ wbs, name, start, finish, emails: string[] }>} by start date
+ */
+export function upcomingAssignedTasks(tasks, scheduledMap, { today = toDateStr(new Date()), days = UPCOMING_TASK_DAYS } = {}) {
+  const windowEnd = new Date(`${today}T00:00:00`);
+  windowEnd.setDate(windowEnd.getDate() + days);
+  const end = toDateStr(windowEnd);
+  const parentIds = new Set((tasks || []).map(t => t.parent_id).filter(Boolean));
+
+  const out = [];
+  for (const t of tasks || []) {
+    if (parentIds.has(t.id) || (t.percent_complete || 0) >= 100) continue;
+    const emails = [...new Set(taskAssignees(t).map(a => normalizeEmail(a.email)).filter(Boolean))];
+    if (!emails.length) continue;
+    const resolved = scheduledMap?.get(t.id);
+    const start = resolved?.startStr || t.start_date;
+    const finish = resolved?.finishStr || t.end_date;
+    if (!start || !finish || start > end || finish < today) continue;
+    out.push({ wbs: t.wbs || '', name: t.name || '', start, finish, emails });
+  }
+  return out.sort((a, b) => a.start.localeCompare(b.start) || a.wbs.localeCompare(b.wbs, undefined, { numeric: true }));
+}
 
 /** A change-log value for the assignees field (JSON text) as names. */
 export function formatLoggedAssignees(raw) {
