@@ -1,13 +1,61 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, isAuthApiError } from '@supabase/supabase-js';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+export const SESSION_EXPIRED_MESSAGE = 'Your session has expired. Please log in again.';
+
+// Shared by every call that hits a 401 at once (e.g. "Resend Outstanding"), so
+// the session is refreshed — or the user signed out — exactly once.
+let sessionRecovery = null;
+
+/**
+ * Called after an edge function answers 401. Resolves to:
+ *   'refreshed' — a new access token was issued; the call is worth retrying
+ *   'expired'   — Supabase refused the refresh too; the user has been signed out
+ *                 and sent to the login page
+ *   'none'      — nothing to recover (no session, or the refresh never reached
+ *                 Supabase), so the original error stands
+ *
+ * The case this exists for: a session ended server-side (signed out elsewhere,
+ * revoked) while this tab still holds an unexpired access token. Table reads
+ * keep working, because PostgREST only checks the token's signature, but every
+ * edge function's auth.getUser() check fails — so the app looked logged in and
+ * actions failed with a bare "Unauthorized" until the user signed out manually.
+ */
+function recoverSession() {
+  sessionRecovery ??= (async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return 'none';
+
+    const { data, error } = await supabase.auth.refreshSession();
+    if (!error && data?.session) return 'refreshed';
+    // Only a definite "no" from Supabase ends the session; a network blip does not.
+    if (!isAuthApiError(error)) return 'none';
+
+    await supabase.auth.signOut({ scope: 'local' });
+    window.location.assign('/login?expired=1');
+    return 'expired';
+  })().finally(() => { sessionRecovery = null; });
+  return sessionRecovery;
+}
+
 // Drop-in replacement for base44.functions.invoke(name, payload)
 export async function invokeFunction(name, payload = {}) {
-  const { data, error } = await supabase.functions.invoke(name, { body: payload });
+  let { data, error } = await supabase.functions.invoke(name, { body: payload });
+
+  // Every function returns 401 from its auth check, before doing any work, so
+  // one retry after a successful refresh cannot repeat a side effect.
+  if (error?.context?.status === 401) {
+    const recovery = await recoverSession();
+    if (recovery === 'expired') throw new Error(SESSION_EXPIRED_MESSAGE);
+    if (recovery === 'refreshed') {
+      ({ data, error } = await supabase.functions.invoke(name, { body: payload }));
+    }
+  }
+
   if (error) {
     // Try to extract the real error message from the function's JSON response body
     try {

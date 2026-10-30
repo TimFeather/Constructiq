@@ -11,6 +11,9 @@ export default function Login() {
   const [searchParams] = useSearchParams();
   const resetSuccess = searchParams.get("reset") === "success";
   const justRegistered = searchParams.get("registered") === "1";
+  // Set by invokeFunction when Supabase refuses to refresh a session that was
+  // ended elsewhere — see recoverSession() in src/api/supabaseClient.js.
+  const sessionExpired = searchParams.get("expired") === "1";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -61,6 +64,12 @@ export default function Login() {
       {justRegistered && !error && (
         <div className="mb-4 p-3 rounded-lg bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-400 text-sm">
           Your account is ready. Log in with the email you were invited on and the password you just chose.
+        </div>
+      )}
+
+      {sessionExpired && !error && (
+        <div className="mb-4 p-3 rounded-lg bg-amber-50 text-amber-800 dark:bg-amber-950/30 dark:text-amber-400 text-sm">
+          Your session has expired. Log in again to carry on.
         </div>
       )}
 
