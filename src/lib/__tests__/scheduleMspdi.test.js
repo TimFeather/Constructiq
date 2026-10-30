@@ -278,7 +278,7 @@ describe('MS Project resources → assignees, end to end', () => {
       resolveAssignees(parseXML(RESOURCE_FIXTURE, 'p1'), resources, choices, team).map(t => [t.name, t])
     );
     expect(byName['Pre-line inspection'].assignees).toEqual([
-      { name: 'ABC Plumbing', email: 'office@abcplumbing.co.nz', msp_resource_uid: 1, units: 1 },
+      { name: 'ABC Plumbing', person: 'Sam Pipe', email: 'office@abcplumbing.co.nz', msp_resource_uid: 1, units: 1 },
       { name: 'Electrician', email: null, msp_resource_uid: 2, units: 1 },
       { name: 'Builder', email: null, msp_resource_uid: 5, units: 1 },
     ]);

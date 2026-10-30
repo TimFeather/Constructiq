@@ -1076,7 +1076,7 @@ export default function Programme() {
               </button>
 
               {!taskListCollapsed && (
-                <div className="w-[560px] xl:w-[660px] flex-shrink-0 overflow-hidden">
+                <div className="w-[672px] xl:w-[772px] flex-shrink-0 overflow-hidden">
                   <TaskList
                     tasks={tasks}
                     visibleTasks={visibleTasks}

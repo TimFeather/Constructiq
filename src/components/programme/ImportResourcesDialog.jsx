@@ -22,7 +22,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
-import { assignableMembers, memberDisplayName, needsReview } from '@/lib/scheduleImportResources';
+import { assignableMembers, memberOptionLabel, needsReview } from '@/lib/scheduleImportResources';
 
 const STATUS = {
   saved: { label: 'Saved', className: 'bg-green-500/10 text-green-700 dark:text-green-400' },
@@ -37,12 +37,6 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 // Select values are strings: 'label', 'ignore' or 'member:<email>'
 const encode = (choice) => (choice.action === 'member' ? `member:${choice.email}` : choice.action);
 const decode = (value) => (value.startsWith('member:') ? { action: 'member', email: value.slice(7) } : { action: value });
-
-function memberLabel(member) {
-  const name = memberDisplayName(member);
-  const extra = [member.full_name !== name ? member.full_name : null, member.trade].filter(Boolean).join(' · ');
-  return extra ? `${name} (${extra})` : name;
-}
 
 function ResourceRow({ match, value, onChange, members }) {
   const { resource, status, candidates } = match;
@@ -73,7 +67,7 @@ function ResourceRow({ match, value, onChange, members }) {
             <SelectGroup>
               <SelectLabel>Suggested</SelectLabel>
               {candidates.map(m => (
-                <SelectItem key={m.user_email} value={`member:${m.user_email}`}>{memberLabel(m)}</SelectItem>
+                <SelectItem key={m.user_email} value={`member:${m.user_email}`}>{memberOptionLabel(m)}</SelectItem>
               ))}
             </SelectGroup>
           )}
@@ -81,7 +75,7 @@ function ResourceRow({ match, value, onChange, members }) {
             <SelectGroup>
               <SelectLabel>Project team</SelectLabel>
               {others.map(m => (
-                <SelectItem key={m.user_email} value={`member:${m.user_email}`}>{memberLabel(m)}</SelectItem>
+                <SelectItem key={m.user_email} value={`member:${m.user_email}`}>{memberOptionLabel(m)}</SelectItem>
               ))}
             </SelectGroup>
           )}

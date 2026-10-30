@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  taskAssignees, assigneeNames, isAssignedTo, assigneeFilterOptions, hasAssigneeKey, formatLoggedAssignees,
+  taskAssignees, assigneeNames, assigneeLabel, isAssignedTo, assigneeFilterOptions, hasAssigneeKey, formatLoggedAssignees,
   upcomingAssignedTasks,
 } from '../assignees.js';
 
@@ -14,6 +14,13 @@ const tasks = [
 ];
 
 describe('assignees helpers', () => {
+  it('labels show the person when they differ from the company', () => {
+    expect(assigneeLabel({ name: 'Sparks Electrical', person: 'Jo Watt', email: 'jo@sparks.co.nz' })).toBe('Sparks Electrical (Jo Watt)');
+    expect(assigneeLabel({ name: 'Pat Manager', person: 'Pat Manager', email: 'pat@ths.co.nz' })).toBe('Pat Manager');
+    expect(assigneeLabel(builder)).toBe('Builder');
+    expect(assigneeNames({ assignees: [{ ...abc, person: 'Sam Pipe' }, builder] })).toBe('ABC Plumbing (Sam Pipe), Builder');
+  });
+
   it('reads assignees defensively', () => {
     expect(taskAssignees(tasks[3])).toEqual([]);
     expect(assigneeNames(tasks[0])).toBe('ABC Plumbing, Builder');

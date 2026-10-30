@@ -17,7 +17,7 @@
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 import { DEP_TO_MSPDI_TYPE } from './scheduleImportParsers';
-import { assigneeNames, taskAssignees } from './programme/assignees';
+import { assigneeNames, assigneeLabel, taskAssignees } from './programme/assignees';
 import { assigneeKey } from './scheduleImportResources';
 
 const CONSTRAINT_TO_CODE = { ASAP: 0, ALAP: 1, MSO: 2, MFO: 3, SNET: 4, SNLT: 5, FNET: 6, FNLT: 7 };
@@ -99,7 +99,7 @@ export function exportResources(tasks, resourceMap = {}) {
       const uid = Number(a.msp_resource_uid);
       if (!Number.isInteger(uid) || uid <= 0) continue;
       if (!resources.has(uid)) {
-        resources.set(uid, { uid, name: resourceMap?.[String(uid)]?.name || a.name, email: a.email || null });
+        resources.set(uid, { uid, name: resourceMap?.[String(uid)]?.name || assigneeLabel(a), email: a.email || null });
       } else if (a.email && !resources.get(uid).email) {
         resources.get(uid).email = a.email;
       }
@@ -117,7 +117,8 @@ export function exportResources(tasks, resourceMap = {}) {
       const key = assigneeKey(a);
       if (!keyToUid.has(key)) {
         keyToUid.set(key, nextUid);
-        resources.set(nextUid, { uid: nextUid, name: a.name || a.email, email: a.email || null });
+        // "Sparks Electrical (Jo Watt)": two people from one company stay distinct in MS Project
+        resources.set(nextUid, { uid: nextUid, name: assigneeLabel(a), email: a.email || null });
         nextUid += 1;
       }
       addToTask(task, keyToUid.get(key), a.units);

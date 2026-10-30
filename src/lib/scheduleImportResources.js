@@ -94,6 +94,18 @@ export function memberDisplayName(member) {
   return member?.business_name || member?.full_name || member?.user_email || '';
 }
 
+/**
+ * A team member in a dropdown: "Sparks Electrical — Jo Watt · Electrical".
+ * The person (or their email, if unnamed) always shows, so two people from
+ * the same company can be told apart.
+ */
+export function memberOptionLabel(member) {
+  const person = member?.full_name || member?.user_email || '';
+  const business = member?.business_name || '';
+  const main = business && normalizeName(business) !== normalizeName(person) ? `${business} — ${person}` : (business || person);
+  return member?.trade ? `${main} · ${member.trade}` : main;
+}
+
 const sameName = (a, b) => {
   const na = normalizeName(a);
   return !!na && na === normalizeName(b);
@@ -192,7 +204,7 @@ export function resolveAssignees(parsedTasks, resources, choices, team) {
 
       const member = choice.action === 'member' ? memberByEmail.get(normalizeEmail(choice.email)) : null;
       const assignee = member
-        ? { name: memberDisplayName(member), email: member.user_email, msp_resource_uid: resourceUid, units }
+        ? { name: memberDisplayName(member), person: member.full_name || null, email: member.user_email, msp_resource_uid: resourceUid, units }
         : { name: resource.name, email: null, msp_resource_uid: resourceUid, units };
       // "ABC Plumbing" and "Plumber" both mapped to ABC on one task → one assignee
       const key = assigneeKey(assignee);

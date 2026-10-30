@@ -1,11 +1,12 @@
 /**
  * Reading tasks.assignees (migration 030) across the programme UI.
- * Each assignee is { name, email, msp_resource_uid, units }; email is null
- * for a name-only assignee ("Builder", "Labourer").
+ * Each assignee is { name, person?, email, msp_resource_uid, units }: name
+ * is the company (or person) shown on the task, person the team member's own
+ * name, and email is null for a name-only assignee ("Builder", "Labourer").
  */
 
 import { normalizeEmail } from '@/lib/normalizeEmail';
-import { assigneeKey } from '@/lib/scheduleImportResources';
+import { assigneeKey, normalizeName } from '@/lib/scheduleImportResources';
 import { toDateStr } from '@/lib/scheduling/calendarEngine';
 
 /** Window for the publish email's "your tasks" list. Its heading says "next 3 weeks". */
@@ -13,8 +14,14 @@ export const UPCOMING_TASK_DAYS = 21;
 
 export const taskAssignees = (task) => (Array.isArray(task?.assignees) ? task.assignees : []);
 
-/** "ABC Plumbing, Builder", or '' when unassigned. */
-export const assigneeNames = (task) => taskAssignees(task).map(a => a.name).filter(Boolean).join(', ');
+/** "Sparks Electrical (Jo Watt)": the person shows, so two from one company differ. */
+export function assigneeLabel(a) {
+  if (!a?.name) return a?.person || a?.email || '';
+  return a.person && normalizeName(a.person) !== normalizeName(a.name) ? `${a.name} (${a.person})` : a.name;
+}
+
+/** "ABC Plumbing (Sam Pipe), Builder", or '' when unassigned. */
+export const assigneeNames = (task) => taskAssignees(task).map(assigneeLabel).filter(Boolean).join(', ');
 
 /** Is this email (the signed-in user, say) one of the task's assignees? */
 export function isAssignedTo(task, email) {
@@ -33,7 +40,7 @@ export function assigneeFilterOptions(tasks) {
   for (const t of tasks || []) {
     for (const a of taskAssignees(t)) {
       const key = assigneeKey(a);
-      if (!byKey.has(key)) byKey.set(key, a.name || a.email || 'Unnamed');
+      if (!byKey.has(key)) byKey.set(key, assigneeLabel(a) || 'Unnamed');
     }
   }
   return [...byKey.entries()]
@@ -79,7 +86,7 @@ export function formatLoggedAssignees(raw) {
   try {
     const list = JSON.parse(raw);
     if (!Array.isArray(list)) return raw;
-    return list.length ? list.map(a => a?.name).filter(Boolean).join(', ') : 'none';
+    return list.length ? list.map(assigneeLabel).filter(Boolean).join(', ') : 'none';
   } catch {
     return raw;
   }

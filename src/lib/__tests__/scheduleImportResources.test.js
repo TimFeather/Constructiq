@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   normalizeName, tradeKey, assignableMembers, matchResources, needsReview,
-  resolveAssignees, assigneesKey, buildResourceMap,
+  resolveAssignees, assigneesKey, buildResourceMap, memberOptionLabel,
 } from '../scheduleImportResources.js';
 
 const TEAM = [
@@ -40,6 +40,20 @@ describe('assignableMembers', () => {
   it('keeps members with an email, one per address, normalized', () => {
     const emails = assignableMembers(TEAM).map(m => m.user_email);
     expect(emails).toEqual(['office@abcplumbing.co.nz', 'jo@sparks.co.nz', 'kim@sparks.co.nz', 'ross@toproofs.co.nz', 'pat@ths.co.nz']);
+  });
+});
+
+describe('memberOptionLabel', () => {
+  it('tells two people from the same company apart', () => {
+    const [jo, kim] = assignableMembers(TEAM).filter(m => m.business_name === 'Sparks Electrical');
+    expect(memberOptionLabel(jo)).toBe('Sparks Electrical — Jo Watt · Electrical');
+    expect(memberOptionLabel(kim)).toBe('Sparks Electrical — Kim Volt · Electrical');
+  });
+
+  it('falls back to the email when the person has no name, and skips repeats', () => {
+    expect(memberOptionLabel({ user_email: 'a@abc.co.nz', business_name: 'ABC Plumbing', trade: '' })).toBe('ABC Plumbing — a@abc.co.nz');
+    expect(memberOptionLabel({ user_email: 'pat@ths.co.nz', full_name: 'Pat Manager', business_name: '' })).toBe('Pat Manager');
+    expect(memberOptionLabel({ user_email: 'g@x.nz', full_name: 'Gary Smith', business_name: 'Gary Smith Ltd' })).toBe('Gary Smith Ltd');
   });
 });
 
@@ -127,7 +141,7 @@ describe('resolveAssignees', () => {
 
   it("names members by business and labels by resource; ignored ones dropped", () => {
     expect(multi.assignees).toEqual([
-      { name: 'ABC Plumbing', email: 'office@abcplumbing.co.nz', msp_resource_uid: 1, units: 1 },
+      { name: 'ABC Plumbing', person: 'Sam Pipe', email: 'office@abcplumbing.co.nz', msp_resource_uid: 1, units: 1 },
       { name: 'Builder', email: null, msp_resource_uid: 5, units: 0.5 },
     ]);
   });

@@ -5,6 +5,7 @@ import { format } from 'date-fns';
 import { calculateVariance } from '@/lib/scheduling/baselineEngine';
 import { predecessorLabel, wbsLabelMap } from '@/lib/scheduleExport';
 import { parsePredecessorInput } from '@/lib/programme/predecessorParse';
+import { assigneeNames } from '@/lib/programme/assignees';
 import { normalizeDuration } from '@/lib/scheduling/duration';
 import TaskContextMenu from './TaskContextMenu';
 import { Task } from '@/api/entities';
@@ -77,9 +78,10 @@ export default function TaskList({
   totalWorkingDays = null, // overall project span in working days (title bar)
   showCritical = false,  // red critical styling only when the Critical toggle is on
 }) {
+  // The 112px Assigned column is matched by the panel width in Programme.jsx
   const COLS = baselineMap
-    ? '44px 20px 1fr 48px 44px 64px 64px 90px 72px'
-    : '44px 20px 1fr 48px 44px 64px 64px 90px';
+    ? '44px 20px 1fr 48px 44px 64px 64px 90px 112px 72px'
+    : '44px 20px 1fr 48px 44px 64px 64px 90px 112px';
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
@@ -382,6 +384,7 @@ export default function TaskList({
         <span className="text-center">Pln Start</span>
         <span className="text-center">Pln End</span>
         <span className="text-center">Predecessors</span>
+        <span className="px-1">Assigned</span>
         {baselineMap && <span className="text-center">Baseline</span>}
       </div>
 
@@ -591,6 +594,15 @@ export default function TaskList({
                   </span>
                 )}
               </div>
+
+              {/* Assigned: changed in the task editor (double-click opens it) */}
+              <span
+                className="text-[10px] text-muted-foreground truncate px-1 block"
+                title={[assigneeNames(task), onEditTask ? `Double-click to ${assigneeNames(task) ? 'change' : 'assign'}` : null].filter(Boolean).join('\n') || undefined}
+                onDoubleClick={onEditTask ? (e) => { e.stopPropagation(); onEditTask(task); } : undefined}
+              >
+                {assigneeNames(task) || '—'}
+              </span>
 
               {baselineMap && <div className="text-center">{baselineEl}</div>}
 

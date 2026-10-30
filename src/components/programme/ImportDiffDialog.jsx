@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import ImportCalendarWarning from '@/components/programme/ImportCalendarWarning';
+import { assigneeLabel } from '@/lib/programme/assignees';
 
 const EM_DASH = '—';
 
@@ -49,7 +50,7 @@ function formatValue(value) {
 }
 
 function formatFieldValue(field, value) {
-  if (field === 'assignees') return value?.length ? value.map(a => a.name).join(', ') : EM_DASH;
+  if (field === 'assignees') return value?.length ? value.map(assigneeLabel).join(', ') : EM_DASH;
   return formatValue(value);
 }
 
