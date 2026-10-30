@@ -1,4 +1,4 @@
-import { supabase } from '@/api/supabaseClient';
+import { supabase, invokeFunction } from '@/api/supabaseClient';
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -16,11 +16,16 @@ export default function ForgotPassword() {
     e.preventDefault();
     setLoading(true);
     try {
+      // Our own email, whose link survives corporate mail scanners — see
+      // supabase/functions/_shared/passwordReset.ts.
+      await invokeFunction('requestPasswordReset', { email });
+    } catch {
+      // Function unreachable or failed: fall back to Supabase's own reset email
+      // so the user still gets a link (the scanner-vulnerable kind, but it works
+      // for most inboxes). Always show success regardless.
       await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: `${window.location.origin}/reset-password`,
-      });
-    } catch {
-      // Always show success regardless
+      }).catch(() => {});
     } finally {
       setLoading(false);
       setSent(true);
@@ -41,6 +46,7 @@ export default function ForgotPassword() {
       {sent ? (
         <p className="text-sm text-foreground text-center">
           If an account exists with that email, you'll receive a password reset link shortly.
+          If you request more than one, only the newest link will work.
         </p>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-4">

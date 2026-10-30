@@ -5,6 +5,20 @@ const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+// A throwaway client whose session lives only in memory, never in localStorage,
+// so the app-wide client (and AuthContext) never sees it. Its own storageKey
+// keeps supabase-js from warning about multiple clients.
+export function createEphemeralAuthClient() {
+  return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+      storageKey: 'ciq-ephemeral-auth',
+    },
+  });
+}
+
 export const SESSION_EXPIRED_MESSAGE = 'Your session has expired. Please log in again.';
 
 // Shared by every call that hits a 401 at once (e.g. "Resend Outstanding"), so

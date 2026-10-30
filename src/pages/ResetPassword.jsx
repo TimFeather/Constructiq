@@ -1,5 +1,5 @@
-import { supabase } from '@/api/supabaseClient';
-import React, { useState, useEffect } from "react";
+import { supabase, createEphemeralAuthClient } from '@/api/supabaseClient';
+import React, { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,10 +8,23 @@ import { Lock, Loader2, AlertTriangle } from "lucide-react";
 import AuthLayout from "@/components/AuthLayout";
 
 export default function ResetPassword() {
+  // Links from our own reset emails (requestPasswordReset / adminResetPassword)
+  // carry ?token_hash=…&type=recovery. The token is spent only when the form is
+  // submitted, so a mail scanner opening the link first can't burn it — see
+  // supabase/functions/_shared/passwordReset.ts. Links from Supabase's own email
+  // (the fallback) arrive with the session already established in the URL hash.
+  const [tokenHash] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("type") === "recovery" ? params.get("token_hash") : null;
+  });
+  // The verified recovery client, kept so a rejected password can be retried —
+  // the token itself is single-use.
+  const recoveryClientRef = useRef(null);
+
   // 'checking' → verifying the recovery session Supabase established from the link
-  // 'ready'    → a recovery session exists; show the new-password form
+  // 'ready'    → a recovery session exists (or a token to verify); show the new-password form
   // 'invalid'  → link missing/expired/already used; ask for a fresh one
-  const [status, setStatus] = useState("checking");
+  const [status, setStatus] = useState(tokenHash ? "ready" : "checking");
   const [linkError, setLinkError] = useState("");
 
   const [newPassword, setNewPassword] = useState("");
@@ -20,6 +33,7 @@ export default function ResetPassword() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    if (tokenHash) return;
     let settled = false;
     const markReady = () => { if (!settled) { settled = true; setStatus("ready"); } };
 
@@ -59,7 +73,24 @@ export default function ResetPassword() {
     }, 4000);
 
     return () => { subscription.unsubscribe(); clearTimeout(timeout); };
-  }, []);
+  }, [tokenHash]);
+
+  // Verifies on an in-memory client so the recovery session never reaches the
+  // app-wide one: AuthContext would see a SIGNED_IN there, swap the routes for
+  // its loading screen and unmount this form mid-submit.
+  const verifyRecoveryToken = async () => {
+    const client = createEphemeralAuthClient();
+    const { error: verifyError } = await client.auth.verifyOtp({ token_hash: tokenHash, type: "recovery" });
+    if (verifyError) {
+      // 4xx = the token itself is bad; anything else (network, 5xx) is worth a retry.
+      if (!verifyError.status || verifyError.status >= 500) throw verifyError;
+      setLinkError("This reset link has expired or has already been used.");
+      setStatus("invalid");
+      return null;
+    }
+    recoveryClientRef.current = client;
+    return client;
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -74,10 +105,18 @@ export default function ResetPassword() {
     }
     setLoading(true);
     try {
-      const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
+      let client = supabase;
+      if (tokenHash) {
+        client = recoveryClientRef.current || await verifyRecoveryToken();
+        if (!client) return;
+      }
+      const { error: updateError } = await client.auth.updateUser({ password: newPassword });
       if (updateError) throw updateError;
       // Sign the recovery session out so they log in fresh with the new password.
-      await supabase.auth.signOut();
+      // (Global scope: this also ends the user's sessions on other devices.)
+      await client.auth.signOut();
+      // Clear any stale login this browser still holds, so /login shows the form.
+      if (client !== supabase) await supabase.auth.signOut({ scope: "local" });
       window.location.href = "/login?reset=success";
     } catch (err) {
       setError(err.message || "Failed to reset password");
