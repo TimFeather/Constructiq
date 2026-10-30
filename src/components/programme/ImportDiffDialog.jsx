@@ -25,6 +25,7 @@ const FIELD_LABELS = {
   parent: 'Parent task',
   wbs: 'WBS',
   name: 'Name',
+  assignees: 'Assignees',
 };
 
 function humanizeField(field) {
@@ -45,6 +46,11 @@ function formatValue(value) {
     }
   }
   return String(value);
+}
+
+function formatFieldValue(field, value) {
+  if (field === 'assignees') return value?.length ? value.map(a => a.name).join(', ') : EM_DASH;
+  return formatValue(value);
 }
 
 function SectionHeading({ children, count, colorClass }) {
@@ -85,9 +91,9 @@ function ChangedTaskRow({ item }) {
         {item.fieldDiffs.map((fd, i) => (
           <div key={i} className="flex flex-wrap items-center gap-1.5 text-xs">
             <span className="text-muted-foreground min-w-[7rem] shrink-0">{humanizeField(fd.field)}:</span>
-            <span className="text-muted-foreground line-through">{formatValue(fd.from)}</span>
+            <span className="text-muted-foreground line-through">{formatFieldValue(fd.field, fd.from)}</span>
             <span className="text-muted-foreground">&rarr;</span>
-            <span className="font-medium text-amber-700 dark:text-amber-400">{formatValue(fd.to)}</span>
+            <span className="font-medium text-amber-700 dark:text-amber-400">{formatFieldValue(fd.field, fd.to)}</span>
           </div>
         ))}
       </div>

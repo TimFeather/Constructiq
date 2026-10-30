@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Project, Task } from '@/api/entities';
-import { fetchProgrammeTasks, fetchProgramme, bulkUpdateTaskWbs, publishProgramme, unpublishProgramme } from '@/api/programmeData';
+import { fetchProgrammeTasks, fetchProgramme, upsertProgramme, bulkUpdateTaskWbs, publishProgramme, unpublishProgramme } from '@/api/programmeData';
 import { invokeFunction } from '@/api/supabaseClient';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
@@ -32,13 +32,15 @@ import TaskProgressPanel from '@/components/programme/TaskProgressPanel';
 import ProgrammeHealth from '@/components/programme/ProgrammeHealth';
 import LookAhead from '@/components/programme/LookAhead';
 import ProgressModal from '@/components/programme/ProgressModal';
-import { parseXML, parseMPX, parseExcelCSV } from '@/lib/scheduleImportParsers';
+import { parseXML, parseMPX, parseExcelCSV, parseMspdiResources } from '@/lib/scheduleImportParsers';
 import { computeImportDiff, isUpdateImport } from '@/lib/scheduleImportDiff';
+import { matchResources, needsReview, resolveAssignees, buildResourceMap } from '@/lib/scheduleImportResources';
 import { executeFreshImport, executeUpdateImport } from '@/lib/scheduleImportService';
 import { parseMspdiCalendar, compareImportCalendar } from '@/lib/scheduleImportCalendar';
 import { downloadMspdi, downloadProgrammeExcel } from '@/lib/scheduleExport';
 import ImportDiffDialog from '@/components/programme/ImportDiffDialog';
 import ImportCalendarWarning from '@/components/programme/ImportCalendarWarning';
+import ImportResourcesDialog from '@/components/programme/ImportResourcesDialog';
 import AddTaskDialog from '@/components/programme/AddTaskDialog';
 import ScheduleSettingsPopover from '@/components/programme/ScheduleSettingsPopover';
 import BaselineManager from '@/components/programme/BaselineManager';
@@ -93,6 +95,9 @@ export default function Programme() {
   // Fresh import held for confirmation: { parsedTasks, warning, fileName } — the file's
   // MS Project calendar disagrees with CIQ's, so some dates won't match MS Project
   const [pendingCalendarImport, setPendingCalendarImport] = useState(null);
+  // MS Project resources that need a person picked before import:
+  // { parsedTasks, resources, matches, calendarWarning, fileName }
+  const [pendingResourceImport, setPendingResourceImport] = useState(null);
 
   // Delete state
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -484,8 +489,59 @@ export default function Programme() {
     }
   };
 
-  const commitFreshImport = async (parsedTasks) => {
+  // Resources assigned to at least one task. Like the calendar check, a failed
+  // read must never block the import; tasks then simply come in unassigned.
+  const readImportResources = (text) => {
+    try {
+      return parseMspdiResources(text).filter(r => r.taskCount > 0);
+    } catch (err) {
+      console.warn('import resource read failed:', err.message);
+      return [];
+    }
+  };
+
+  const applyResourceChoices = (parsedTasks, resources, choices, team) => ({
+    parsedTasks: resolveAssignees(parsedTasks, resources, choices, team),
+    resourceMap: buildResourceMap(programme?.resource_map, resources, choices),
+  });
+
+  // Remember resource choices so the next import of this programme doesn't ask again
+  const saveResourceMap = async (resourceMap) => {
+    if (!resourceMap) return;
+    try {
+      await upsertProgramme(selectedProjectId, { resource_map: resourceMap });
+      queryClient.invalidateQueries({ queryKey: ['programme', selectedProjectId] });
+    } catch (err) {
+      console.warn('resource map save failed:', err.message);
+      toast({ title: 'Resource choices not saved', description: 'The import worked, but you’ll be asked to match resources again next time.' });
+    }
+  };
+
+  // After resources are resolved: diff review for a re-import, the calendar
+  // warning for a fresh one, or straight to commit.
+  const continueImport = async (parsedTasks, { isXml, calendarWarning, fileName, resourceMap }) => {
+    // Update-vs-append: an XML re-import into a programme that already has
+    // MS Project UIDs goes through a diff + confirmation screen instead of
+    // blindly appending duplicates.
+    if (isXml && isUpdateImport(tasks)) {
+      const diff = computeImportDiff(parsedTasks, tasks);
+      setImportProgress(null);
+      setPendingImport({ diff, fileName, calendarWarning, resourceMap });
+      return;
+    }
+
+    if (calendarWarning) {
+      setImportProgress(null);
+      setPendingCalendarImport({ parsedTasks, warning: calendarWarning, fileName, resourceMap });
+      return;
+    }
+
+    await commitFreshImport(parsedTasks, resourceMap);
+  };
+
+  const commitFreshImport = async (parsedTasks, resourceMap = null) => {
     const createdCount = await executeFreshImport(parsedTasks, selectedProjectId, setStage);
+    await saveResourceMap(resourceMap);
 
     setImportProgress(p => ({ ...p, pct: 100, statusText: 'Import complete!' }));
 
@@ -527,25 +583,28 @@ export default function Programme() {
         return;
       }
 
-      const calendarWarning = ext === 'xml' ? checkImportCalendar(text, parsedTasks) : null;
+      const isXml = ext === 'xml';
+      const fileName = mppFile.name;
+      const calendarWarning = isXml ? checkImportCalendar(text, parsedTasks) : null;
 
-      // Update-vs-append: an XML re-import into a programme that already has
-      // MS Project UIDs goes through a diff + confirmation screen instead of
-      // blindly appending duplicates.
-      if (ext === 'xml' && isUpdateImport(tasks)) {
-        const diff = computeImportDiff(parsedTasks, tasks);
-        setImportProgress(null);
-        setPendingImport({ diff, fileName: mppFile.name, calendarWarning });
+      // MS Project resources → assignees. Saved and exact matches apply
+      // silently; the Resources step only opens if one needs a decision.
+      const resources = isXml ? readImportResources(text) : [];
+      if (resources.length) {
+        const team = projects.find(p => p.id === selectedProjectId)?.team || [];
+        const matches = matchResources(resources, team, programme?.resource_map);
+        if (matches.some(needsReview)) {
+          setImportProgress(null);
+          setPendingResourceImport({ parsedTasks, resources, matches, calendarWarning, fileName });
+          return;
+        }
+        const choices = new Map(matches.map(m => [m.resource.uid, m.choice]));
+        const resolved = applyResourceChoices(parsedTasks, resources, choices, team);
+        await continueImport(resolved.parsedTasks, { isXml, calendarWarning, fileName, resourceMap: resolved.resourceMap });
         return;
       }
 
-      if (calendarWarning) {
-        setImportProgress(null);
-        setPendingCalendarImport({ parsedTasks, warning: calendarWarning, fileName: mppFile.name });
-        return;
-      }
-
-      await commitFreshImport(parsedTasks);
+      await continueImport(parsedTasks, { isXml, calendarWarning, fileName, resourceMap: null });
 
     } catch (error) {
       setImportProgress(p => ({ ...p, error: error.message || 'Import failed. Please check the file and try again.' }));
@@ -563,7 +622,30 @@ export default function Programme() {
     setStage(1, 25, `${pending.parsedTasks.length} tasks found`);
     bulkOperationState.active = true;
     try {
-      await commitFreshImport(pending.parsedTasks);
+      await commitFreshImport(pending.parsedTasks, pending.resourceMap);
+    } catch (error) {
+      setImportProgress(p => ({ ...(p || {}), error: error.message || 'Import failed. Please check the file and try again.' }));
+    } finally {
+      bulkOperationState.active = false;
+    }
+  };
+
+  // Resume an import held back by the Resources step
+  const handleConfirmResourceImport = async (choices) => {
+    const pending = pendingResourceImport;
+    setPendingResourceImport(null);
+    if (!pending) return;
+
+    const team = projects.find(p => p.id === selectedProjectId)?.team || [];
+    const resolved = applyResourceChoices(pending.parsedTasks, pending.resources, choices, team);
+    bulkOperationState.active = true;
+    try {
+      await continueImport(resolved.parsedTasks, {
+        isXml: true,
+        calendarWarning: pending.calendarWarning,
+        fileName: pending.fileName,
+        resourceMap: resolved.resourceMap,
+      });
     } catch (error) {
       setImportProgress(p => ({ ...(p || {}), error: error.message || 'Import failed. Please check the file and try again.' }));
     } finally {
@@ -582,6 +664,7 @@ export default function Programme() {
       const { createdCount, updatedCount } = await executeUpdateImport(
         pending.diff, selectedProjectId, tasks, user?.id, setStage
       );
+      await saveResourceMap(pending.resourceMap);
       setImportProgress(p => ({ ...p, pct: 100, statusText: 'Update complete!' }));
       setTimeout(async () => {
         setImportProgress(null);
@@ -1094,6 +1177,16 @@ export default function Programme() {
         projectId={selectedProjectId}
         tasks={tasks}
         scheduleOptions={scheduleOptions}
+      />
+
+      {/* MS Project resources → team members (before the diff / calendar steps) */}
+      <ImportResourcesDialog
+        open={!!pendingResourceImport}
+        matches={pendingResourceImport?.matches || []}
+        team={projects.find(p => p.id === selectedProjectId)?.team || []}
+        fileName={pendingResourceImport?.fileName || ''}
+        onConfirm={handleConfirmResourceImport}
+        onCancel={() => { setPendingResourceImport(null); setMppFile(null); }}
       />
 
       {/* Update-import review (diff before commit) */}

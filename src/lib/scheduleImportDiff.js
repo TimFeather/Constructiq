@@ -7,6 +7,8 @@
  * missing from the new file are FLAGGED, not deleted.
  */
 
+import { assigneesKey } from './scheduleImportResources.js';
+
 /** Fields compared for change detection (simple scalar fields). */
 const SCALAR_FIELDS = ['name', 'wbs', 'start_date', 'end_date', 'duration', 'percent_complete'];
 
@@ -104,6 +106,13 @@ export function computeImportDiff(parsedTasks, existingTasks) {
         from: depKey(existingLinks) || null,
         to: depKey(incoming._predecessorLinks) || null,
       });
+    }
+
+    // Assignees: the file wins, but only where it has something to say. No
+    // `assignees` key means the file has no resource assignments at all, or
+    // this task's only resources were set to Ignore (see resolveAssignees).
+    if (Array.isArray(incoming.assignees) && assigneesKey(existing.assignees) !== assigneesKey(incoming.assignees)) {
+      fieldDiffs.push({ field: 'assignees', from: existing.assignees || [], to: incoming.assignees });
     }
 
     if (fieldDiffs.length) changed.push({ existing, incoming, fieldDiffs });

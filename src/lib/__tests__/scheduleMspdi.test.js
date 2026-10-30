@@ -2,6 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { parseXML, parseMspdiResources, MSPDI_TYPE_TO_DEP, DEP_TO_MSPDI_TYPE } from '../scheduleImportParsers.js';
 import { computeImportDiff, isUpdateImport } from '../scheduleImportDiff.js';
+import { matchResources, resolveAssignees } from '../scheduleImportResources.js';
 import { buildMspdiXml, outlineOrder } from '../scheduleExport.js';
 import { runScheduleEngine } from '../scheduling/scheduleEngine.js';
 
@@ -261,6 +262,29 @@ describe('parseXML — resource assignments', () => {
   });
 });
 
+describe('MS Project resources → assignees, end to end', () => {
+  it('parses, matches and resolves the resourced fixture', () => {
+    const team = [{ user_email: 'office@abcplumbing.co.nz', full_name: 'Sam Pipe', business_name: 'ABC Plumbing', trade: 'Plumbing' }];
+    const resources = parseMspdiResources(RESOURCE_FIXTURE).filter(r => r.taskCount > 0);
+    const matches = matchResources(resources, team, {});
+    // Roofer is on no task, so it never reaches the Resources step
+    expect(matches.map(m => [m.resource.name, m.status])).toEqual([
+      ['ABC Plumbing Ltd', 'exact'], ['Electrician', 'unmatched'], ['Builder', 'unmatched'],
+    ]);
+
+    const choices = new Map(matches.map(m => [m.resource.uid, m.choice]));
+    const byName = Object.fromEntries(
+      resolveAssignees(parseXML(RESOURCE_FIXTURE, 'p1'), resources, choices, team).map(t => [t.name, t])
+    );
+    expect(byName['Pre-line inspection'].assignees).toEqual([
+      { name: 'ABC Plumbing', email: 'office@abcplumbing.co.nz', msp_resource_uid: 1, units: 1 },
+      { name: 'Electrician', email: null, msp_resource_uid: 2, units: 1 },
+      { name: 'Builder', email: null, msp_resource_uid: 5, units: 1 },
+    ]);
+    expect(byName['Scaffold'].assignees).toEqual([]);
+  });
+});
+
 describe('parseXML — resource levelling', () => {
   const tasks = parseXML(RESOURCE_FIXTURE, 'p1');
   const byName = Object.fromEntries(tasks.map(t => [t.name, t]));
@@ -384,6 +408,22 @@ describe('computeImportDiff', () => {
     const diff = computeImportDiff(parsed, existing);
     const changed3 = diff.changed.find(c => c.existing.id === 'db3');
     expect(changed3.fieldDiffs.some(d => d.field === 'predecessors')).toBe(true);
+  });
+
+  it('diffs assignees only when the file carries them, ignoring order', () => {
+    const abc = { name: 'ABC Plumbing', email: 'office@abc.co.nz', msp_resource_uid: 1, units: 1 };
+    const builder = { name: 'Builder', email: null, msp_resource_uid: 5, units: 1 };
+    const existing = [asExisting(parsed[1], 'db2', { assignees: [abc, builder] })];
+    const assigneeDiff = (incoming) =>
+      computeImportDiff([incoming], existing).changed[0]?.fieldDiffs.find(d => d.field === 'assignees');
+
+    // File wins: a different set replaces CIQ's, an empty set clears it
+    expect(assigneeDiff({ ...parsed[1], assignees: [abc] })).toEqual({ field: 'assignees', from: [abc, builder], to: [abc] });
+    expect(assigneeDiff({ ...parsed[1], assignees: [] })?.to).toEqual([]);
+    // Same people in another order: no change
+    expect(assigneeDiff({ ...parsed[1], assignees: [builder, abc] })).toBeUndefined();
+    // No assignees key (no assignments in the file, or only ignored resources): untouched
+    expect(assigneeDiff({ ...parsed[1] })).toBeUndefined();
   });
 
   it('isUpdateImport is true only when uids exist', () => {

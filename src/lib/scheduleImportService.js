@@ -19,7 +19,9 @@ const UPDATE_BATCH = 15;
 /** Strip parser-internal fields down to a DB-insertable task row. */
 function toDbRow(parsed) {
   const { _mspUid, _predecessorLinks, _parentUid, _outlineLevel, _manual, _mspAssignments, is_summary, constraint, predecessors, ...row } = parsed;
-  return row;
+  // Every row carries assignees: a bulk insert sends NULL for any key some
+  // rows lack, and the column is NOT NULL.
+  return { ...row, assignees: row.assignees ?? [] };
 }
 
 /** Chunked bulk create with backoff; returns created rows in input order. */
