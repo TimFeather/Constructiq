@@ -2,7 +2,8 @@
 import { describe, it, expect } from 'vitest';
 import { parseXML, parseMspdiResources, MSPDI_TYPE_TO_DEP, DEP_TO_MSPDI_TYPE } from '../scheduleImportParsers.js';
 import { computeImportDiff, isUpdateImport } from '../scheduleImportDiff.js';
-import { matchResources, resolveAssignees } from '../scheduleImportResources.js';
+import { matchResources, resolveAssignees, assigneesKey } from '../scheduleImportResources.js';
+import { parseMspdiCalendar } from '../scheduleImportCalendar.js';
 import { buildMspdiXml, outlineOrder } from '../scheduleExport.js';
 import { runScheduleEngine } from '../scheduling/scheduleEngine.js';
 
@@ -521,5 +522,70 @@ describe('MSPDI export round-trip', () => {
     for (const [code, dep] of Object.entries(MSPDI_TYPE_TO_DEP)) {
       expect(DEP_TO_MSPDI_TYPE[dep]).toBe(Number(code));
     }
+  });
+
+  it('writes no resources or assignments when nobody is assigned', () => {
+    const xml = buildMspdiXml(dbTasks, null, { projectName: 'Unassigned' });
+    expect(xml).not.toContain('<Resources>');
+    expect(xml).not.toContain('<Assignments>');
+  });
+
+  describe('with assignees', () => {
+    const abc = { name: 'ABC Plumbing', email: 'office@abc.co.nz', msp_resource_uid: 4, units: 1 };
+    const builder = { name: 'Builder', email: null, msp_resource_uid: 5, units: 0.5 };
+    const resourced = dbTasks.map(t => ({
+      ...t,
+      assignees: {
+        b: [abc, builder],
+        // Added in CIQ: ABC again (joins resource 4) and a new name
+        c: [{ ...abc, msp_resource_uid: null }, { name: 'Concrete Crew', email: null, msp_resource_uid: null, units: 1 }],
+      }[t.id] || [],
+    }));
+    // The import mapped MS Project's "Plumber" (UID 4) to ABC Plumbing
+    const programme = {
+      resource_map: {
+        4: { name: 'Plumber', action: 'member', email: 'office@abc.co.nz' },
+        5: { name: 'Builder', action: 'label' },
+      },
+    };
+    const xml = buildMspdiXml(resourced, programme, { projectName: 'Resourced' });
+
+    it('is well-formed, with one calendar per resource on top of Standard', () => {
+      expect(new DOMParser().parseFromString(xml, 'text/xml').getElementsByTagName('parsererror')).toHaveLength(0);
+      expect(xml.match(/<BaseCalendarUID>1<\/BaseCalendarUID>/g)).toHaveLength(3);
+      expect(parseMspdiCalendar(xml).name).toBe('Standard');
+    });
+
+    it('keeps MS Project resource UIDs and names; CIQ additions join or get new UIDs', () => {
+      expect(parseMspdiResources(xml)).toEqual([
+        { uid: 4, name: 'Plumber', email: 'office@abc.co.nz', group: null, calendarUid: 2, taskCount: 2 },
+        { uid: 5, name: 'Builder', email: null, group: null, calendarUid: 3, taskCount: 1 },
+        { uid: 6, name: 'Concrete Crew', email: null, group: null, calendarUid: 4, taskCount: 1 },
+      ]);
+      const byName = Object.fromEntries(parseXML(xml, 'p2').map(t => [t.name, t]));
+      expect(byName['Excavate & fill']._mspAssignments).toEqual([{ resourceUid: 4, units: 1 }, { resourceUid: 5, units: 0.5 }]);
+      expect(byName['Pour slab']._mspAssignments).toEqual([{ resourceUid: 4, units: 1 }, { resourceUid: 6, units: 1 }]);
+      expect(byName['Groundworks']._mspAssignments).toEqual([]);
+    });
+
+    it('re-importing the export gives back the same assignees, asking only about the new name', () => {
+      const team = [{ user_email: 'office@abc.co.nz', full_name: 'Sam Pipe', business_name: 'ABC Plumbing', trade: 'Plumbing' }];
+      const resources = parseMspdiResources(xml).filter(r => r.taskCount > 0);
+      const matches = matchResources(resources, team, programme.resource_map);
+      expect(matches.map(m => [m.resource.name, m.status])).toEqual([
+        ['Plumber', 'saved'], ['Builder', 'saved'], ['Concrete Crew', 'unmatched'],
+      ]);
+
+      const choices = new Map(matches.map(m => [m.resource.uid, m.choice]));
+      const reimported = resolveAssignees(parseXML(xml, 'p2'), resources, choices, team);
+      for (const original of resourced) {
+        const back = reimported.find(t => t.name === original.name);
+        expect([original.name, assigneesKey(back.assignees)]).toEqual([original.name, assigneesKey(original.assignees)]);
+      }
+    });
+
+    it('marks every task not effort-driven, so assignments never change durations in MS Project', () => {
+      expect(xml.match(/<EffortDriven>0<\/EffortDriven>/g)).toHaveLength(dbTasks.length);
+    });
   });
 });
