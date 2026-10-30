@@ -261,12 +261,12 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
               {Object.entries(groupedByTrade).map(([trade, subs]) => (
                 <div key={trade}>
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">{trade}</p>
-                  <div className="border rounded-lg overflow-hidden">
+                  <div className="border rounded-lg overflow-x-auto">
                     <table className="w-full text-xs">
                       <thead>
                         <tr className="bg-muted/40 border-b text-muted-foreground">
                           <th className="text-left px-3 py-2 font-medium">Business Name</th>
-                          <th className="text-left px-3 py-2 font-medium">Contractor</th>
+                          <th className="text-left px-3 py-2 font-medium hidden sm:table-cell">Contractor</th>
                           <th className="text-right px-3 py-2 font-medium">Price</th>
                           <th className="text-center px-3 py-2 font-medium">Outcome</th>
                           <th className="text-center px-3 py-2 font-medium">Notification</th>
@@ -277,7 +277,7 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
                         {subs.map(sub => (
                           <tr key={sub.id} className="hover:bg-muted/20">
                             <td className="px-3 py-2 font-medium">{sub.business_name || '—'}</td>
-                            <td className="px-3 py-2 text-muted-foreground">{sub.invitee_name || sub.full_name || '—'}</td>
+                            <td className="px-3 py-2 text-muted-foreground hidden sm:table-cell">{sub.invitee_name || sub.full_name || '—'}</td>
                             <td className="px-3 py-2 text-right font-mono">
                               {sub.lump_sum_price ? `$${Number(sub.lump_sum_price).toLocaleString('en-NZ')}` : '—'}
                             </td>
@@ -391,7 +391,7 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
             {Object.entries(groupedByTrade).map(([trade, subs]) => (
               <div key={trade}>
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">{trade}</p>
-                <div className="border rounded-lg overflow-hidden">
+                <div className="border rounded-lg overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="bg-muted/40 border-b text-muted-foreground">
@@ -493,7 +493,7 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
             {Object.entries(groupedByTrade).map(([trade, subs]) => (
               <div key={trade}>
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">{trade}</p>
-                <div className="border rounded-lg overflow-hidden">
+                <div className="border rounded-lg overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="bg-muted/40 border-b text-muted-foreground">

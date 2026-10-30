@@ -114,24 +114,26 @@ export default function LookAhead({ tasks, scheduledMap, allTasks, programmesByP
         onClick={clickable ? () => setActiveTask(task) : undefined}
         onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveTask(task); } } : undefined}
         className={cn(
-          'flex items-center gap-2 px-3 py-2 border-b border-border/20 transition-colors',
+          // Phones: name on its own line, progress / status / due on a second line.
+          'flex flex-wrap md:flex-nowrap items-center gap-x-2 gap-y-1.5 px-3 py-2 border-b border-border/20 transition-colors',
           isCritical && 'bg-red-50/40 dark:bg-red-950/10',
           clickable ? 'hover:bg-muted/50 active:bg-muted/70 cursor-pointer' : 'hover:bg-muted/30',
         )}
       >
-        <span className="text-[10px] font-mono text-muted-foreground w-8 flex-shrink-0">{task.wbs || '—'}</span>
-        <div className="flex-1 min-w-0">
+        <span className="hidden md:block text-[10px] font-mono text-muted-foreground w-8 flex-shrink-0">{task.wbs || '—'}</span>
+        <div className="basis-full md:basis-auto flex-1 min-w-0">
           {showProject && (
             <span className="block text-[9px] text-muted-foreground uppercase tracking-wide truncate">
               {projectsById?.get(task.project_id) || '—'}
             </span>
           )}
           <div className="flex items-center gap-1 flex-wrap">
-            <span className={cn('text-xs truncate', isCritical && 'text-red-700 dark:text-red-400 font-medium', isMilestone && 'text-indigo-600')}>{task.name}</span>
+            <span className={cn('text-sm md:text-xs line-clamp-2 md:truncate', isCritical && 'text-red-700 dark:text-red-400 font-medium', isMilestone && 'text-indigo-600')}>{task.name}</span>
             {isMilestone && <span className="text-[9px] bg-indigo-100 text-indigo-700 px-1 rounded">M</span>}
             {isCritical && <span className="text-[9px] bg-red-100 text-red-700 px-1 rounded">CP</span>}
           </div>
           <span className="text-[10px] text-muted-foreground font-mono">
+            {task.wbs && <span className="md:hidden">{task.wbs} · </span>}
             {format(start, 'dd MMM')} → {format(end, 'dd MMM')}
           </span>
           {assigneeNames(task) && (
@@ -139,14 +141,14 @@ export default function LookAhead({ tasks, scheduledMap, allTasks, programmesByP
           )}
         </div>
         {!isMilestone && (
-          <div className="flex items-center gap-1 w-20 flex-shrink-0">
+          <div className="flex items-center gap-1 flex-1 md:flex-none md:w-20 md:flex-shrink-0">
             <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
               <div className="h-full bg-primary rounded-full" style={{ width: `${pct}%` }} />
             </div>
             <span className="text-[10px] text-muted-foreground w-6 text-right">{pct}%</span>
           </div>
         )}
-        <Badge className={cn('text-[9px] px-1.5 py-0 border flex-shrink-0', status.cls)}>{status.label}</Badge>
+        <Badge className={cn('text-[9px] px-1.5 py-0 border flex-shrink-0 ml-auto md:ml-0', status.cls)}>{status.label}</Badge>
         <span className={cn('text-[10px] font-medium w-14 text-right flex-shrink-0',
           daysLeft < 0 ? 'text-red-500' : daysLeft <= 3 ? 'text-amber-500' : 'text-muted-foreground')}>
           {daysLeft < 0 ? `${Math.abs(daysLeft)}d late` : daysLeft === 0 ? 'Today' : `${daysLeft}d`}
@@ -251,7 +253,7 @@ export default function LookAhead({ tasks, scheduledMap, allTasks, programmesByP
           {/* Main task list — 3 columns wide on desktop, full width on mobile */}
           <div className="md:col-span-3 flex flex-col overflow-hidden">
             {/* Column headers */}
-            <div className="flex items-center gap-2 px-3 py-1.5 border-b bg-muted/20 text-[10px] font-medium text-muted-foreground uppercase tracking-wider flex-shrink-0">
+            <div className="hidden md:flex items-center gap-2 px-3 py-1.5 border-b bg-muted/20 text-[10px] font-medium text-muted-foreground uppercase tracking-wider flex-shrink-0">
               <span className="w-8">WBS</span>
               <span className="flex-1">Task</span>
               <span className="w-20 text-right">Progress</span>

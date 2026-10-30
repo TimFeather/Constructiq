@@ -125,6 +125,11 @@ export default function Projects() {
   const activeCount   = projects.filter(p => ACTIVE_STATUSES.includes(p.status)).length;
   const archivedCount = projects.filter(p => ARCHIVED_STATUSES.includes(p.status)).length;
 
+  // Card corner buttons stay visible on touch screens; pad the card header so they
+  // don't sit on top of the status badge.
+  const cornerButtonCount = viewMode === 'active' ? Number(isAllowed) : Number(isAllowed) + Number(isAdminUser);
+  const cardHeaderPad = ['', 'touch:pr-8', 'touch:pr-16'][cornerButtonCount];
+
   return (
     <div>
       <PageHeader
@@ -177,7 +182,7 @@ export default function Projects() {
       </div>
 
       {isLoading ? (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1,2,3].map(i => (
             <Card key={i} className="animate-pulse">
               <CardContent className="p-5 space-y-3">
@@ -203,15 +208,15 @@ export default function Projects() {
           onAction={!search && statusFilter === 'all' && isAllowed && viewMode === 'active' ? () => setShowForm(true) : undefined}
         />
       ) : (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map(project => (
             <div key={project.id} className="relative group">
               <Link to={`/projects/${project.id}`}>
                 <Card className="hover:shadow-lg transition-all duration-300 hover:-translate-y-0.5 cursor-pointer h-full">
                   <CardContent className="p-5">
-                    <div className="flex items-start justify-between mb-3">
-                      <h3 className="font-semibold text-foreground truncate pr-2">{project.name}</h3>
-                      <StatusBadge status={project.status} />
+                    <div className={`flex items-start justify-between mb-3 ${cardHeaderPad}`}>
+                      <h3 className="font-semibold text-foreground line-clamp-2 min-w-0 pr-2">{project.name}</h3>
+                      <StatusBadge status={project.status} className="flex-shrink-0" />
                     </div>
                     {project.description && (
                       <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{project.description}</p>
@@ -243,7 +248,7 @@ export default function Projects() {
               </Link>
               {isAllowed && viewMode === 'active' && (
                 <button
-                  className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md bg-card border shadow-sm hover:bg-muted"
+                  className="absolute top-2 right-2 can-hover:opacity-0 can-hover:group-hover:opacity-100 transition-opacity p-1.5 rounded-md bg-card border shadow-sm hover:bg-muted"
                   onClick={e => { e.preventDefault(); setArchiveId(project.id); }}
                   title="Archive project"
                 >
@@ -251,7 +256,7 @@ export default function Projects() {
                 </button>
               )}
               {viewMode === 'archived' && (
-                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1.5">
+                <div className="absolute top-2 right-2 can-hover:opacity-0 can-hover:group-hover:opacity-100 transition-opacity flex gap-1.5">
                   {isAllowed && (
                     <button
                       className="p-1.5 rounded-md bg-card border shadow-sm hover:bg-primary/10"

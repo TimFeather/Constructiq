@@ -128,7 +128,7 @@ function ScoringPanel({ submission, criteria, onSaveScores, saving }) {
 
   return (
     <div className="mt-3 p-4 bg-muted/30 rounded-lg border space-y-4">
-      <div className="grid sm:grid-cols-3 gap-3 text-sm">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
         <div>
           <p className="text-xs text-muted-foreground">Lump Sum Price</p>
           <p className="font-semibold text-lg">
@@ -173,22 +173,22 @@ function ScoringPanel({ submission, criteria, onSaveScores, saving }) {
             const s = scores[crit.criterion] || { score: 0, comment: '' };
             const weighted = ((s.score || 0) / 10) * crit.weight_percent;
             return (
-              <div key={crit.criterion} className="grid grid-cols-12 gap-2 items-center">
-                <div className="col-span-4 text-xs">
+              <div key={crit.criterion} className="grid grid-cols-6 sm:grid-cols-12 gap-2 items-center">
+                <div className="col-span-6 sm:col-span-4 text-xs">
                   <p className="font-medium">{crit.criterion}</p>
                   <p className="text-muted-foreground">{crit.weight_percent}% weight</p>
                 </div>
                 <div className="col-span-2">
-                  <Input type="number" min="0" max="10" value={s.score}
+                  <Input type="number" inputMode="numeric" min="0" max="10" value={s.score}
                     onChange={e => setScores(prev => ({ ...prev, [crit.criterion]: { ...prev[crit.criterion], score: Math.min(10, Math.max(0, Number(e.target.value))) } }))}
                     className="h-8 text-xs text-center" placeholder="0-10" />
                 </div>
-                <div className="col-span-4">
+                <div className="col-span-3 sm:col-span-4">
                   <Input value={s.comment}
                     onChange={e => setScores(prev => ({ ...prev, [crit.criterion]: { ...prev[crit.criterion], comment: e.target.value } }))}
                     className="h-8 text-xs" placeholder="Comment" />
                 </div>
-                <div className="col-span-2 text-xs text-right font-mono text-muted-foreground">
+                <div className="col-span-1 sm:col-span-2 text-xs text-right font-mono text-muted-foreground">
                   {weighted.toFixed(1)}
                 </div>
               </div>

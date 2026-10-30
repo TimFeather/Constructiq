@@ -64,7 +64,7 @@ function DocRow({ doc, idx, canManage, onCategoryChange, onDelete, onPreview, on
       <td className="px-4 py-2.5">
         {canManage ? (
           <Select value={doc.category || 'Other'} onValueChange={v => onCategoryChange(idx, v)}>
-            <SelectTrigger className="h-7 text-xs w-40"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="h-7 text-xs w-28 sm:w-40"><SelectValue /></SelectTrigger>
             <SelectContent>
               {CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
             </SelectContent>
@@ -240,12 +240,12 @@ export default function DocTable({ docs, canManage, onCategoryChange, onDelete, 
   const folderPaths = buildFolderPathOptions(docs);
 
   return (
-    <div className="border rounded-lg overflow-hidden">
+    <div className="border rounded-lg overflow-x-auto">
       <table className="w-full text-sm">
         <thead className="bg-muted/50">
           <tr>
             <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase">Name</th>
-            <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase w-44">Category</th>
+            <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase w-32 sm:w-44">Category</th>
             <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase w-20 hidden sm:table-cell">Type</th>
             <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase w-28 hidden md:table-cell">Uploaded</th>
             <th className="w-20"></th>

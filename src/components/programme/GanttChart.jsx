@@ -783,7 +783,7 @@ function DepPopover({ pending, onConfirm, onCancel }) {
       <div className="space-y-1">
         <label className="text-[10px] text-muted-foreground block">Type</label>
         <select
-          className="flex h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className="flex h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs touch:text-base shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           value={type}
           onChange={(e) => setType(e.target.value)}
         >
@@ -794,7 +794,7 @@ function DepPopover({ pending, onConfirm, onCancel }) {
         <label className="text-[10px] text-muted-foreground block">Lag (days)</label>
         <input
           type="number"
-          className="flex h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className="flex h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs touch:text-base shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           value={lagDays}
           onChange={(e) => setLagDays(e.target.value === '' ? 0 : parseInt(e.target.value, 10) || 0)}
         />

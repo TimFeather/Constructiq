@@ -137,7 +137,7 @@ export default function EmailBrandingPanel() {
             )}
           </div>
 
-          <div className="grid sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {/* Logo width */}
             <div>
               <Label className="text-xs mb-1 block">Logo Width (px)</Label>
@@ -188,7 +188,7 @@ export default function EmailBrandingPanel() {
           </div>
 
           {/* Company / Sender */}
-          <div className="grid sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <Label className="text-xs mb-1 block">Company Name</Label>
               <Input value={form.company_name} onChange={e => setForm(f => ({ ...f, company_name: e.target.value }))} placeholder="Acme Construction Ltd" className="h-8 text-sm" />

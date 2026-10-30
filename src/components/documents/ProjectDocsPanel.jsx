@@ -16,7 +16,8 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import StatusBadge from '@/components/shared/StatusBadge';
-import { Upload, Download, ExternalLink, FileText, Folder, FolderOpen, GripVertical, ChevronDown, ChevronRight, FolderPlus, Trash2, Eye, Archive, Search, X, CheckSquare, History, Users, Lock, Loader2 } from 'lucide-react';
+import { Upload, Download, ExternalLink, FileText, Folder, FolderOpen, GripVertical, ChevronDown, ChevronRight, FolderPlus, Trash2, Eye, Archive, Search, X, CheckSquare, History, Users, Lock, Loader2, MoreHorizontal } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { format } from 'date-fns';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
@@ -574,7 +575,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
         <div
           ref={provided.innerRef}
           {...provided.draggableProps}
-          className={`flex items-center gap-2 px-3 py-2 text-sm border-b last:border-b-0 bg-card transition-colors ${snapshot.isDragging ? 'shadow-lg opacity-80' : selectedIds.has(doc.id) ? 'bg-primary/5' : 'hover:bg-muted/30'}`}
+          className={`flex flex-wrap sm:flex-nowrap items-center gap-x-2 gap-y-1.5 px-3 py-2 text-sm border-b last:border-b-0 bg-card transition-colors ${snapshot.isDragging ? 'shadow-lg opacity-80' : selectedIds.has(doc.id) ? 'bg-primary/5' : 'hover:bg-muted/30'}`}
         >
           {isInternal && (
             <input
@@ -586,7 +587,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
               title="Select for bulk action"
             />
           )}
-          <span {...(isInternal ? provided.dragHandleProps : {})} className={`flex-shrink-0 ${isInternal ? 'text-muted-foreground/40 hover:text-muted-foreground cursor-grab active:cursor-grabbing' : 'invisible w-4'}`}>
+          <span {...(isInternal ? provided.dragHandleProps : {})} className={`hidden sm:block flex-shrink-0 ${isInternal ? 'text-muted-foreground/40 hover:text-muted-foreground cursor-grab active:cursor-grabbing' : 'invisible w-4'}`}>
             {isInternal && <GripVertical className="w-4 h-4" />}
           </span>
           <FileText className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
@@ -594,6 +595,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
             className="font-medium text-primary hover:underline flex items-center gap-1 flex-1 min-w-0 truncate">
             {doc.name}
           </SecureFileLink>
+          <div className="basis-full h-0 sm:hidden" />
           <span className="text-xs text-muted-foreground hidden sm:block flex-shrink-0">{doc.uploaded_by_name}</span>
           <span className="text-xs text-muted-foreground hidden lg:block flex-shrink-0">
             {doc.created_at ? format(new Date(doc.created_at), 'MMM d, yyyy') : '—'}
@@ -635,19 +637,19 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
             <button
               onClick={(e) => { e.stopPropagation(); setPreviewDoc(doc); }}
               title="Preview"
-              className="flex-shrink-0 p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+              className="flex-shrink-0 p-1 touch:p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
             >
               <Eye className="w-3.5 h-3.5" />
             </button>
           )}
-          <SecureFileLink value={doc.file_url} className="flex-shrink-0" title="Open file">
+          <SecureFileLink value={doc.file_url} className="hidden sm:block flex-shrink-0" title="Open file">
             <ExternalLink className="w-3.5 h-3.5 text-muted-foreground hover:text-primary" />
           </SecureFileLink>
           <button
             onClick={(e) => { e.stopPropagation(); handleDownload(doc); }}
             disabled={downloadingId === doc.id}
             title="Download"
-            className="flex-shrink-0 p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
+            className="flex-shrink-0 p-1 touch:p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
           >
             {downloadingId === doc.id
               ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -655,7 +657,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
           </button>
           {isInternal && (
             <button
-              className="flex-shrink-0 text-xs text-muted-foreground hover:text-primary transition-colors px-1 py-0.5 rounded border border-transparent hover:border-border"
+              className="hidden sm:block flex-shrink-0 text-xs text-muted-foreground hover:text-primary transition-colors px-1 py-0.5 rounded border border-transparent hover:border-border"
               onClick={() => { setVersioningDoc(doc); setVersionFile(null); setVersionNotes(''); }}
               title="Upload new version"
             >
@@ -664,7 +666,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
           )}
           {isInternal && (
             <button
-              className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+              className="hidden sm:block flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors"
               onClick={() => setHistoryDoc(doc)}
               title="View history"
             >
@@ -673,12 +675,32 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
           )}
           {isInternal && (
             <button
-              className="flex-shrink-0 text-muted-foreground hover:text-destructive transition-colors"
+              className="hidden sm:block flex-shrink-0 text-muted-foreground hover:text-destructive transition-colors"
               onClick={() => setDeleteDocId(doc.id)}
               title="Delete document"
             >
               <Trash2 className="w-3.5 h-3.5" />
             </button>
+          )}
+          {isInternal && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="sm:hidden flex-shrink-0 ml-auto p-1.5 rounded hover:bg-muted text-muted-foreground" aria-label="More actions">
+                  <MoreHorizontal className="w-4 h-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => { setVersioningDoc(doc); setVersionFile(null); setVersionNotes(''); }}>
+                  <Upload className="w-4 h-4 mr-2" /> New version (now v{doc.version_number || 1})
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setHistoryDoc(doc)}>
+                  <History className="w-4 h-4 mr-2" /> View history
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setDeleteDocId(doc.id)} className="text-destructive focus:text-destructive">
+                  <Trash2 className="w-4 h-4 mr-2" /> Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
         </div>
       )}
@@ -753,11 +775,11 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
       )}
 
       {/* Toolbar */}
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
           {showArchived ? `${archivedCount} archived document${archivedCount !== 1 ? 's' : ''}` : `${visibleDocs.length} document${visibleDocs.length !== 1 ? 's' : ''}`}
         </p>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {visibleDocs.length > 0 && (
             <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs" disabled={downloadingAll} onClick={handleDownloadAll}>
               {downloadingAll ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
@@ -789,7 +811,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
       </div>
 
       {!isExternal && (
-        <p className="text-xs text-muted-foreground flex items-center gap-1">
+        <p className="hidden sm:flex text-xs text-muted-foreground items-center gap-1">
           <Upload className="w-3 h-3" /> You can also drag & drop files directly onto this area
         </p>
       )}
@@ -835,7 +857,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
           <Folder className="w-4 h-4 text-amber-500 flex-shrink-0" />
           <Input
             autoFocus
-            className="h-7 text-sm"
+            className="h-7 text-base md:text-sm"
             placeholder="Folder name"
             value={newFolderName}
             onChange={e => setNewFolderName(e.target.value)}

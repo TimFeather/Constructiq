@@ -238,7 +238,7 @@ export default function Documents() {
             <Input placeholder="Search projects..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9 max-w-sm" />
           </div>
           {isLoading ? (
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {[1,2,3].map(i => (
                 <Card key={i} className="animate-pulse">
                   <CardContent className="p-5 space-y-3">
@@ -261,7 +261,7 @@ export default function Documents() {
             }
             return null;
           })() || (
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {viewProjects.filter(p => p.name?.toLowerCase().includes(search.toLowerCase()) && documents.some(d => d.project_id === p.id)).map(project => {
                 const docCount = documents.filter(d => d.project_id === project.id).length;
                 return (

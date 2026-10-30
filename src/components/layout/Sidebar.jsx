@@ -1,28 +1,14 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import {
-  LayoutDashboard, FolderKanban, FileText, MessageSquareMore,
-  GanttChart, Settings, ChevronLeft, ChevronRight, HardHat, FileSignature, ListChecks,
-} from 'lucide-react';
+import { ChevronLeft, ChevronRight, HardHat } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/AuthContext';
-import { canAccess, isAdmin, getRole } from '@/lib/permissions';
+import { NAV_ITEMS, isNavActive } from './navItems';
 
 export default function Sidebar({ collapsed, onToggle }) {
   const location = useLocation();
   const { user } = useAuth();
   const companyLogoUrl = user?.company_logo_url;
-
-  const navItems = [
-    { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', show: true },
-    { path: '/projects', icon: FolderKanban, label: 'Projects', show: true },
-    { path: '/documents', icon: FileText, label: 'Documents', show: true },
-    { path: '/rfis', icon: MessageSquareMore, label: 'RFIs', show: true },
-    { path: '/programme', icon: GanttChart, label: 'Programme', show: true },
-    { path: '/tenders', icon: FileSignature, label: 'Tenders', show: canAccess(user, 'tenders') },
-    { path: '/my-tenders', icon: ListChecks, label: 'My Tenders', show: getRole(user) === 'external' },
-    { path: '/settings', icon: Settings, label: 'Settings', show: isAdmin(user) },
-  ];
   const companyName = user?.company_name || 'ConstructIQ';
 
   return (
@@ -50,18 +36,16 @@ export default function Sidebar({ collapsed, onToggle }) {
 
       {/* Nav */}
       <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto">
-        {navItems.filter(item => item.show).map(({ path, icon: Icon, label }) => {
-          const isActive = path === '/dashboard'
-            ? location.pathname === '/dashboard'
-            : location.pathname.startsWith(path);
+        {NAV_ITEMS.filter(item => item.show(user)).map(({ path, icon: Icon, label }) => {
+          const isActive = isNavActive(path, location.pathname);
           return (
             <Link
               key={path}
               to={path}
               className={cn(
                 "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200",
-                isActive 
-                  ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-md shadow-sidebar-primary/20" 
+                isActive
+                  ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-md shadow-sidebar-primary/20"
                   : "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent"
               )}
               title={collapsed ? label : undefined}

@@ -435,11 +435,11 @@ export default function TenderSubmit() {
 
           {/* ── OVERVIEW TAB ── */}
           <TabsContent value="overview" className="space-y-4">
-            <div className="grid md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {/* Project details */}
               <div className="md:col-span-2 border rounded-lg p-5 bg-card space-y-4">
                 <h3 className="font-semibold text-base">Overview</h3>
-                <div className="grid sm:grid-cols-2 gap-4 text-sm">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                   <InfoField label="Project" value={tender.title} />
                   <InfoField label="Tender Number" value={tender.tender_number} />
                   <InfoField label="Address / Location" value={tender.location} />
@@ -463,7 +463,8 @@ export default function TenderSubmit() {
                 </div>
 
                 {/* Tendering intent */}
-                <div className="flex items-start gap-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                {/* Phones: the response button drops under the text, at a tappable size */}
+                <div className="flex flex-wrap sm:flex-nowrap items-start gap-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                   <Bell className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
                   <div className="flex-1 text-sm">
                     <p className="font-medium text-blue-900">
@@ -476,12 +477,12 @@ export default function TenderSubmit() {
                     )}
                   </div>
                   {!isOverdue && invitee?.status !== 'Submitted' && (
-                    <div className="flex gap-2 flex-shrink-0">
+                    <div className="flex gap-2 flex-shrink-0 basis-full sm:basis-auto pl-7 sm:pl-0">
                       {invitee?.status !== 'Declined' ? (
                         <button
                           onClick={() => handleUpdateIntent('will_not_tender')}
                           disabled={intentLoading}
-                          className="text-xs border border-gray-300 bg-white text-gray-700 px-2 py-1 rounded hover:bg-gray-50 disabled:opacity-50"
+                          className="text-sm sm:text-xs border border-gray-300 bg-white text-gray-700 px-3 py-2 sm:px-2 sm:py-1 rounded hover:bg-gray-50 disabled:opacity-50"
                         >
                           Will not tender
                         </button>
@@ -489,7 +490,7 @@ export default function TenderSubmit() {
                         <button
                           onClick={() => handleUpdateIntent('will_tender')}
                           disabled={intentLoading}
-                          className="text-xs border border-blue-300 bg-white text-blue-700 px-2 py-1 rounded hover:bg-blue-50 disabled:opacity-50"
+                          className="text-sm sm:text-xs border border-blue-300 bg-white text-blue-700 px-3 py-2 sm:px-2 sm:py-1 rounded hover:bg-blue-50 disabled:opacity-50"
                         >
                           Will tender
                         </button>
@@ -711,7 +712,7 @@ export default function TenderSubmit() {
                     <p className="text-xs text-muted-foreground">Enter a lump sum or break your price down by line item. Total is auto-calculated.</p>
 
                     {/* Column headers */}
-                    <div className="grid grid-cols-[1fr_140px_28px] gap-2 px-1">
+                    <div className="grid grid-cols-[1fr_110px_28px] sm:grid-cols-[1fr_140px_28px] gap-2 px-1">
                       <span className="text-xs text-muted-foreground">Description</span>
                       <span className="text-xs text-muted-foreground">Amount (NZD)</span>
                       <span />
@@ -720,9 +721,9 @@ export default function TenderSubmit() {
                     {/* Lines */}
                     <div className="space-y-2">
                       {priceLines.map((line, idx) => (
-                        <div key={line.id} className="grid grid-cols-[1fr_140px_28px] gap-2 items-center">
+                        <div key={line.id} className="grid grid-cols-[1fr_110px_28px] sm:grid-cols-[1fr_140px_28px] gap-2 items-center">
                           <input
-                            className="h-8 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                            className="h-8 w-full rounded-md border border-input bg-background px-3 text-base md:text-sm focus:outline-none focus:ring-1 focus:ring-ring"
                             value={line.description}
                             placeholder="Description"
                             onChange={e => setPriceLines(prev => prev.map(l => l.id === line.id ? { ...l, description: e.target.value } : l))}
@@ -730,8 +731,8 @@ export default function TenderSubmit() {
                           <div className="relative">
                             <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
                             <input
-                              type="number" min="0" step="0.01"
-                              className="h-8 w-full rounded-md border border-input bg-background pl-6 pr-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                              type="number" inputMode="decimal" min="0" step="0.01"
+                              className="h-8 w-full rounded-md border border-input bg-background pl-6 pr-2 text-base md:text-sm focus:outline-none focus:ring-1 focus:ring-ring"
                               value={line.amount}
                               placeholder="0.00"
                               onChange={e => setPriceLines(prev => prev.map(l => l.id === line.id ? { ...l, amount: e.target.value } : l))}

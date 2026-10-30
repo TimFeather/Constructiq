@@ -17,16 +17,17 @@ import {
 import {
   PanelLeftClose, PanelLeftOpen, Upload, Printer, ZoomIn, ZoomOut,
   Trash2, Target, Calendar, LayoutDashboard, CalendarDays,
-  ChevronsDownUp, ChevronsUpDown, Download, Plus, Lock, Unlock, Send,
+  ChevronsDownUp, ChevronsUpDown, Download, Plus, Lock, Unlock, Send, MoreHorizontal,
 } from 'lucide-react';
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import PageHeader from '@/components/shared/PageHeader';
 import { Link } from 'react-router-dom';
 import TaskList from '@/components/programme/TaskList';
+import MobileTaskList from '@/components/programme/MobileTaskList';
 import GanttChart from '@/components/programme/GanttChart';
 import TaskProgressPanel from '@/components/programme/TaskProgressPanel';
 import ProgrammeHealth from '@/components/programme/ProgrammeHealth';
@@ -78,7 +79,8 @@ export default function Programme() {
   const projectFromUrl = urlParams.get('project') || 'all';
 
   const [selectedProjectId, setSelectedProjectId] = useState(projectFromUrl);
-  const [activeTab, setActiveTab] = useState('gantt');
+  // Phones open on Look Ahead (the field view); same 768px breakpoint as useIsMobile.
+  const [activeTab, setActiveTab] = useState(() => (window.matchMedia('(max-width: 767px)').matches ? 'lookahead' : 'gantt'));
   const [taskListCollapsed, setTaskListCollapsed] = useState(false);
   const [zoom, setZoom] = useState('week');
   const [selectedTask, setSelectedTask] = useState(null);
@@ -914,14 +916,17 @@ export default function Programme() {
   }
 
   return (
-    <div className="h-[calc(100vh-8rem)] flex flex-col">
+    // Below lg the chrome is the top bar, main's top padding and the bottom tab bar (+ safe area).
+    <div className="h-[calc(100dvh-9rem-env(safe-area-inset-bottom,0px))] lg:h-[calc(100vh-8rem)] flex flex-col">
       <PageHeader
         title="Programme"
-        description="View schedule, track progress and monitor health"
+        description={isMobile ? undefined : 'View schedule, track progress and monitor health'}
         actions={
-          <div className="flex items-center gap-2 flex-wrap">
+          // On phones only the project picker, Critical and a "More" menu show; the
+          // rest of the toolbar sits in hidden md:contents groups (desktop order kept).
+          <div className="flex items-center gap-2 flex-wrap w-full md:w-auto">
             <Select value={selectedProjectId} onValueChange={setSelectedProjectId}>
-              <SelectTrigger className="w-44"><SelectValue placeholder="All Projects" /></SelectTrigger>
+              <SelectTrigger className="flex-1 min-w-0 md:flex-none md:w-44"><SelectValue placeholder="All Projects" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Projects</SelectItem>
                 {projects.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
@@ -934,6 +939,7 @@ export default function Programme() {
               </Badge>
             )}
 
+            <div className="hidden md:contents">
             {canPublish && !programmeLocked && (
               <Button variant="outline" size="sm" onClick={handleLock} disabled={isLocking || tasks.length === 0}
                 className="gap-1.5 text-xs h-9" title="Freeze the schedule so no changes can be made">
@@ -958,6 +964,7 @@ export default function Programme() {
                 <Plus className="w-3.5 h-3.5" /> Add Task
               </Button>
             )}
+            </div>
             <Button
               variant={showCriticalPath ? 'destructive' : 'outline'} size="sm"
               onClick={() => setShowCriticalPath(v => !v)}
@@ -965,6 +972,7 @@ export default function Programme() {
               className="gap-1.5 text-xs h-9">
               <Target className="w-3.5 h-3.5" /> Critical{criticalTaskCount > 0 ? ` (${criticalTaskCount})` : ''}
             </Button>
+            <div className="hidden md:contents">
             {programmeEditable && (
               <ScheduleSettingsPopover
                 projectId={selectedProjectId}
@@ -1021,6 +1029,64 @@ export default function Programme() {
                 <Trash2 className="w-4 h-4" />
               </Button>
             )}
+            </div>
+
+            {/* Phones: the toolbar actions above, in one menu. Schedule settings and
+                baselines stay desktop-only (planning tools, not site tools). */}
+            <div className="md:hidden">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="icon" aria-label="More actions"><MoreHorizontal className="w-4 h-4" /></Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  {programmeEditable && (
+                    <DropdownMenuItem onClick={() => setShowAddTask(true)}><Plus className="w-4 h-4 mr-2" /> Add task</DropdownMenuItem>
+                  )}
+                  {canPublish && !programmeLocked && (
+                    <DropdownMenuItem onClick={handleLock} disabled={isLocking || tasks.length === 0}><Lock className="w-4 h-4 mr-2" /> Lock programme</DropdownMenuItem>
+                  )}
+                  {isAdmin && programmeLocked && selectedProjectId !== 'all' && (
+                    <DropdownMenuItem onClick={handleUnlock} disabled={isLocking}><Unlock className="w-4 h-4 mr-2" /> Unlock programme</DropdownMenuItem>
+                  )}
+                  {canPublish && programmeLocked && (
+                    <DropdownMenuItem onClick={handlePublish} disabled={isNotifying}><Send className="w-4 h-4 mr-2" /> {isNotifying ? 'Publishing…' : 'Publish to team'}</DropdownMenuItem>
+                  )}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => handlePrint('a4')} disabled={isExportingPdf || selectedProjectId === 'all' || tasks.length === 0}>
+                    <Printer className="w-4 h-4 mr-2" /> PDF — A4 landscape
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handlePrint('a3')} disabled={isExportingPdf || selectedProjectId === 'all' || tasks.length === 0}>
+                    <Printer className="w-4 h-4 mr-2" /> PDF — A3 landscape
+                  </DropdownMenuItem>
+                  {canImportExport && (
+                    <>
+                      <DropdownMenuItem onClick={handleExportMspdi} disabled={selectedProjectId === 'all' || tasks.length === 0}>
+                        <Download className="w-4 h-4 mr-2" /> Export MS Project XML
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={handleExportExcel} disabled={selectedProjectId === 'all' || tasks.length === 0}>
+                        <Download className="w-4 h-4 mr-2" /> Export Excel
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => { if (selectedProjectId === 'all' && projects[0]?.id) setSelectedProjectId(projects[0].id); setShowImportDialog(true); }}
+                        disabled={!!deleteProgress}>
+                        <Upload className="w-4 h-4 mr-2" /> Import
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                  {canDeleteTasks && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onClick={() => setShowDeleteConfirm(true)}
+                        disabled={!selectedProjectId || selectedProjectId === 'all' || tasks.length === 0 || !!importProgress}
+                        className="text-destructive focus:text-destructive">
+                        <Trash2 className="w-4 h-4 mr-2" /> Delete all tasks
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
         }
       />
@@ -1030,8 +1096,6 @@ export default function Programme() {
           <div className="flex items-center gap-2 py-2 border-b bg-muted/20 overflow-x-auto flex-shrink-0">
             <Button size="sm" variant="outline" onClick={expandAll} className="flex-shrink-0 h-8 text-xs gap-1"><ChevronsUpDown className="w-3 h-3" /> Expand All</Button>
             <Button size="sm" variant="outline" onClick={collapseAll} className="flex-shrink-0 h-8 text-xs gap-1"><ChevronsDownUp className="w-3 h-3" /> Collapse</Button>
-            <Button size="sm" variant="outline" onClick={() => cycleZoom('out')} className="flex-shrink-0 h-8"><ZoomOut className="w-3.5 h-3.5" /></Button>
-            <Button size="sm" variant="outline" onClick={() => cycleZoom('in')} className="flex-shrink-0 h-8"><ZoomIn className="w-3.5 h-3.5" /></Button>
           </div>
         )}
         <div className="overflow-x-auto flex-shrink-0"><TabsList className="flex w-max">
@@ -1044,27 +1108,15 @@ export default function Programme() {
         <TabsContent value="gantt" className="flex-1 flex border rounded-lg overflow-hidden bg-card">
           {isMobile ? (
             <div className="flex-1 overflow-hidden">
-              <TaskList
+              <MobileTaskList
                 tasks={tasks}
                 visibleTasks={visibleTasks}
                 scheduledMap={scheduledMap}
                 expandedIds={expandedIds}
                 onToggleExpand={onToggleExpand}
                 onTaskClick={setSelectedTask}
-                onEditTask={taskEditable ? setEditingTask : undefined}
-                canDeleteTasks={canDeleteTasks}
-                onNameCommit={handleNameCommit}
-                onDurationCommit={handleResizeTask}
-                onStartCommit={handleMoveTask}
-                onPredecessorsCommit={handlePredecessorsCommit}
-                onProgressCommit={handleProgressCommit}
-                onCreateTask={handleCreateInline}
-                onTaskAction={handleTaskAction}
-                editable={programmeEditable}
                 totalWorkingDays={totalWorkingDays}
                 showCritical={showCriticalPath}
-                scrollRef={taskScrollRef}
-                onScroll={() => {}}
               />
             </div>
           ) : (
@@ -1172,6 +1224,7 @@ export default function Programme() {
         editable={taskEditable}
         open={!!selectedTask}
         onOpenChange={open => { if (!open) setSelectedTask(null); }}
+        onEdit={taskEditable ? (t) => { setSelectedTask(null); setEditingTask(t); } : undefined}
       />
 
       {/* Add task */}

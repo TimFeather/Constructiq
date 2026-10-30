@@ -137,7 +137,7 @@ export default function TaskInlineEditor({ task, tasks = [], team = [], schedule
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-[380px] sm:w-[440px] flex flex-col">
+      <SheetContent className="w-full sm:w-[440px] flex flex-col">
         <SheetHeader className="flex-shrink-0 pb-3 border-b">
           <SheetTitle className="text-sm leading-snug pr-6">
             {task.wbs && (

@@ -224,7 +224,7 @@ export default function TenderNTTPanel({ tender, canManage }) {
       ) : (
         <div className="border rounded-lg overflow-hidden">
           {/* Table header */}
-          <div className="grid grid-cols-12 gap-3 px-4 py-2.5 bg-muted/40 border-b text-xs font-medium text-muted-foreground">
+          <div className="hidden md:grid grid-cols-12 gap-3 px-4 py-2.5 bg-muted/40 border-b text-xs font-medium text-muted-foreground">
             <div className="col-span-2">Number</div>
             <div className="col-span-4">Title</div>
             <div className="col-span-2">Type</div>
@@ -236,13 +236,14 @@ export default function TenderNTTPanel({ tender, canManage }) {
           {filtered.map((notice) => (
             <div key={notice.id} className="border-b last:border-0">
               {/* Row */}
-              <div className="grid grid-cols-12 gap-3 px-4 py-3 items-center hover:bg-muted/20 transition-colors">
-                <div className="col-span-2">
+              {/* Phones: number · status · actions, then title, then type · issued (order-* below md) */}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 md:grid md:grid-cols-12 md:gap-3 px-4 py-3 hover:bg-muted/20 transition-colors">
+                <div className="order-1 md:order-none md:col-span-2">
                   <span className="font-mono text-xs font-semibold text-primary">
                     {notice.notice_number}
                   </span>
                 </div>
-                <div className="col-span-4">
+                <div className="order-4 basis-full md:basis-auto md:order-none md:col-span-4">
                   <button className="text-sm font-medium text-left hover:text-primary transition-colors flex items-center gap-1"
                     onClick={() => setExpandedId(expandedId === notice.id ? null : notice.id)}>
                     {notice.title}
@@ -251,20 +252,20 @@ export default function TenderNTTPanel({ tender, canManage }) {
                       : <ChevronDown className="w-3 h-3 flex-shrink-0" />}
                   </button>
                 </div>
-                <div className="col-span-2">
+                <div className="order-5 md:order-none md:col-span-2">
                   <span className="text-xs text-muted-foreground">{notice.notice_type}</span>
                 </div>
-                <div className="col-span-1">
+                <div className="order-2 md:order-none md:col-span-1">
                   <span className={`text-xs px-1.5 py-0.5 rounded border font-medium ${STATUS_COLOURS[notice.status] || ''}`}>
                     {notice.status}
                   </span>
                 </div>
-                <div className="col-span-2">
+                <div className="order-6 md:order-none md:col-span-2">
                   <span className="text-xs text-muted-foreground">
                     {notice.issue_date ? format(new Date(notice.issue_date), 'dd MMM yyyy') : '—'}
                   </span>
                 </div>
-                <div className="col-span-1 flex justify-end gap-1">
+                <div className="order-3 ml-auto md:ml-0 md:order-none md:col-span-1 flex justify-end gap-1">
                   {canManage && notice.status === 'Draft' && (
                     <>
                       <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:bg-muted"

@@ -219,7 +219,7 @@ export default function Tenders() {
       </div>
 
       {isLoading ? (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1,2,3].map(i => (
             <Card key={i} className="animate-pulse">
               <CardContent className="p-5 space-y-3">
@@ -241,7 +241,7 @@ export default function Tenders() {
           onAction={statusTab === 'All' && canManage ? () => createMutation.mutate() : undefined}
         />
       ) : (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map(tender => {
             const counts = inviteeCounts[tender.id] || { total: 0, submitted: 0 };
             const isOverdue = tender.status === 'Issued' && tender.closing_date && isPast(parseISO(tender.closing_date));
@@ -251,7 +251,7 @@ export default function Tenders() {
                 <Link to={`/tenders/${tender.id}`}>
                   <Card className={`hover:shadow-lg transition-all duration-300 hover:-translate-y-0.5 cursor-pointer h-full ${isOverdue ? 'border-l-4 border-l-red-500' : 'hover:border-primary/30'}`}>
                     <CardContent className="p-5">
-                      <div className="flex items-start justify-between gap-2 mb-2">
+                      <div className={`flex items-start justify-between gap-2 mb-2 ${canDeleteThis ? 'touch:pr-8' : ''}`}>
                         <span className="text-xs font-mono font-semibold text-primary">{tender.tender_number}</span>
                         <TenderStatusBadge status={tender.status} />
                       </div>
@@ -292,7 +292,7 @@ export default function Tenders() {
                 </Link>
                 {canDeleteThis && (
                   <button
-                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md bg-card border shadow-sm hover:bg-destructive/10"
+                    className="absolute top-2 right-2 can-hover:opacity-0 can-hover:group-hover:opacity-100 transition-opacity p-1.5 rounded-md bg-card border shadow-sm hover:bg-destructive/10"
                     onClick={e => { e.preventDefault(); setDeleteId(tender.id); }}
                     title="Permanently delete tender"
                   >

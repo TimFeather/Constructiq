@@ -1,25 +1,12 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import {
-  LayoutDashboard, FolderKanban,
-  MessageSquareMore, GanttChart, FileSignature, ListChecks,
-} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/AuthContext';
-import { canAccess, getRole } from '@/lib/permissions';
+import { TAB_ITEMS, isNavActive } from './navItems';
 
 export default function MobileNav() {
   const location = useLocation();
   const { user } = useAuth();
-
-  const navItems = [
-    { path: '/',          icon: LayoutDashboard,   label: 'Home',     show: true },
-    { path: '/projects',  icon: FolderKanban,      label: 'Projects', show: true },
-    { path: '/rfis',      icon: MessageSquareMore, label: 'RFIs',     show: true },
-    { path: '/tenders',   icon: FileSignature,     label: 'Tenders',  show: canAccess(user, 'tenders') },
-    { path: '/my-tenders', icon: ListChecks,       label: 'My Tenders', show: getRole(user) === 'external' },
-    { path: '/programme', icon: GanttChart,        label: 'Gantt',    show: true },
-  ].filter(item => item.show);
 
   return (
     <nav
@@ -27,10 +14,8 @@ export default function MobileNav() {
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
     >
       <div className="flex items-center justify-around h-16 px-1">
-        {navItems.map(({ path, icon: Icon, label }) => {
-          const isActive = path === '/'
-            ? location.pathname === '/'
-            : location.pathname.startsWith(path);
+        {TAB_ITEMS.filter(item => item.show(user)).map(({ path, icon: Icon, label }) => {
+          const isActive = isNavActive(path, location.pathname);
           return (
             <Link
               key={path}

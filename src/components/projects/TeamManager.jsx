@@ -355,7 +355,7 @@ export default function TeamManager({ project }) {
                       <div className="grid grid-cols-2 gap-2">
                         <div>
                           <Label className="text-xs">Full Name</Label>
-                          <Input className="h-8 text-xs" value={editValues.full_name || ''} onChange={e => setEditValues(v => ({ ...v, full_name: e.target.value }))} />
+                          <Input className="h-8 text-base md:text-xs" value={editValues.full_name || ''} onChange={e => setEditValues(v => ({ ...v, full_name: e.target.value }))} />
                         </div>
                         <div>
                           <Label className="text-xs">Role</Label>
@@ -366,11 +366,11 @@ export default function TeamManager({ project }) {
                         </div>
                         <div>
                           <Label className="text-xs">Phone</Label>
-                          <Input className="h-8 text-xs" value={editValues.phone || ''} onChange={e => setEditValues(v => ({ ...v, phone: e.target.value }))} />
+                          <Input className="h-8 text-base md:text-xs" value={editValues.phone || ''} onChange={e => setEditValues(v => ({ ...v, phone: e.target.value }))} />
                         </div>
                         <div>
                           <Label className="text-xs">Business Name</Label>
-                          <Input className="h-8 text-xs" value={editValues.business_name || ''} onChange={e => setEditValues(v => ({ ...v, business_name: e.target.value }))} />
+                          <Input className="h-8 text-base md:text-xs" value={editValues.business_name || ''} onChange={e => setEditValues(v => ({ ...v, business_name: e.target.value }))} />
                         </div>
                         {editValues.role === 'Subcontractor' && (
                           <div>

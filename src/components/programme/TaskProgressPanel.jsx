@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
-import { AlertTriangle, Image as ImageIcon } from 'lucide-react';
+import { AlertTriangle, Image as ImageIcon, Pencil } from 'lucide-react';
 import { format, differenceInDays, formatDistanceToNow } from 'date-fns';
 import { updateTaskFull } from '@/lib/scheduleUpdateService';
 import { getSignedUrls } from '@/api/supabaseClient';
@@ -30,7 +30,7 @@ const DELAY_REASON_LABELS = {
   site_access: 'Site access', other: 'Other',
 };
 
-export default function TaskProgressPanel({ task, tasks = [], scheduledMap, scheduleOptions, editable = true, open, onOpenChange }) {
+export default function TaskProgressPanel({ task, tasks = [], scheduledMap, scheduleOptions, editable = true, open, onOpenChange, onEdit }) {
   const [form, setForm] = useState({});
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -124,7 +124,7 @@ export default function TaskProgressPanel({ task, tasks = [], scheduledMap, sche
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="sm:max-w-md overflow-y-auto">
+      <SheetContent className="w-full sm:w-3/4 sm:max-w-md overflow-y-auto">
         <SheetHeader>
           <SheetTitle className="flex items-center gap-2 flex-wrap">
             <span className="truncate">{task.name}</span>
@@ -136,6 +136,13 @@ export default function TaskProgressPanel({ task, tasks = [], scheduledMap, sche
             </div>
           </SheetTitle>
         </SheetHeader>
+
+        {/* Dates, links and assignees live in the task editor; on phones this is the way in. */}
+        {onEdit && (
+          <Button variant="outline" size="sm" className="mt-3 gap-1.5" onClick={() => onEdit(task)}>
+            <Pencil className="w-3.5 h-3.5" /> Edit task
+          </Button>
+        )}
 
         {/* Planned dates + schedule intel */}
         <div className="mt-4 p-3 rounded-lg bg-muted/40 border space-y-1">

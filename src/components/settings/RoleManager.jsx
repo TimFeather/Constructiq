@@ -68,7 +68,7 @@ function RoleRow({ role, onDelete, onSave }) {
   if (editing) {
     return (
       <div className="border border-primary/30 rounded-lg p-4 space-y-3 bg-primary/5">
-        <div className="grid sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <Label className="text-xs">Role Name</Label>
             <Input value={editName} onChange={e => setEditName(e.target.value)} className="mt-1 h-8 text-sm" />
@@ -125,7 +125,7 @@ function RoleRow({ role, onDelete, onSave }) {
           <InheritedPermissions permissionRole={role.permission_role} />
         </div>
       </div>
-      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+      <div className="flex items-center gap-1 can-hover:opacity-0 can-hover:group-hover:opacity-100 transition-opacity shrink-0">
         <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setEditing(true)}>
           <Pencil className="w-3.5 h-3.5" />
         </Button>
@@ -240,7 +240,7 @@ export default function RoleManager() {
             ) : (
               <div className="border border-dashed border-border rounded-lg p-4 space-y-3">
                 <p className="text-sm font-medium">New Project Role</p>
-                <div className="grid sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <Label className="text-xs">Role Name</Label>
                     <Input

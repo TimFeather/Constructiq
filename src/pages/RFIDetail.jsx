@@ -265,7 +265,7 @@ export default function RFIDetail() {
         }
       />
 
-      <div className="grid lg:grid-cols-3 gap-6 mb-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
         <Card className="lg:col-span-2">
           <CardHeader><CardTitle className="text-base">Description</CardTitle></CardHeader>
           <CardContent>

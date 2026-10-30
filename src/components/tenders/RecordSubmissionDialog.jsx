@@ -191,7 +191,7 @@ export default function RecordSubmissionDialog({ tender, invitees, submissions =
               </Select>
             )}
             {inviteeId === NEW_INVITEE && !isEdit && (
-              <div className="grid sm:grid-cols-2 gap-2 pt-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
                 <Input placeholder="Full name" value={newInvitee.fullName}
                   onChange={e => setNewInvitee(n => ({ ...n, fullName: e.target.value }))} />
                 <Input placeholder="Business name" value={newInvitee.businessName}
@@ -223,24 +223,24 @@ export default function RecordSubmissionDialog({ tender, invitees, submissions =
           {/* Pricing */}
           <div className="space-y-2">
             <Label>Pricing</Label>
-            <div className="grid grid-cols-[1fr_140px_28px] gap-2 px-1">
+            <div className="grid grid-cols-[1fr_110px_28px] sm:grid-cols-[1fr_140px_28px] gap-2 px-1">
               <span className="text-xs text-muted-foreground">Description</span>
               <span className="text-xs text-muted-foreground">Amount (NZD)</span>
               <span />
             </div>
             <div className="space-y-2">
               {priceLines.map(line => (
-                <div key={line.id} className="grid grid-cols-[1fr_140px_28px] gap-2 items-center">
+                <div key={line.id} className="grid grid-cols-[1fr_110px_28px] sm:grid-cols-[1fr_140px_28px] gap-2 items-center">
                   <input
-                    className="h-8 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                    className="h-8 w-full rounded-md border border-input bg-background px-3 text-base md:text-sm focus:outline-none focus:ring-1 focus:ring-ring"
                     value={line.description} placeholder="Description"
                     onChange={e => setPriceLines(prev => prev.map(l => l.id === line.id ? { ...l, description: e.target.value } : l))}
                   />
                   <div className="relative">
                     <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
                     <input
-                      type="number" min="0" step="0.01"
-                      className="h-8 w-full rounded-md border border-input bg-background pl-6 pr-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                      type="number" inputMode="decimal" min="0" step="0.01"
+                      className="h-8 w-full rounded-md border border-input bg-background pl-6 pr-2 text-base md:text-sm focus:outline-none focus:ring-1 focus:ring-ring"
                       value={line.amount} placeholder="0.00"
                       onChange={e => setPriceLines(prev => prev.map(l => l.id === line.id ? { ...l, amount: e.target.value } : l))}
                     />

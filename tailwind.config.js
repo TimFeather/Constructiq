@@ -1,3 +1,5 @@
+const plugin = require("tailwindcss/plugin");
+
 /** @type {import('tailwindcss').Config} */
 module.exports = {
     darkMode: ["class"],
@@ -91,5 +93,13 @@ module.exports = {
   		}
   	}
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [
+    require("tailwindcss-animate"),
+    // can-hover: mouse/trackpad devices; touch: phones and tablets (no hover).
+    // Hover-revealed buttons use can-hover:opacity-0 so they stay visible on touch.
+    plugin(({ addVariant }) => {
+      addVariant("can-hover", "@media (hover: hover)");
+      addVariant("touch", "@media (hover: none)");
+    }),
+  ],
 }

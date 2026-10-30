@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Link } from 'react-router-dom';
 
-export default function TopBar({ onMenuToggle, projectName }) {
+export default function TopBar({ onMenuOpen, projectName }) {
   const { user, logout } = useAuth();
   const initials = user?.full_name
     ? user.full_name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
@@ -21,8 +21,9 @@ export default function TopBar({ onMenuToggle, projectName }) {
         <Button
           variant="ghost"
           size="icon"
-          onClick={onMenuToggle}
+          onClick={onMenuOpen}
           className="lg:hidden"
+          aria-label="Open menu"
         >
           <Menu className="w-5 h-5" />
         </Button>

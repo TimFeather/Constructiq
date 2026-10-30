@@ -156,7 +156,7 @@ export default function Landing() {
           <h2 className="text-2xl sm:text-3xl font-bold text-center text-foreground mb-12">
             One platform. Every stage of the project.
           </h2>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
             {FEATURES.map(({ icon: Icon, title, desc, bg, text }) => (
               <div key={title} className="bg-card rounded-xl border border-border p-6 space-y-3">
                 <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${bg}`}>

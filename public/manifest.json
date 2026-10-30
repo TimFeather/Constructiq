@@ -2,7 +2,7 @@
   "name": "ConstructIQ",
   "short_name": "ConstructIQ",
   "description": "Construction Project Management",
-  "start_url": "/",
+  "start_url": "/dashboard",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#1a56db",

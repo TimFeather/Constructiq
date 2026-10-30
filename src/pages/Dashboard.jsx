@@ -113,7 +113,7 @@ export default function Dashboard() {
 
       {/* Deadlines Widget */}
       {(overdueTasks.length > 0 || dueSoonTasks.length > 0) && (
-        <div className="grid lg:grid-cols-2 gap-4 mb-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
           {overdueTasks.length > 0 && (
             <Card>
               <CardHeader className="pb-3">
@@ -167,7 +167,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className="grid lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Recent Projects */}
         <Card>
           <CardHeader className="pb-3">

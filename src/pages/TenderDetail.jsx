@@ -358,22 +358,23 @@ export default function TenderDetail() {
         </div>
       )}
 
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-2 mb-4">
+      {/* Breadcrumb. Phones: back + title on line 1, status / value / delete on line 2 */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-4">
         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate('/tenders')}>
           <ArrowLeft className="w-4 h-4" />
         </Button>
-        <Link to="/tenders" className="text-sm text-muted-foreground hover:text-foreground">Tenders</Link>
-        <span className="text-sm text-muted-foreground">/</span>
-        <span className="text-sm font-medium">{tender.tender_number} — {tender.title}</span>
-        <span className={`ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[tender.status] || 'bg-gray-100 text-gray-700'}`}>
+        <Link to="/tenders" className="hidden sm:inline text-sm text-muted-foreground hover:text-foreground">Tenders</Link>
+        <span className="hidden sm:inline text-sm text-muted-foreground">/</span>
+        <span className="text-sm font-medium min-w-0 flex-1 truncate sm:flex-none sm:whitespace-normal">{tender.tender_number} — {tender.title}</span>
+        <div className="basis-full h-0 sm:hidden" />
+        <span className={`sm:ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[tender.status] || 'bg-gray-100 text-gray-700'}`}>
           {tender.status}
         </span>
         {tender.estimated_value && (
-          <span className="ml-2 text-xs text-muted-foreground font-medium">{formatCurrency(tender.estimated_value)}</span>
+          <span className="sm:ml-2 text-xs text-muted-foreground font-medium">{formatCurrency(tender.estimated_value)}</span>
         )}
         {tender.converted_project_id && (
-          <Link to={`/projects/${tender.converted_project_id}`} className="ml-2 inline-flex items-center gap-1 text-xs text-purple-600 hover:text-purple-700 font-medium">
+          <Link to={`/projects/${tender.converted_project_id}`} className="sm:ml-2 inline-flex items-center gap-1 text-xs text-purple-600 hover:text-purple-700 font-medium">
             <FolderOpen className="w-3 h-3" /> View Project →
           </Link>
         )}
@@ -429,7 +430,7 @@ export default function TenderDetail() {
 
         {/* Tab 1 — Details */}
         <TabsContent value="details" className="space-y-6">
-          <div className="grid sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <Label className="text-xs">Tender Number</Label>
               <Input value={form.tender_number || ''} disabled className="bg-muted" />
@@ -497,7 +498,7 @@ export default function TenderDetail() {
           </div>
 
           {/* Tender Ownership */}
-          <div className="grid sm:grid-cols-2 gap-4 p-4 border rounded-lg bg-muted/20">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 border rounded-lg bg-muted/20">
             <div className="sm:col-span-2 flex items-center gap-2 mb-1">
               <UserIcon className="w-4 h-4 text-muted-foreground" />
               <h3 className="text-sm font-semibold">Tender Ownership</h3>
@@ -505,7 +506,7 @@ export default function TenderDetail() {
             {/* Created By — read-only */}
             <div>
               <Label className="text-xs">Created By</Label>
-              <Input value={tender.created_by_name || tender.created_by_email || '—'} disabled className="bg-muted text-sm" />
+              <Input value={tender.created_by_name || tender.created_by_email || '—'} disabled className="bg-muted text-base md:text-sm" />
               {tender.created_by_email && tender.created_by_name && (
                 <p className="text-xs text-muted-foreground mt-0.5">{tender.created_by_email}</p>
               )}
@@ -536,7 +537,7 @@ export default function TenderDetail() {
                   </SelectContent>
                 </Select>
               ) : (
-                <Input value={form.tender_lead_name || form.tender_lead_email || '—'} disabled className="bg-muted text-sm" />
+                <Input value={form.tender_lead_name || form.tender_lead_email || '—'} disabled className="bg-muted text-base md:text-sm" />
               )}
               {form.tender_lead_email && form.tender_lead_name && (
                 <p className="text-xs text-muted-foreground mt-0.5">{form.tender_lead_email}</p>
@@ -752,7 +753,7 @@ export default function TenderDetail() {
                     <div className="flex gap-2">
                       <input
                         type="text"
-                        className="flex-1 border rounded px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-primary"
+                        className="flex-1 border rounded px-3 py-1.5 text-base md:text-sm outline-none focus:ring-1 focus:ring-primary"
                         placeholder="Type a reply..."
                         value={replyText[q.id] || ''}
                         onChange={e => setReplyText(r => ({ ...r, [q.id]: e.target.value }))}

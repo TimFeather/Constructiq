@@ -416,7 +416,7 @@ function IssueTenderDiagnostic() {
 
       <div className="flex gap-2">
         <input
-          className="flex h-9 w-full max-w-xs rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className="flex h-9 w-full max-w-xs rounded-md border border-input bg-transparent px-3 py-1 text-base md:text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           placeholder="TDR-008 or DB id…"
           value={tenderId}
           onChange={e => setTenderId(e.target.value)}
@@ -572,7 +572,7 @@ function AddInviteeTrace() {
           <div key={label}>
             <label className="text-xs text-muted-foreground">{label}</label>
             <input
-              className="flex h-8 w-full rounded-md border border-input bg-transparent px-2 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="flex h-8 w-full rounded-md border border-input bg-transparent px-2 py-1 text-base md:text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               value={val}
               onChange={e => setter(e.target.value)}
             />

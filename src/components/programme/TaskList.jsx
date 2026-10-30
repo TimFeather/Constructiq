@@ -457,7 +457,7 @@ export default function TaskList({
                     type="text"
                     autoFocus
                     value={editValue}
-                    className="w-full text-xs bg-background border border-primary rounded px-1"
+                    className="w-full text-xs touch:text-base bg-background border border-primary rounded px-1"
                     onChange={e => setEditValue(e.target.value)}
                     onClick={e => e.stopPropagation()}
                     onBlur={() => commitAndMove(null)}
@@ -489,7 +489,7 @@ export default function TaskList({
                     max={100}
                     autoFocus
                     value={editValue}
-                    className="w-full text-center text-[10px] font-mono bg-background border border-primary rounded px-0.5"
+                    className="w-full text-center text-[10px] touch:text-base font-mono bg-background border border-primary rounded px-0.5"
                     onChange={e => setEditValue(e.target.value)}
                     onClick={e => e.stopPropagation()}
                     onBlur={() => commitAndMove(null)}
@@ -518,7 +518,7 @@ export default function TaskList({
                     min={1}
                     autoFocus
                     value={editValue}
-                    className="w-full text-center text-[10px] font-mono bg-background border border-primary rounded px-0.5"
+                    className="w-full text-center text-[10px] touch:text-base font-mono bg-background border border-primary rounded px-0.5"
                     onChange={e => setEditValue(e.target.value)}
                     onClick={e => e.stopPropagation()}
                     onBlur={() => commitAndMove(null)}
@@ -544,7 +544,7 @@ export default function TaskList({
                     type="date"
                     autoFocus
                     value={editValue}
-                    className="w-full text-center text-[10px] font-mono bg-background border border-primary rounded px-0.5"
+                    className="w-full text-center text-[10px] touch:text-base font-mono bg-background border border-primary rounded px-0.5"
                     onChange={e => setEditValue(e.target.value)}
                     onClick={e => e.stopPropagation()}
                     onBlur={() => commitAndMove(null)}
@@ -576,7 +576,7 @@ export default function TaskList({
                     autoFocus
                     value={editValue}
                     placeholder="e.g. 1.2FS+2d"
-                    className="w-full text-center text-[10px] font-mono bg-background border border-primary rounded px-0.5"
+                    className="w-full text-center text-[10px] touch:text-base font-mono bg-background border border-primary rounded px-0.5"
                     onChange={e => setEditValue(e.target.value)}
                     onClick={e => e.stopPropagation()}
                     onBlur={() => commitAndMove(null)}
@@ -607,10 +607,10 @@ export default function TaskList({
               {baselineMap && <div className="text-center">{baselineEl}</div>}
 
               {(onEditTask || canDeleteTasks) && (
-                <div className="absolute right-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="absolute right-1 flex items-center gap-0.5 can-hover:opacity-0 can-hover:group-hover:opacity-100 transition-opacity touch:bg-card/90 touch:rounded">
                   {onEditTask && (
                     <button
-                      className="w-5 h-5 flex items-center justify-center hover:bg-primary/10 rounded"
+                      className="w-5 h-5 touch:w-7 touch:h-7 flex items-center justify-center hover:bg-primary/10 rounded"
                       onClick={e => { e.stopPropagation(); onEditTask(task); }}
                       title="Edit task"
                     >
@@ -620,7 +620,7 @@ export default function TaskList({
                   {canDeleteTasks && !isSummary && (
                     <button
                       className={cn(
-                        'w-5 h-5 flex items-center justify-center rounded',
+                        'w-5 h-5 touch:w-7 touch:h-7 flex items-center justify-center rounded',
                         confirmDeleteId === task.id ? 'bg-destructive/10' : 'hover:bg-destructive/10'
                       )}
                       onClick={e => {
@@ -666,7 +666,7 @@ export default function TaskList({
                   autoFocus
                   value={editValue}
                   placeholder="Add task…"
-                  className="w-full text-xs bg-background border border-primary rounded px-1"
+                  className="w-full text-xs touch:text-base bg-background border border-primary rounded px-1"
                   onChange={e => setEditValue(e.target.value)}
                   onClick={e => e.stopPropagation()}
                   onBlur={() => commitAndMove(null)}

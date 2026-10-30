@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, RefreshCw, FileText, ExternalLink } from 'lucide-react';
 import { getSignedUrl, isStoredUrl } from '@/api/supabaseClient';
 import SecureFileLink from '@/components/shared/SecureFileLink';
 
@@ -105,6 +105,9 @@ export default function FilePreviewModal({ items = [], current, onChange, onClos
   const ref = fileRef(current);
   const isImage = IMAGE_EXT_RE.test(ref) || IMAGE_EXT_RE.test(name || '');
   const isPdf = PDF_EXT_RE.test(ref) || PDF_EXT_RE.test(name || '');
+  // Phone and tablet browsers can't show a PDF inside the page (Android Chrome shows
+  // nothing, iOS only page 1, neither zooms), so touch devices get the phone's own viewer.
+  const isTouch = typeof window !== 'undefined' && window.matchMedia('(hover: none)').matches;
 
   const navBtn = 'absolute top-1/2 -translate-y-1/2 z-10 h-10 w-10 rounded-full bg-background/90 shadow border flex items-center justify-center text-foreground hover:bg-background disabled:opacity-0 disabled:pointer-events-none transition-opacity';
 
@@ -146,6 +149,17 @@ export default function FilePreviewModal({ items = [], current, onChange, onClos
           ) : !state.url ? null : isImage ? (
             <div className="flex items-center justify-center h-full p-4 bg-muted/30">
               <img key={state.url} src={state.url} alt={name} className="max-h-full max-w-full object-contain rounded select-none" draggable={false} />
+            </div>
+          ) : isPdf && isTouch ? (
+            <div className="flex flex-col items-center justify-center h-full gap-4 p-6 text-center">
+              <FileText className="w-12 h-12 text-muted-foreground/60" />
+              <p className="text-sm font-medium break-all">{name}</p>
+              <Button asChild size="lg" className="gap-2">
+                <a href={state.url} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="w-4 h-4" /> Open PDF
+                </a>
+              </Button>
+              <p className="text-xs text-muted-foreground max-w-xs">Opens in your phone's PDF viewer, where you can scroll and zoom.</p>
             </div>
           ) : isPdf ? (
             <iframe key={state.url} src={state.url} title={name} className="w-full h-full border-0" />

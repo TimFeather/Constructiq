@@ -141,7 +141,7 @@ export default function EmailTemplateEditor({ templateKey, template, branding, o
       </div>
 
       {/* Split pane */}
-      <div className="grid md:grid-cols-2 gap-0 border rounded-md overflow-hidden" style={{ height: 520 }}>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-0 border rounded-md overflow-hidden" style={{ height: 520 }}>
         {/* Left — HTML editor */}
         <div className="flex flex-col border-r">
           {/* Toolbar */}
