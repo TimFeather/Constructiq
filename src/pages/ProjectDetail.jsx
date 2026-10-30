@@ -18,6 +18,7 @@ import ActivityFeed from '@/components/shared/ActivityFeed';
 import { useAuth } from '@/lib/AuthContext';
 import { canEdit } from '@/lib/permissions';
 import { format } from 'date-fns';
+import { assigneeNames } from '@/lib/programme/assignees';
 
 export default function ProjectDetail() {
   const { id } = useParams();
@@ -227,6 +228,7 @@ export default function ProjectDetail() {
                         <tr className="border-b bg-muted/30 text-muted-foreground">
                           <th className="text-left px-3 py-2 font-medium w-16">WBS</th>
                           <th className="text-left px-3 py-2 font-medium">Name</th>
+                          <th className="text-left px-3 py-2 font-medium w-48">Assigned</th>
                           <th className="text-center px-3 py-2 font-medium w-24">Start</th>
                           <th className="text-center px-3 py-2 font-medium w-24">End</th>
                           <th className="text-center px-3 py-2 font-medium w-16">Dur.</th>
@@ -242,6 +244,9 @@ export default function ProjectDetail() {
                               <td className="px-3 py-1.5 font-mono text-muted-foreground">{task.wbs || '—'}</td>
                               <td className="px-3 py-1.5" style={{ paddingLeft: `${12 + indent}px` }}>
                                 <span className={task.level === 0 ? 'font-bold' : task.level === 1 ? 'font-semibold' : ''}>{task.name}</span>
+                              </td>
+                              <td className="px-3 py-1.5 text-muted-foreground max-w-[12rem] truncate" title={assigneeNames(task) || undefined}>
+                                {assigneeNames(task) || '—'}
                               </td>
                               <td className="px-3 py-1.5 text-center text-muted-foreground font-mono">
                                 {task.start_date ? format(new Date(task.start_date), 'dd/MM/yy') : '—'}
