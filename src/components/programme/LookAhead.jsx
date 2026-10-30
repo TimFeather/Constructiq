@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useAuth } from '@/lib/AuthContext';
 import QuickProgressSheet from '@/components/programme/QuickProgressSheet';
 import useQuickProgress from '@/components/programme/useQuickProgress';
+import { assigneeNames, isAssignedTo, assigneeFilterOptions, hasAssigneeKey } from '@/lib/programme/assignees';
 
 const WINDOWS = [
   { label: '2 Week', days: 14 },
@@ -36,15 +37,9 @@ export default function LookAhead({ tasks, scheduledMap, allTasks, programmesByP
     programmesByProject,
   });
 
-  const myEmail = (user?.email || '').toLowerCase();
+  const myEmail = user?.email || '';
 
-  const assigneeOptions = useMemo(() => {
-    const set = new Set();
-    for (const t of tasks) {
-      if (t.assignee_email) set.add(t.assignee_email);
-    }
-    return [...set].sort();
-  }, [tasks]);
+  const assigneeOptions = useMemo(() => assigneeFilterOptions(tasks), [tasks]);
 
   const { activeTasks, milestones, critical, overdue } = useMemo(() => {
     const active = [], miles = [], crit = [], late = [];
@@ -57,8 +52,8 @@ export default function LookAhead({ tasks, scheduledMap, allTasks, programmesByP
       const isLeaf = !parentIds.has(t.id);
       if (parentIds.has(t.id) && !isMilestone) continue;
 
-      if (assigneeFilter === ASSIGNEE_MINE && (t.assignee_email || '').toLowerCase() !== myEmail) continue;
-      if (assigneeFilter !== ASSIGNEE_ALL && assigneeFilter !== ASSIGNEE_MINE && t.assignee_email !== assigneeFilter) continue;
+      if (assigneeFilter === ASSIGNEE_MINE && !isAssignedTo(t, myEmail)) continue;
+      if (assigneeFilter !== ASSIGNEE_ALL && assigneeFilter !== ASSIGNEE_MINE && !hasAssigneeKey(t, assigneeFilter)) continue;
 
       const resolved = scheduledMap?.get(t.id);
       const start = resolved?.startStr || t.start_date;
@@ -139,6 +134,9 @@ export default function LookAhead({ tasks, scheduledMap, allTasks, programmesByP
           <span className="text-[10px] text-muted-foreground font-mono">
             {format(start, 'dd MMM')} → {format(end, 'dd MMM')}
           </span>
+          {assigneeNames(task) && (
+            <span className="text-[10px] text-muted-foreground"> · {assigneeNames(task)}</span>
+          )}
         </div>
         {!isMilestone && (
           <div className="flex items-center gap-1 w-20 flex-shrink-0">
@@ -174,8 +172,8 @@ export default function LookAhead({ tasks, scheduledMap, allTasks, programmesByP
               <SelectContent>
                 <SelectItem value={ASSIGNEE_ALL}>All assignees</SelectItem>
                 <SelectItem value={ASSIGNEE_MINE}>My tasks</SelectItem>
-                {assigneeOptions.map(email => (
-                  <SelectItem key={email} value={email}>{email}</SelectItem>
+                {assigneeOptions.map(o => (
+                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
                 ))}
               </SelectContent>
             </Select>

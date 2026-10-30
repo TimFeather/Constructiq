@@ -6,6 +6,7 @@
 import React, { useMemo, useRef, useCallback, useEffect, useState } from 'react';
 import { differenceInDays, addDays, format, eachWeekOfInterval, eachDayOfInterval, isToday, isWeekend, eachMonthOfInterval } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { assigneeNames } from '@/lib/programme/assignees';
 import { Button } from '@/components/ui/button';
 
 // Format a Date as 'yyyy-MM-dd' from LOCAL components (never toISOString — NZ tz shifts dates).
@@ -546,6 +547,7 @@ export default function GanttChart({
                         fill={isCritical ? '#ef4444' : '#6366f1'} stroke={isCritical ? '#b91c1c' : '#4f46e5'} strokeWidth="1"
                       />
                     </svg>
+                    <ResourceLabel task={task} left={cx + size + 14} top={cy} hidden={!!activeDrag} dimmed={dimmed} />
                     {/* Milestone drag ghost + date chip */}
                     {activeDrag && activeDrag.mode === 'move' && (
                       <>
@@ -687,6 +689,7 @@ export default function GanttChart({
                   )}
 
                   {/* Link handles (leaf: start left edge, finish right edge) */}
+                  <ResourceLabel task={task} left={bar.left + bar.width + 12} top={top + ROW_H / 2} hidden={!!activeDrag} dimmed={leafDim} />
                   {editThis && !activeDrag && (
                     <>
                       <LinkHandle x={bar.left} y={top + ROW_H / 2} onPointerDown={(e) => beginLinkDrag(e, task, 'start')}
@@ -730,6 +733,19 @@ export default function GanttChart({
         </div>
       </div>
     </div>
+  );
+}
+
+// Assignee names to the right of a bar, the way MS Project shows resource names.
+// (left, top) is the label's left edge and vertical centre, chart-relative.
+function ResourceLabel({ task, left, top, hidden, dimmed }) {
+  const names = assigneeNames(task);
+  if (!names || hidden) return null;
+  return (
+    <span className={cn('absolute text-[10px] text-muted-foreground whitespace-nowrap pointer-events-none', dimmed)}
+      style={{ left, top, transform: 'translateY(-50%)', zIndex: 1 }}>
+      {names}
+    </span>
   );
 }
 

@@ -15,6 +15,7 @@
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 import { DEP_TO_MSPDI_TYPE } from './scheduleImportParsers';
+import { assigneeNames } from './programme/assignees';
 
 const CONSTRAINT_TO_CODE = { ASAP: 0, ALAP: 1, MSO: 2, MFO: 3, SNET: 4, SNLT: 5, FNET: 6, FNLT: 7 };
 
@@ -269,7 +270,7 @@ export function buildProgrammeWorkbook(tasks, scheduledMap = new Map()) {
       'Predecessors': predecessorLabel(task.predecessors, wbsMap),
       'Total float (days)': r ? Math.round((r.totalFloat / 8) * 10) / 10 : '',
       'Critical': r ? (r.isCritical ? 'Yes' : 'No') : '',
-      'Assigned to': task.assignee_name || task.assignee_email || '',
+      'Assigned to': assigneeNames(task),
     };
   });
 

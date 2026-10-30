@@ -154,7 +154,8 @@ export function matchResources(resources, team, savedMap = {}) {
 /** Does this match need the user to look at it? */
 export const needsReview = (match) => !['saved', 'exact'].includes(match.status);
 
-const assigneeKey = (a) => (a.email ? `e:${normalizeEmail(a.email)}` : `n:${normalizeName(a.name)}`);
+/** One assignee's identity: their email, or for a name-only assignee, the name. */
+export const assigneeKey = (a) => (a.email ? `e:${normalizeEmail(a.email)}` : `n:${normalizeName(a.name)}`);
 
 /** Order-insensitive identity of an assignee list, for import diffs. */
 export function assigneesKey(assignees) {

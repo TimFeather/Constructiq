@@ -28,7 +28,7 @@ import { bulkUpdateSchedule, setTaskDependencies } from '@/api/programmeData';
 const LOGGED_FIELDS = [
   'start_date', 'end_date', 'duration', 'percent_complete',
   'actual_start', 'actual_finish', 'constraint', 'predecessors',
-  'name', 'assignee_email',
+  'name', 'assignees',
 ];
 
 function serialize(value) {

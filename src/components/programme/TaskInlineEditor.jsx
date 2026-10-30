@@ -19,6 +19,8 @@ import { useToast } from '@/components/ui/use-toast';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { updateTaskFull } from '@/lib/scheduleUpdateService';
+import { taskAssignees } from '@/lib/programme/assignees';
+import AssigneePicker from '@/components/programme/AssigneePicker';
 
 const CONSTRAINT_OPTIONS = [
   { value: 'ASAP', label: 'As soon as possible (default)' },
@@ -31,7 +33,7 @@ const CONSTRAINT_OPTIONS = [
 ];
 const DEP_TYPES = ['FS', 'SS', 'FF', 'SF'];
 
-export default function TaskInlineEditor({ task, tasks = [], scheduleOptions, editable = true, open, onOpenChange }) {
+export default function TaskInlineEditor({ task, tasks = [], team = [], scheduleOptions, editable = true, open, onOpenChange }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [form, setForm] = useState(null);
@@ -56,6 +58,7 @@ export default function TaskInlineEditor({ task, tasks = [], scheduleOptions, ed
         actual_finish: task.actual_finish || '',
         delay_notes: task.delay_notes || '',
         status_notes: task.status_notes || '',
+        assignees: taskAssignees(task),
       });
       setConfirmDelete(false);
     }
@@ -86,6 +89,7 @@ export default function TaskInlineEditor({ task, tasks = [], scheduleOptions, ed
         actual_finish: data.actual_finish || null,
         delay_notes: data.delay_notes,
         status_notes: data.status_notes,
+        assignees: data.assignees,
       };
       return updateTaskFull(task.id, payload, tasks, scheduleOptions || {});
     },
@@ -249,6 +253,13 @@ export default function TaskInlineEditor({ task, tasks = [], scheduleOptions, ed
               <div className="border-t pt-4" />
             </>
           )}
+
+          {/* Assignees: like progress, not part of the locked schedule */}
+          <div>
+            <Label className="text-xs">Assigned to</Label>
+            <AssigneePicker value={form.assignees} team={team}
+              onChange={assignees => setForm(f => ({ ...f, assignees }))} />
+          </div>
 
           {/* Status */}
           <div>

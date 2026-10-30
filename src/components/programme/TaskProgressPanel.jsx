@@ -13,13 +13,16 @@ import { format, differenceInDays, formatDistanceToNow } from 'date-fns';
 import { updateTaskFull } from '@/lib/scheduleUpdateService';
 import { getSignedUrls } from '@/api/supabaseClient';
 import { useToast } from '@/components/ui/use-toast';
+import { assigneeNames, formatLoggedAssignees } from '@/lib/programme/assignees';
 
 const FIELD_LABELS = {
   start_date: 'Start', end_date: 'Finish', duration: 'Duration',
   percent_complete: '% complete', actual_start: 'Actual start',
   actual_finish: 'Actual finish', constraint: 'Constraint',
-  predecessors: 'Dependencies', name: 'Name', assignee_email: 'Assignee',
+  predecessors: 'Dependencies', name: 'Name', assignees: 'Assignees',
 };
+
+const loggedValue = (row, raw) => (row.field_changed === 'assignees' ? formatLoggedAssignees(raw) : raw);
 
 const DELAY_REASON_LABELS = {
   weather: 'Weather', materials: 'Materials', labour: 'Labour',
@@ -151,6 +154,12 @@ export default function TaskProgressPanel({ task, tasks = [], scheduledMap, sche
               <span className="font-mono">{task.duration || 0}d</span>
             </div>
           </div>
+          {assigneeNames(task) && (
+            <div className="pt-2 border-t border-border/50 text-xs flex items-start justify-between gap-3">
+              <span className="text-muted-foreground flex-shrink-0">Assigned to</span>
+              <span className="font-semibold text-right">{assigneeNames(task)}</span>
+            </div>
+          )}
           {floatDays !== null && !isSummary && (
             <div className="pt-2 border-t border-border/50 text-xs flex items-center justify-between">
               <span className="text-muted-foreground">Float (slack)</span>
@@ -321,9 +330,9 @@ export default function TaskProgressPanel({ task, tasks = [], scheduledMap, sche
                   <div key={row.id} className="text-[11px] p-2 rounded border bg-muted/30">
                     <span className="font-medium">{FIELD_LABELS[row.field_changed] || row.field_changed}</span>
                     {': '}
-                    <span className="line-through text-muted-foreground">{row.old_value ?? '—'}</span>
+                    <span className="line-through text-muted-foreground">{loggedValue(row, row.old_value) ?? '—'}</span>
                     {' → '}
-                    <span className="font-medium">{row.new_value ?? '—'}</span>
+                    <span className="font-medium">{loggedValue(row, row.new_value) ?? '—'}</span>
                     <div className="text-muted-foreground mt-0.5">
                       {row.trigger_task_id
                         ? <>rescheduled automatically after “{taskName(row.trigger_task_id)}” moved</>

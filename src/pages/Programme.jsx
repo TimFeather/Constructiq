@@ -1153,6 +1153,7 @@ export default function Programme() {
       <TaskInlineEditor
         task={editingTask}
         tasks={tasks}
+        team={projects.find(p => p.id === editingTask?.project_id)?.team || []}
         scheduleOptions={scheduleOptions}
         editable={programmeEditable}
         open={!!editingTask}
