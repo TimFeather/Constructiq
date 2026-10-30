@@ -10,6 +10,7 @@ import StatusBadge from '@/components/shared/StatusBadge';
 import PageHeader from '@/components/shared/PageHeader';
 import SecureFileLink from '@/components/shared/SecureFileLink';
 import { format } from 'date-fns';
+import { taskAssignees, isAssignedTo, assigneeNames } from '@/lib/programme/assignees';
 
 function StatCard({ icon: Icon, label, value, color, to }) {
   return (
@@ -80,12 +81,17 @@ export default function Dashboard() {
   const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   const projectMap = Object.fromEntries(projects.map(p => [p.id, p.name]));
 
-  const overdueTasks = tasks
+  // Deadlines only count assigned tasks: staff see everyone's (to chase them),
+  // everyone else sees only tasks assigned to them.
+  const isStaff = ['admin', 'internal', 'pricing'].includes(user?.role);
+  const deadlineTasks = tasks.filter(t => (isStaff ? taskAssignees(t).length > 0 : isAssignedTo(t, user?.email)));
+
+  const overdueTasks = deadlineTasks
     .filter(t => t.end_date && t.end_date < today && (t.percent_complete || 0) < 100)
     .sort((a, b) => a.end_date.localeCompare(b.end_date))
     .slice(0, 8);
 
-  const dueSoonTasks = tasks
+  const dueSoonTasks = deadlineTasks
     .filter(t => t.end_date && t.end_date >= today && t.end_date <= nextWeek && (t.percent_complete || 0) < 100)
     .sort((a, b) => a.end_date.localeCompare(b.end_date))
     .slice(0, 8);
@@ -120,7 +126,9 @@ export default function Dashboard() {
                   <Link key={task.id} to={`/programme?project=${task.project_id}`} className="flex items-center justify-between p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors">
                     <div className="min-w-0">
                       <p className="text-sm font-medium truncate">{task.name}</p>
-                      <p className="text-xs text-muted-foreground">{projectMap[task.project_id] || ''}</p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {[projectMap[task.project_id], isStaff ? assigneeNames(task) : null].filter(Boolean).join(' · ')}
+                      </p>
                     </div>
                     <div className="text-right flex-shrink-0 ml-2">
                       <p className="text-xs font-medium text-red-600">{format(new Date(task.end_date), 'MMM d')}</p>
@@ -143,7 +151,9 @@ export default function Dashboard() {
                   <Link key={task.id} to={`/programme?project=${task.project_id}`} className="flex items-center justify-between p-2 rounded-lg hover:bg-amber-50 dark:hover:bg-amber-950/20 transition-colors">
                     <div className="min-w-0">
                       <p className="text-sm font-medium truncate">{task.name}</p>
-                      <p className="text-xs text-muted-foreground">{projectMap[task.project_id] || ''}</p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {[projectMap[task.project_id], isStaff ? assigneeNames(task) : null].filter(Boolean).join(' · ')}
+                      </p>
                     </div>
                     <div className="text-right flex-shrink-0 ml-2">
                       <p className="text-xs font-medium text-amber-600">{format(new Date(task.end_date), 'MMM d')}</p>
