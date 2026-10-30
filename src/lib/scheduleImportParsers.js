@@ -34,13 +34,82 @@ const parseDuration = (durationStr) => {
 export const MSPDI_TYPE_TO_DEP = { 0: 'FF', 1: 'FS', 2: 'SF', 3: 'SS' };
 export const DEP_TO_MSPDI_TYPE = { FF: 0, FS: 1, SF: 2, SS: 3 };
 
+// MSPDI Resource Type codes: 0=Material, 1=Work, 2=Cost. Only work resources
+// (people, crews, subcontractors, trades) can be task assignees.
+const MSPDI_WORK_RESOURCE = '1';
+
+/** Text of a direct child element, never a nested Baseline/TimephasedData one. */
+const childText = (node, tag) => {
+  for (const child of node.children) {
+    if (child.localName === tag) return child.textContent.trim();
+  }
+  return '';
+};
+
+// UID → resource for every named work resource. UID 0 is MS Project's blank
+// placeholder; a missing Type is a work resource.
+const readWorkResources = (xml) => {
+  const resources = new Map();
+  for (const node of xml.querySelectorAll('Resources > Resource')) {
+    const uid = parseInt(childText(node, 'UID'));
+    const name = childText(node, 'Name');
+    const type = childText(node, 'Type');
+    if (!uid || !name || childText(node, 'IsNull') === '1') continue;
+    if (type && type !== MSPDI_WORK_RESOURCE) continue;
+    resources.set(uid, {
+      uid,
+      name,
+      email: childText(node, 'EmailAddress') || null,
+      group: childText(node, 'Group') || null,
+      calendarUid: parseInt(childText(node, 'CalendarUID')) || null,
+    });
+  }
+  return resources;
+};
+
+// Task UID → [{ resourceUid, units }] for assignments to work resources. This
+// also drops MS Project's ResourceUID -65535, written for a task with no resources.
+const readAssignments = (xml, workResources) => {
+  const byTask = new Map();
+  for (const node of xml.querySelectorAll('Assignments > Assignment')) {
+    const taskUid = parseInt(childText(node, 'TaskUID'));
+    const resourceUid = parseInt(childText(node, 'ResourceUID'));
+    if (!taskUid || !workResources.has(resourceUid)) continue;
+    const units = parseFloat(childText(node, 'Units'));
+    if (!byTask.has(taskUid)) byTask.set(taskUid, []);
+    byTask.get(taskUid).push({
+      resourceUid,
+      units: Number.isFinite(units) ? Math.round(units * 100) / 100 : 1,
+    });
+  }
+  return byTask;
+};
+
+/**
+ * Work resources in an MSPDI file, with how many tasks each is assigned to.
+ * Feeds the import's resource → team member mapping step.
+ *
+ * @returns {Array<{ uid, name, email, group, calendarUid, taskCount }>}
+ */
+export const parseMspdiResources = (text) => {
+  const xml = new DOMParser().parseFromString(text, 'text/xml');
+  const workResources = readWorkResources(xml);
+  const taskCounts = new Map();
+  for (const list of readAssignments(xml, workResources).values()) {
+    for (const { resourceUid } of list) taskCounts.set(resourceUid, (taskCounts.get(resourceUid) || 0) + 1);
+  }
+  return [...workResources.values()].map(r => ({ ...r, taskCount: taskCounts.get(r.uid) || 0 }));
+};
+
 // ─── MS Project XML ────────────────────────────────────────────────────────────
-// Returns tasks with _mspUid (integer) and _predecessorLinks (raw UID-based deps).
+// Returns tasks with _mspUid (integer), _predecessorLinks (raw UID-based deps)
+// and _mspAssignments (raw resource UIDs, resolved to assignees by the caller).
 // The caller must do a second pass to resolve UIDs → real DB IDs after bulkCreate.
 export const parseXML = (text, projectId) => {
   const parser = new DOMParser();
   const xml = parser.parseFromString(text, 'text/xml');
   const taskNodes = Array.from(xml.querySelectorAll('Tasks > Task'));
+  const assignments = readAssignments(xml, readWorkResources(xml));
 
   // First pass: collect raw task data keyed by UID
   const rawTasks = taskNodes.map(node => {
@@ -70,6 +139,22 @@ export const parseXML = (text, projectId) => {
 
     const isMilestone = get('Milestone') === '1';
     const duration = parseDuration(get('Duration'));
+    const isSummary = get('Summary') === '1';
+    const startDate = formatDate(get('Start'));
+
+    let constraintData = {
+      type: constraintTypeMap[constraintType] || 'ASAP',
+      date: constraintDate ? constraintDate.split('T')[0] : null,
+    };
+    // Resource levelling delays a task past what its links require, and the
+    // engine has no levelling, so a linked task would snap back to its early
+    // start. Hold it at the levelled start the file carries. Unlinked tasks
+    // already anchor to their stored start. Runs before applyManualScheduling,
+    // which pins linked manual tasks (MSO) and skips tasks constrained here.
+    if (!isSummary && parseFloat(get('LevelingDelay')) > 0
+        && constraintData.type === 'ASAP' && predLinks.length && startDate) {
+      constraintData = { type: 'SNET', date: startDate, source: 'msp_leveling' };
+    }
 
     const task = {
       _mspUid: parseInt(uid),
@@ -79,20 +164,18 @@ export const parseXML = (text, projectId) => {
       name,
       wbs: get('WBS'),
       level: Math.min(parseInt(get('OutlineLevel')) || 0, 3),
-      start_date: formatDate(get('Start')),
+      start_date: startDate,
       end_date: formatDate(get('Finish')),
       duration: isMilestone ? 0 : duration,
       is_milestone: isMilestone || duration === 0,
       percent_complete: parseInt(get('PercentComplete')) || 0,
-      is_summary: get('Summary') === '1',
+      is_summary: isSummary,
       sort_order: parseInt(get('ID')) || 0,
       project_id: projectId,
       predecessors: [],
       _predecessorLinks: predLinks,
-      constraint_data: {
-        type: constraintTypeMap[constraintType] || 'ASAP',
-        date: constraintDate ? constraintDate.split('T')[0] : null,
-      },
+      _mspAssignments: assignments.get(parseInt(uid)) || [],
+      constraint_data: constraintData,
     };
 
     return task;
