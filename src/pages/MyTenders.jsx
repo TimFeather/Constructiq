@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { invokeFunction } from '@/api/supabaseClient';
@@ -30,6 +30,16 @@ const OUTCOME_STYLES = {
   Awarded:      'bg-green-100 text-green-700 border-green-200',
   Unsuccessful: 'bg-red-100 text-red-700 border-red-200',
 };
+
+// Same groupings as staff see on Tenders.jsx, minus Draft — subcontractorPortal
+// never returns Draft tenders.
+const ACTIVE_STATUSES    = ['Issued', 'Awarded', 'Unsuccessful', 'On Hold', 'Cancelled'];
+const SUBMITTED_STATUSES = ['Submitted'];
+const ARCHIVED_STATUSES  = ['Archived', 'Converted'];
+
+// tender_status is newer than the subcontractorPortal deploy it may be talking
+// to — fall back to what is_cancelled tells us so the page still groups.
+const tenderStatusOf = (t) => t.tender_status ?? (t.is_cancelled ? 'Cancelled' : 'Issued');
 
 const TenderRow = ({ t }) => {
   const displayStatus = getDisplayStatus(t);
@@ -88,6 +98,9 @@ const TenderRow = ({ t }) => {
 };
 
 export default function MyTenders() {
+  const [view, setView] = useState('active');   // 'active' | 'submitted' | 'archive'
+  const [statusTab, setStatusTab] = useState('All');
+
   const { data: tenders = [], isLoading, isError } = useQuery({
     queryKey: ['my-tenders'],
     queryFn: async () => {
@@ -96,21 +109,79 @@ export default function MyTenders() {
     },
   });
 
-  const sorted = [...tenders].sort((a, b) => new Date(b.sent_date || 0) - new Date(a.sent_date || 0));
+  const viewStatuses = view === 'active' ? ACTIVE_STATUSES : view === 'submitted' ? SUBMITTED_STATUSES : ARCHIVED_STATUSES;
+  const statusTabs   = ['All', ...viewStatuses];
+  const countIn = (statuses) => tenders.filter(t => statuses.includes(tenderStatusOf(t))).length;
+
+  const sorted = tenders
+    .filter(t => statusTab === 'All' ? viewStatuses.includes(tenderStatusOf(t)) : tenderStatusOf(t) === statusTab)
+    .sort((a, b) => new Date(b.sent_date || 0) - new Date(a.sent_date || 0));
 
   return (
     <div>
       <PageHeader title="My Tenders" description="Every tender you've been invited to" />
 
+      {!isLoading && !isError && tenders.length > 0 && (
+        <>
+          {/* Active / Submitted / Archive toggle */}
+          <div className="flex items-center gap-2 mb-4">
+            <button
+              onClick={() => { setView('active'); setStatusTab('All'); }}
+              className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-colors ${view === 'active' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-muted/80'}`}
+            >
+              Active <span className="ml-1.5 opacity-70">{countIn(ACTIVE_STATUSES)}</span>
+            </button>
+            <button
+              onClick={() => { setView('submitted'); setStatusTab('All'); }}
+              className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-colors ${view === 'submitted' ? 'bg-green-600 text-white' : 'bg-muted text-muted-foreground hover:bg-muted/80'}`}
+            >
+              Submitted <span className="ml-1.5 opacity-70">{countIn(SUBMITTED_STATUSES)}</span>
+            </button>
+            <button
+              onClick={() => { setView('archive'); setStatusTab('All'); }}
+              className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-colors ${view === 'archive' ? 'bg-purple-600 text-white' : 'bg-muted text-muted-foreground hover:bg-muted/80'}`}
+            >
+              Archive <span className="ml-1.5 opacity-70">{countIn(ARCHIVED_STATUSES)}</span>
+            </button>
+          </div>
+
+          {/* Status sub-tabs */}
+          <div className="flex gap-1 flex-wrap mb-4">
+            {statusTabs.map(tab => (
+              <button
+                key={tab}
+                onClick={() => setStatusTab(tab)}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                  statusTab === tab
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                }`}
+              >
+                {tab}
+                {tab !== 'All' && (
+                  <span className="ml-1.5 opacity-60">{countIn([tab])}</span>
+                )}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
       {isLoading ? (
         <div className="space-y-3">{[1, 2, 3].map(i => <div key={i} className="h-20 bg-muted rounded-lg animate-pulse" />)}</div>
       ) : isError ? (
         <Card><CardContent className="p-4 text-sm text-muted-foreground">Could not load your tenders. Please try again shortly.</CardContent></Card>
-      ) : sorted.length === 0 ? (
+      ) : tenders.length === 0 ? (
         <EmptyState
           icon={ListChecks}
           title="No tenders yet"
           description="Tenders you're invited to price will show up here."
+        />
+      ) : sorted.length === 0 ? (
+        <EmptyState
+          icon={ListChecks}
+          title={statusTab === 'All' ? 'Nothing here' : `No ${statusTab} tenders`}
+          description="Try another tab above."
         />
       ) : (
         <div className="space-y-3">

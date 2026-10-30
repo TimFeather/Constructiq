@@ -134,6 +134,7 @@ Deno.serve(async (req: Request) => {
             ths_rft_closing_date: tender.ths_rft_closing_date,
             sent_date: inv.sent_date,
             invitation_status: inv.status,
+            tender_status: tender.status,
             is_cancelled: tender.status === 'Cancelled',
             submitted_at: submission?.submitted_at ?? null,
             lump_sum_price: submission?.lump_sum_price ?? null,
