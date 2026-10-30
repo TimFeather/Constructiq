@@ -10,12 +10,15 @@
  *  - PredecessorLink Type codes 0=FF / 1=FS / 2=SF / 3=SS
  *  - Durations as ISO-8601 PT{h}H{m}M0S (8h working day)
  *  - LinkLag in tenths of a minute (1 working day = 4800)
+ *  - Task assignees as work Resources + Assignments, each resource with its
+ *    own calendar based on Standard (as MS Project writes them)
  */
 
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 import { DEP_TO_MSPDI_TYPE } from './scheduleImportParsers';
-import { assigneeNames } from './programme/assignees';
+import { assigneeNames, taskAssignees } from './programme/assignees';
+import { assigneeKey } from './scheduleImportResources';
 
 const CONSTRAINT_TO_CODE = { ASAP: 0, ALAP: 1, MSO: 2, MFO: 3, SNET: 4, SNLT: 5, FNET: 6, FNLT: 7 };
 
@@ -65,6 +68,63 @@ function durationToPT(durationDays) {
 function dateTime(dateStr, endOfDay = false) {
   if (!dateStr) return null;
   return `${dateStr}T${endOfDay ? '17:00:00' : '08:00:00'}`;
+}
+
+const initialsOf = (name) => String(name || '').split(/\s+/).filter(Boolean).map(w => w[0]).join('').slice(0, 3).toUpperCase();
+
+/**
+ * Work resources for the tasks' assignees, and which resources each task has.
+ *
+ * An assignee imported from MS Project keeps its resource UID and, via the
+ * programme's resource_map, the resource's original name, so MS Project
+ * sees the same resources it exported. An assignee added in CIQ joins the
+ * resource of the same person or name, or gets a new UID.
+ *
+ * @returns {{ resources: Array<{ uid, name, email }>, byTask: Map<taskId, Array<{ uid, units }>> }}
+ */
+export function exportResources(tasks, resourceMap = {}) {
+  const resources = new Map(); // uid → { uid, name, email }
+  const keyToUid = new Map();
+  const byTask = new Map();
+
+  const addToTask = (task, uid, units) => {
+    if (!byTask.has(task.id)) byTask.set(task.id, []);
+    const list = byTask.get(task.id);
+    if (!list.some(r => r.uid === uid)) list.push({ uid, units: Number.isFinite(Number(units)) && Number(units) > 0 ? Number(units) : 1 });
+  };
+
+  // Pass 1: assignees that came from MS Project define their resources
+  for (const task of tasks) {
+    for (const a of taskAssignees(task)) {
+      const uid = Number(a.msp_resource_uid);
+      if (!Number.isInteger(uid) || uid <= 0) continue;
+      if (!resources.has(uid)) {
+        resources.set(uid, { uid, name: resourceMap?.[String(uid)]?.name || a.name, email: a.email || null });
+      } else if (a.email && !resources.get(uid).email) {
+        resources.get(uid).email = a.email;
+      }
+      if (!keyToUid.has(assigneeKey(a))) keyToUid.set(assigneeKey(a), uid);
+      addToTask(task, uid, a.units);
+    }
+  }
+
+  // Pass 2: assignees added in CIQ
+  let nextUid = resources.size ? Math.max(...resources.keys()) + 1 : 1;
+  for (const task of tasks) {
+    for (const a of taskAssignees(task)) {
+      const uid = Number(a.msp_resource_uid);
+      if (Number.isInteger(uid) && uid > 0) continue;
+      const key = assigneeKey(a);
+      if (!keyToUid.has(key)) {
+        keyToUid.set(key, nextUid);
+        resources.set(nextUid, { uid: nextUid, name: a.name || a.email, email: a.email || null });
+        nextUid += 1;
+      }
+      addToTask(task, keyToUid.get(key), a.units);
+    }
+  }
+
+  return { resources: [...resources.values()].sort((a, b) => a.uid - b.uid), byTask };
 }
 
 /**
@@ -173,6 +233,7 @@ export function buildMspdiXml(tasks, programme, opts = {}) {
       ${task.end_date ? `<Finish>${dateTime(task.end_date, true)}</Finish>` : ''}
       <Duration>${durationToPT(isMilestone ? 0 : task.duration)}</Duration>
       <DurationFormat>7</DurationFormat>
+      <EffortDriven>0</EffortDriven>
       <Milestone>${isMilestone ? 1 : 0}</Milestone>
       <Summary>${isSummary ? 1 : 0}</Summary>
       <PercentComplete>${Math.round(task.percent_complete || 0)}</PercentComplete>
@@ -183,6 +244,43 @@ export function buildMspdiXml(tasks, programme, opts = {}) {
 ${predXml}
     </Task>`);
   });
+
+  // Resources + assignments, only when someone is assigned (otherwise the
+  // file is exactly what it was before assignees existed). Each resource
+  // gets its own calendar on top of Standard (UID 1), like MS Project's own.
+  const { resources, byTask } = exportResources(tasks, programme?.resource_map);
+  let resourceSections = null;
+  if (resources.length) {
+    const calUid = (i) => i + 2;
+    const resourceCalendarsXml = resources.map((r, i) => `    <Calendar>
+      <UID>${calUid(i)}</UID>
+      <Name>${esc(r.name)}</Name>
+      <IsBaseCalendar>0</IsBaseCalendar>
+      <BaseCalendarUID>1</BaseCalendarUID>
+    </Calendar>`).join('\n');
+
+    const resourcesXml = resources.map((r, i) => `    <Resource>
+      <UID>${r.uid}</UID><ID>${i + 1}</ID>
+      <Name>${esc(r.name)}</Name>
+      <Type>1</Type><IsNull>0</IsNull>
+      <Initials>${esc(initialsOf(r.name))}</Initials>
+      ${r.email ? `<EmailAddress>${esc(r.email)}</EmailAddress>` : ''}
+      <CalendarUID>${calUid(i)}</CalendarUID>
+    </Resource>`).join('\n');
+
+    let assignmentUid = 0;
+    const assignmentsXml = ordered.flatMap(({ task }) => (byTask.get(task.id) || []).map(({ uid, units }) => {
+      assignmentUid += 1;
+      return `    <Assignment>
+      <UID>${assignmentUid}</UID>
+      <TaskUID>${idToUid.get(task.id)}</TaskUID>
+      <ResourceUID>${uid}</ResourceUID>
+      <Units>${units}</Units>
+    </Assignment>`;
+    })).join('\n');
+
+    resourceSections = { resourceCalendarsXml, resourcesXml, assignmentsXml };
+  }
 
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Project xmlns="http://schemas.microsoft.com/project">
@@ -206,11 +304,17 @@ ${weekDaysXml}
 ${exceptionsXml}
       </WeekDays>
     </Calendar>
-  </Calendars>
+${resourceSections ? `${resourceSections.resourceCalendarsXml}\n` : ''}  </Calendars>
   <Tasks>
 ${taskXml.join('\n')}
   </Tasks>
-</Project>
+${resourceSections ? `  <Resources>
+${resourceSections.resourcesXml}
+  </Resources>
+  <Assignments>
+${resourceSections.assignmentsXml}
+  </Assignments>
+` : ''}</Project>
 `;
 }
 
