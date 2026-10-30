@@ -87,9 +87,14 @@ function formatDay(d: string) {
 }
 
 // One recipient's {my_tasks} block; '' when they have none. "3 weeks" matches
-// UPCOMING_TASK_DAYS in src/lib/programme/assignees.js.
-function myTasksHtml(tasks: UpcomingTask[]) {
+// UPCOMING_TASK_DAYS in src/lib/programme/assignees.js. The list is extra:
+// every recipient still gets the same full programme, which the closing line
+// says so nobody mistakes their list for the whole schedule.
+function myTasksHtml(tasks: UpcomingTask[], pdfAttached: boolean) {
   if (!tasks.length) return '';
+  const fullProgramme = pdfAttached
+    ? 'These are just your tasks. The full programme is attached.'
+    : 'These are just your tasks. The full programme is in ConstructIQ.';
   const cell = 'padding:6px 8px;border-top:1px solid #e5e7eb;vertical-align:top;';
   const rows = tasks.map((t) => {
     const when = t.start === t.finish ? formatDay(t.start) : `${formatDay(t.start)} – ${formatDay(t.finish)}`;
@@ -102,7 +107,8 @@ function myTasksHtml(tasks: UpcomingTask[]) {
   return `<p style="margin:20px 0 6px;"><strong>Your tasks in the next 3 weeks</strong></p>
 <table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;border-bottom:1px solid #e5e7eb;">
 ${rows}
-</table>`;
+</table>
+<p style="margin:6px 0 0;color:#6b7280;font-size:13px;">${fullProgramme}</p>`;
 }
 
 // "Log in to view" CTA appended to customised templates saved before
@@ -264,7 +270,7 @@ Deno.serve(async (req: Request) => {
 
     // Rendered per recipient: only {my_tasks} differs between them.
     const renderFor = (email: string) => {
-      const myTasks = myTasksHtml(upcoming.filter((t) => t.emails.includes(email.toLowerCase())));
+      const myTasks = myTasksHtml(upcoming.filter((t) => t.emails.includes(email.toLowerCase())), !!attachmentB64);
       const { subject, body: renderedBody } = applyVars(template, {
         project_name: project.name || '',
         sender_name:  sender.full_name || sender.email || '',
@@ -298,6 +304,7 @@ Deno.serve(async (req: Request) => {
           subject,
           html,
         };
+        // Everyone gets the same full programme PDF, task list or not.
         if (attachmentB64) {
           // Resend v4 accepts a base64 string directly on `content`.
           payload.attachments = [{ filename: attachmentName, content: attachmentB64 }];
