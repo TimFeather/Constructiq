@@ -68,6 +68,7 @@ const DELETE_CHUNK = 150;
 // request-body limit, so stay well clear of both. A real programme is 300–600KB.
 const MAX_ATTACHMENT_B64 = 8 * 1024 * 1024;
 const IMPORT_STAGES = ['Reading file', 'Parsing schedule', 'Creating tasks', 'Linking dependencies', 'Building hierarchy', 'Finalising'];
+const FINISHED_PROJECT_STATUSES = ['Complete', 'Archived'];
 
 export default function Programme() {
   const { user } = useAuth();
@@ -138,9 +139,15 @@ export default function Programme() {
     queryFn: () => Project.list('-created_at', 100),
   });
 
-  const projects = isAdmin
+  const accessibleProjects = isAdmin
     ? allProjectsRaw
     : allProjectsRaw.filter(p => p.team?.some(m => m.user_email === user?.email));
+
+  // Finished projects drop off the selector and the All Projects view. One opened
+  // directly (?project= from its project page) still loads until you switch away.
+  const projects = accessibleProjects.filter(p =>
+    !FINISHED_PROJECT_STATUSES.includes(p.status) || p.id === selectedProjectId
+  );
 
   const projectIds = new Set(projects.map(p => p.id));
 
@@ -907,8 +914,12 @@ export default function Programme() {
           <Calendar className="w-8 h-8 text-muted-foreground" />
         </div>
         <div>
-          <h3 className="font-semibold text-lg mb-1">No projects yet</h3>
-          <p className="text-muted-foreground text-sm max-w-sm">You need to be part of a project before you can view its programme.</p>
+          <h3 className="font-semibold text-lg mb-1">{accessibleProjects.length ? 'No active projects' : 'No projects yet'}</h3>
+          <p className="text-muted-foreground text-sm max-w-sm">
+            {accessibleProjects.length
+              ? 'All your projects are complete or archived. Open one from the Projects page to view its programme.'
+              : 'You need to be part of a project before you can view its programme.'}
+          </p>
         </div>
         <Button asChild><Link to="/projects">Go to Projects</Link></Button>
       </div>
