@@ -1,5 +1,6 @@
 import React from 'react';
-import { Document, Project, RFI, Task } from '@/api/entities';
+import { Document, Project, RFI } from '@/api/entities';
+import { taskSummariesQuery } from '@/api/taskSummaries';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
 import { isAdmin } from '@/lib/permissions';
@@ -63,8 +64,7 @@ export default function Dashboard() {
   });
 
   const { data: allTasks = [] } = useQuery({
-    queryKey: ['tasks'],
-    queryFn: () => Task.list('-updated_at', 500),
+    ...taskSummariesQuery(),
     enabled: projectIds.size > 0 || userIsAdmin,
   });
 
@@ -88,13 +88,11 @@ export default function Dashboard() {
 
   const overdueTasks = deadlineTasks
     .filter(t => t.end_date && t.end_date < today && (t.percent_complete || 0) < 100)
-    .sort((a, b) => a.end_date.localeCompare(b.end_date))
-    .slice(0, 8);
+    .sort((a, b) => a.end_date.localeCompare(b.end_date));
 
   const dueSoonTasks = deadlineTasks
     .filter(t => t.end_date && t.end_date >= today && t.end_date <= nextWeek && (t.percent_complete || 0) < 100)
-    .sort((a, b) => a.end_date.localeCompare(b.end_date))
-    .slice(0, 8);
+    .sort((a, b) => a.end_date.localeCompare(b.end_date));
 
   return (
     <div>
@@ -122,7 +120,7 @@ export default function Dashboard() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                {overdueTasks.map(task => (
+                {overdueTasks.slice(0, 8).map(task => (
                   <Link key={task.id} to={`/programme?project=${task.project_id}`} className="flex items-center justify-between p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors">
                     <div className="min-w-0">
                       <p className="text-sm font-medium truncate">{task.name}</p>
@@ -147,7 +145,7 @@ export default function Dashboard() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                {dueSoonTasks.map(task => (
+                {dueSoonTasks.slice(0, 8).map(task => (
                   <Link key={task.id} to={`/programme?project=${task.project_id}`} className="flex items-center justify-between p-2 rounded-lg hover:bg-amber-50 dark:hover:bg-amber-950/20 transition-colors">
                     <div className="min-w-0">
                       <p className="text-sm font-medium truncate">{task.name}</p>

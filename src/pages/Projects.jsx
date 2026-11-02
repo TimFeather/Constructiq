@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Project, Task } from '@/api/entities';
+import { Project } from '@/api/entities';
+import { taskSummariesQuery } from '@/api/taskSummaries';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
 import { Link } from 'react-router-dom';
@@ -40,10 +41,7 @@ export default function Projects() {
     queryFn: () => Project.list('-created_at', 100),
   });
 
-  const { data: allTasks = [] } = useQuery({
-    queryKey: ['tasks'],
-    queryFn: () => Task.list('-created_at', 1000),
-  });
+  const { data: allTasks = [] } = useQuery(taskSummariesQuery());
 
   // Archiving/restoring a project cascades to its documents, RFIs, tasks, and CIs
   // (DB trigger). Those are cached under both a per-project key (['documents', id],
