@@ -37,6 +37,14 @@ const TRADES = [
 
 const emptyMember = { user_email: '', full_name: '', business_name: '', phone: '', role: '', trade: '' };
 
+// A member's saved role can sit outside the active list (Subcontractors are added
+// from their own tab, roles can be retired in Settings). The Select shows blank when
+// no item matches its value, so keep the saved role on offer while editing.
+const roleNamesWithSaved = (roles, savedRole) => {
+  const names = roles.map(r => r.name);
+  return savedRole && !names.includes(savedRole) ? [...names, savedRole] : names;
+};
+
 // Detection status badge
 function EmailStatusBadge({ status }) {
   if (!status) return null;
@@ -359,7 +367,7 @@ export default function TeamManager({ project }) {
                           <Label className="text-xs">Role</Label>
                           <Select value={editValues.role || ''} onValueChange={val => setEditValues(v => ({ ...v, role: val }))}>
                             <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                            <SelectContent>{projectRoles.map(r => <SelectItem key={r.name} value={r.name}>{r.name}</SelectItem>)}</SelectContent>
+                            <SelectContent>{roleNamesWithSaved(projectRoles, member.role).map(name => <SelectItem key={name} value={name}>{name}</SelectItem>)}</SelectContent>
                           </Select>
                         </div>
                         <div>
