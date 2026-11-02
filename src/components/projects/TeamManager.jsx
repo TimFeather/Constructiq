@@ -15,6 +15,7 @@ import { isUserDeactivated } from '@/lib/userStatus';
 import { normalizeEmail } from '@/lib/normalizeEmail';
 import { logProjectActivity } from '@/lib/activityLog';
 import PersonAutocomplete from '@/components/shared/PersonAutocomplete';
+import TradeSelect from '@/components/projects/TradeSelect';
 
 // Fallback roles if ProjectRole entity is empty
 const FALLBACK_ROLES = [
@@ -62,7 +63,6 @@ export default function TeamManager({ project }) {
   const isAllowed = ['admin', 'internal', 'pricing'].includes(user?.role);
   const [newMember, setNewMember] = useState(emptyMember);
   const [customRole, setCustomRole] = useState('');
-  const [customTrade, setCustomTrade] = useState('');
   const [emailInput, setEmailInput] = useState('');
   const [editingIndex, setEditingIndex] = useState(null);
   const [editValues, setEditValues] = useState({});
@@ -151,7 +151,6 @@ export default function TeamManager({ project }) {
     setAdding(true);
     try {
       const member = { ...newMember, user_email: normalizeEmail(newMember.user_email) };
-      if (member.role === 'Subcontractor' && customTrade) member.trade = customTrade;
       if (member.role === 'Other' && customRole) member.role = customRole;
 
       // Look up permission_role from the selected ProjectRole
@@ -242,7 +241,6 @@ export default function TeamManager({ project }) {
 
       setNewMember(emptyMember);
       setEmailInput('');
-      setCustomTrade('');
       setCustomRole('');
       setEmailStatus(null);
       setEmailStatusData(null);
@@ -375,10 +373,7 @@ export default function TeamManager({ project }) {
                         {editValues.role === 'Subcontractor' && (
                           <div>
                             <Label className="text-xs">Trade</Label>
-                            <Select value={editValues.trade || ''} onValueChange={val => setEditValues(v => ({ ...v, trade: val }))}>
-                              <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select trade" /></SelectTrigger>
-                              <SelectContent>{TRADES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
-                            </Select>
+                            <TradeSelect trades={TRADES} value={editValues.trade} onChange={val => setEditValues(v => ({ ...v, trade: val }))} />
                           </div>
                         )}
                       </div>
@@ -479,16 +474,7 @@ export default function TeamManager({ project }) {
             {newMember.role === 'Subcontractor' && (
               <div>
                 <Label className="text-xs">Trade</Label>
-                <Select value={newMember.trade} onValueChange={v => setNewMember({ ...newMember, trade: v })}>
-                  <SelectTrigger><SelectValue placeholder="Select or type trade" /></SelectTrigger>
-                  <SelectContent>
-                    {TRADES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-                    <SelectItem value="custom">Other (type below)</SelectItem>
-                  </SelectContent>
-                </Select>
-                {newMember.trade === 'custom' && (
-                  <Input className="mt-2" value={customTrade} onChange={e => setCustomTrade(e.target.value)} placeholder="Enter custom trade" />
-                )}
+                <TradeSelect compact={false} trades={TRADES} value={newMember.trade} onChange={v => setNewMember(m => ({ ...m, trade: v }))} />
               </div>
             )}
           </div>

@@ -3,13 +3,13 @@ import { TenderContact, TradeTemplate } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Plus, Search, Pencil, Trash2, Upload, Download } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { filterContacts } from '@/lib/contactFilter';
+import TradeSelect from '@/components/projects/TradeSelect';
 
 const DEFAULT_TRADES = [
   'Electrical', 'Plumbing', 'HVAC', 'Carpentry', 'Masonry',
@@ -173,10 +173,7 @@ export default function SubcontractorDirectory() {
                           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                             <Input value={form.full_name} onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))} placeholder="Full name" className="h-8 text-xs" />
                             <Input value={form.business_name} onChange={e => setForm(f => ({ ...f, business_name: e.target.value }))} placeholder="Business" className="h-8 text-xs" />
-                            <Select value={form.trade} onValueChange={v => setForm(f => ({ ...f, trade: v }))}>
-                              <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Trade" /></SelectTrigger>
-                              <SelectContent>{TRADES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
-                            </Select>
+                            <div><TradeSelect trades={TRADES} value={form.trade} onChange={v => setForm(f => ({ ...f, trade: v }))} /></div>
                             <Input value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="Email" className="h-8 text-xs" />
                             <Input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="Phone" className="h-8 text-xs" />
                             <div className="flex gap-1">
@@ -227,10 +224,7 @@ export default function SubcontractorDirectory() {
             </div>
             <div>
               <Label className="text-xs">Trade</Label>
-              <Select value={form.trade} onValueChange={v => setForm(f => ({ ...f, trade: v }))}>
-                <SelectTrigger><SelectValue placeholder="Select trade" /></SelectTrigger>
-                <SelectContent>{TRADES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
-              </Select>
+              <TradeSelect compact={false} trades={TRADES} value={form.trade} onChange={v => setForm(f => ({ ...f, trade: v }))} />
             </div>
             <div>
               <Label className="text-xs">Email</Label>

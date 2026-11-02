@@ -6,7 +6,6 @@ import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Plus, Trash2, HardHat, Building2, Mail, Phone, UserCheck, Loader2, Pencil, FileText } from 'lucide-react';
@@ -14,6 +13,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { normalizeEmail } from '@/lib/normalizeEmail';
 import { isUserDeactivated } from '@/lib/userStatus';
 import PersonAutocomplete from '@/components/shared/PersonAutocomplete';
+import TradeSelect from '@/components/projects/TradeSelect';
 
 const TRADES = [
   'Electrical', 'Plumbing', 'HVAC', 'Carpentry', 'Masonry',
@@ -40,7 +40,6 @@ export default function ProjectSubcontractors({ project, linkedTenderId }) {
   const queryClient = useQueryClient();
 
   const [form, setForm] = useState(emptyForm);
-  const [customTrade, setCustomTrade] = useState('');
   const [adding, setAdding] = useState(false);
   const [editingIndex, setEditingIndex] = useState(null);
   const [editValues, setEditValues] = useState({});
@@ -93,7 +92,6 @@ export default function ProjectSubcontractors({ project, linkedTenderId }) {
     if (!form.full_name) return;
     setAdding(true);
     try {
-      const trade = form.trade === 'custom' ? customTrade : form.trade;
       const quoteRef = form.quote_ref.trim();
       const member = {
         user_email: normalizeEmail(form.user_email),
@@ -101,7 +99,7 @@ export default function ProjectSubcontractors({ project, linkedTenderId }) {
         business_name: form.business_name,
         phone: form.phone,
         role: 'Subcontractor',
-        trade: trade || '',
+        trade: form.trade || '',
         quote_ref: quoteRef,
       };
 
@@ -159,7 +157,6 @@ export default function ProjectSubcontractors({ project, linkedTenderId }) {
       queryClient.invalidateQueries({ queryKey: ['invitedUsers'] });
       queryClient.invalidateQueries({ queryKey: ['pendingAssignments'] });
       setForm(emptyForm);
-      setCustomTrade('');
     } catch (e) {
       toast({ title: 'Failed to add subcontractor', description: e?.message, variant: 'destructive' });
     } finally {
@@ -284,10 +281,7 @@ export default function ProjectSubcontractors({ project, linkedTenderId }) {
               <div><Label className="text-xs">Accepted Quote</Label><Input className="h-8" value={editValues.quote_ref || ''} onChange={e => setEditValues(v => ({ ...v, quote_ref: e.target.value }))} placeholder="e.g. Q-1042" /></div>
               <div>
                 <Label className="text-xs">Trade</Label>
-                <Select value={editValues.trade || ''} onValueChange={val => setEditValues(v => ({ ...v, trade: val }))}>
-                  <SelectTrigger className="h-8"><SelectValue placeholder="Select trade" /></SelectTrigger>
-                  <SelectContent>{TRADES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
-                </Select>
+                <TradeSelect key={editingIndex} trades={TRADES} value={editValues.trade} onChange={val => setEditValues(v => ({ ...v, trade: val }))} />
               </div>
             </div>
             <div className="flex gap-2">
@@ -315,16 +309,7 @@ export default function ProjectSubcontractors({ project, linkedTenderId }) {
             </div>
             <div>
               <Label className="text-xs">Trade</Label>
-              <Select value={form.trade} onValueChange={v => setForm({ ...form, trade: v })}>
-                <SelectTrigger><SelectValue placeholder="Select or type trade" /></SelectTrigger>
-                <SelectContent>
-                  {TRADES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-                  <SelectItem value="custom">Other (type below)</SelectItem>
-                </SelectContent>
-              </Select>
-              {form.trade === 'custom' && (
-                <Input className="mt-2" value={customTrade} onChange={e => setCustomTrade(e.target.value)} placeholder="Enter trade" />
-              )}
+              <TradeSelect compact={false} trades={TRADES} value={form.trade} onChange={v => setForm(f => ({ ...f, trade: v }))} />
             </div>
             <div className="sm:col-span-2">
               <Label className="text-xs">Email</Label>

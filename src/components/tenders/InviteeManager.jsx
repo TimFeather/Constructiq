@@ -14,12 +14,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Users, Plus, Trash2, Send, Search, RefreshCw, Archive, Link } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { deriveLegacyContactNames } from '@/lib/tenderContacts';
 import PersonAutocomplete from '@/components/shared/PersonAutocomplete';
+import TradeSelect from '@/components/projects/TradeSelect';
 import { filterContacts } from '@/lib/contactFilter';
 import {
   DELIVERY_STATUS_STYLES, DELIVERY_STATUS_LABELS,
@@ -481,13 +481,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
                 </div>
                 <div>
                   <Label className="text-xs">Trade</Label>
-                  <Select value={form.trade || 'NONE'} onValueChange={v => setForm(f => ({ ...f, trade: v === 'NONE' ? '' : v }))}>
-                    <SelectTrigger><SelectValue placeholder="Select trade" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="NONE"><span className="text-muted-foreground">— No trade —</span></SelectItem>
-                      {TRADES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                  <TradeSelect compact={false} allowNone trades={TRADES} value={form.trade} onChange={v => setForm(f => ({ ...f, trade: v }))} />
                 </div>
               </div>
               <Button onClick={addInvitee} disabled={!form.full_name || adding} className="gap-2" size="sm">
