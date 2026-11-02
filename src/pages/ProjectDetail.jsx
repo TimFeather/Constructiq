@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Document, Project, RFI, Tender } from '@/api/entities';
+import { Project, RFI, Tender } from '@/api/entities';
+import { projectDocumentsQuery } from '@/api/documentsData';
 import { programmeTasksQuery } from '@/api/programmeData';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -42,8 +43,7 @@ export default function ProjectDetail() {
   });
 
   const { data: projectDocs = [] } = useQuery({
-    queryKey: ['documents', id],
-    queryFn: () => Document.filter({ project_id: id }, '-created_at', 50),
+    ...projectDocumentsQuery(id),
     refetchOnMount: 'always',
   });
 

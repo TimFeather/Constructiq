@@ -4,26 +4,29 @@ import { QueryClient } from '@tanstack/react-query';
 let rows = [];
 let failFrom = null;
 
-// Minimal PostgREST stand-in: applies .order() and caps every response at 1000 rows like the real one.
+// Minimal PostgREST stand-in: applies .eq() and .order(), and caps every response at 1000 rows like the real one.
 vi.mock('@/api/supabaseClient', () => ({
   supabase: {
     from() {
       const orders = [];
+      const filters = [];
       const query = {
         select: () => query,
+        eq(column, value) { filters.push({ column, value }); return query; },
         order(column, { ascending }) { orders.push({ column, ascending }); return query; },
         range(from, to) { query.bounds = [from, to]; return query; },
         then(resolve) {
           const [from, to] = query.bounds;
           if (failFrom !== null && from >= failFrom) return resolve({ data: null, error: new Error('timeout'), count: null });
-          const sorted = [...rows].sort((a, b) => {
+          const matching = rows.filter(row => filters.every(({ column, value }) => row[column] === value));
+          const sorted = matching.sort((a, b) => {
             for (const { column, ascending } of orders) {
               const order = String(a[column]).localeCompare(String(b[column]));
               if (order !== 0) return ascending ? order : -order;
             }
             return 0;
           });
-          resolve({ data: sorted.slice(from, Math.min(to + 1, from + 1000)), error: null, count: rows.length });
+          resolve({ data: sorted.slice(from, Math.min(to + 1, from + 1000)), error: null, count: matching.length });
         },
       };
       return query;
@@ -31,7 +34,7 @@ vi.mock('@/api/supabaseClient', () => ({
   },
 }));
 
-const { fetchDocuments, documentsQuery } = await import('@/api/documentsData');
+const { fetchDocuments, documentsQuery, fetchProjectDocuments, projectDocumentsQuery } = await import('@/api/documentsData');
 
 // Oldest first, so anything not ordering by created_at gets the wrong five.
 const makeDocs = (n) => Array.from({ length: n }, (_, i) => ({
@@ -86,6 +89,45 @@ describe('fetchDocuments', () => {
     failFrom = 1000;
 
     await expect(fetchDocuments()).rejects.toThrow('timeout');
+  });
+});
+
+describe('fetchProjectDocuments', () => {
+  it('returns every document in the project, past the old 50 row limit', async () => {
+    rows = makeDocs(60);
+
+    const documents = await fetchProjectDocuments('p1');
+
+    expect(documents).toHaveLength(60);
+    expect(documents[0].id).toBe('d00059');
+  });
+
+  it('leaves out documents in other projects', async () => {
+    rows = [...makeDocs(3), { ...makeDocs(4)[3], project_id: 'p2' }];
+
+    const documents = await fetchProjectDocuments('p2');
+
+    expect(documents.map(d => d.id)).toEqual(['d00003']);
+  });
+
+  it('pages past the 1000-row response cap', async () => {
+    rows = makeDocs(1376);
+
+    expect(await fetchProjectDocuments('p1')).toHaveLength(1376);
+  });
+});
+
+describe('projectDocumentsQuery', () => {
+  it('is refreshed by invalidating the shared documents prefix, and keeps its own cache entry', async () => {
+    rows = makeDocs(2);
+    const client = new QueryClient();
+    const query = projectDocumentsQuery('p1');
+    await client.fetchQuery(query);
+
+    await client.invalidateQueries({ queryKey: ['documents'] });
+
+    expect(client.getQueryState(query.queryKey).isInvalidated).toBe(true);
+    expect(query.queryKey).not.toEqual(documentsQuery().queryKey);
   });
 });
 
