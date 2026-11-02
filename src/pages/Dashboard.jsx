@@ -1,5 +1,6 @@
 import React from 'react';
-import { Document, Project, RFI } from '@/api/entities';
+import { Project, RFI } from '@/api/entities';
+import { documentsQuery } from '@/api/documentsData';
 import { taskSummariesQuery } from '@/api/taskSummaries';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
@@ -58,8 +59,7 @@ export default function Dashboard() {
   });
 
   const { data: allDocuments = [] } = useQuery({
-    queryKey: ['documents'],
-    queryFn: () => Document.list('-created_at', 100),
+    ...documentsQuery(),
     enabled: projectIds.size > 0 || userIsAdmin,
   });
 

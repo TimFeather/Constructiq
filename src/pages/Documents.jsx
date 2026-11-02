@@ -1,6 +1,7 @@
 import { uploadFile, removeFile } from '@/api/supabaseClient';
 import React, { useState, useRef } from 'react';
 import { Document, Project } from '@/api/entities';
+import { documentsQuery } from '@/api/documentsData';
 import { logDocumentEvent } from '@/lib/auditLog';
 import { logProjectActivity } from '@/lib/activityLog';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -52,10 +53,7 @@ export default function Documents() {
 
   const isAdmin = canEdit(user, 'documents');
 
-  const { data: allDocuments = [], isLoading } = useQuery({
-    queryKey: ['documents'],
-    queryFn: () => Document.list('-created_at', 200),
-  });
+  const { data: allDocuments = [], isLoading } = useQuery(documentsQuery());
 
   const { data: allProjects = [] } = useQuery({
     queryKey: ['projects'],
