@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Document, Project, RFI, Task, Tender } from '@/api/entities';
+import { Document, Project, RFI, Tender } from '@/api/entities';
+import { programmeTasksQuery } from '@/api/programmeData';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
@@ -53,8 +54,7 @@ export default function ProjectDetail() {
   });
 
   const { data: projectTasks = [] } = useQuery({
-    queryKey: ['tasks', id],
-    queryFn: () => Task.filter({ project_id: id }, 'sort_order', 100),
+    ...programmeTasksQuery(id),
     enabled: activeTab === 'programme',
   });
 

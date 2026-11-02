@@ -9,9 +9,6 @@
  *   [{ predecessor_id, type, lag_hours, lag_days, is_elapsed, is_disabled }]
  * It also maps the DB column `constraint_data` onto `task.constraint`,
  * which is the key the engine reads.
- *
- * The legacy tasks.predecessors JSONB column is read-only fallback for
- * databases where migration 006 hasn't run yet — never written.
  */
 
 import { supabase } from '@/api/supabaseClient';
@@ -22,37 +19,60 @@ function attachEngineShape(tasks, depsBySuccessor) {
   return tasks.map(task => ({
     ...task,
     constraint: task.constraint_data || null,
-    predecessors: depsBySuccessor
-      ? (depsBySuccessor.get(task.id) || [])
-      : (task.predecessors || []).map(p => ({
-          ...p,
-          predecessor_id: p.predecessor_id || p.task_id,
-          is_disabled: p.is_disabled || false,
-        })),
+    predecessors: depsBySuccessor.get(task.id) || [],
   }));
+}
+
+/**
+ * Fetch every row of a query, page by page. PostgREST silently caps a response
+ * at its max-rows setting whatever .limit() asks for, so a single request can
+ * lose rows. `buildQuery` must apply a total order, or pages can skip rows.
+ */
+async function fetchAllRows(buildQuery) {
+  const PAGE = 1000;
+  const rows = [];
+  for (;;) {
+    const { data, error, count } = await buildQuery().range(rows.length, rows.length + PAGE - 1);
+    if (error) throw error;
+    rows.push(...data);
+    if (data.length === 0 || rows.length >= count) return rows;
+  }
+}
+
+/**
+ * The one query for a project's programme tasks. Every screen reading
+ * ['tasks', projectId] must use this: react-query caches by key, so a second
+ * fetcher under the same key hands its rows to whichever screen opens next.
+ */
+export function programmeTasksQuery(projectId) {
+  return {
+    queryKey: ['tasks', projectId],
+    queryFn: () => fetchProgrammeTasks(projectId),
+    staleTime: 30000,
+  };
 }
 
 /**
  * Fetch tasks (+ dependencies) for one project or 'all'.
  * Returns tasks in sort_order with `predecessors` and `constraint` attached.
+ * Throws if either read fails: tasks without their links schedule to the wrong
+ * dates, so they must never pass for a successful load.
  */
 export async function fetchProgrammeTasks(projectId) {
-  let taskQuery = supabase.from('tasks').select('*').order('sort_order', { ascending: true }).limit(2000);
-  let depQuery = supabase.from('task_dependencies').select('*');
-  if (projectId && projectId !== 'all') {
-    taskQuery = taskQuery.eq('project_id', projectId);
-    depQuery = depQuery.eq('project_id', projectId);
-  }
-
-  const { data: tasks, error: taskError } = await taskQuery;
-  if (taskError) throw taskError;
-
-  const { data: deps, error: depError } = await depQuery;
-  if (depError) {
-    // Pre-migration database: fall back to the legacy JSONB column.
-    console.warn('task_dependencies unavailable, using legacy JSONB predecessors:', depError.message);
-    return attachEngineShape(tasks, null);
-  }
+  const oneProject = projectId && projectId !== 'all';
+  const [tasks, deps] = await Promise.all([
+    fetchAllRows(() => {
+      const query = supabase.from('tasks').select('*', { count: 'exact' })
+        .order('sort_order', { ascending: true })
+        .order('id', { ascending: true });
+      return oneProject ? query.eq('project_id', projectId) : query;
+    }),
+    fetchAllRows(() => {
+      const query = supabase.from('task_dependencies').select('*', { count: 'exact' })
+        .order('id', { ascending: true });
+      return oneProject ? query.eq('project_id', projectId) : query;
+    }),
+  ]);
 
   const depsBySuccessor = new Map();
   for (const d of deps) {
@@ -173,17 +193,14 @@ export async function fetchProgramme(projectId) {
     .select('*')
     .eq('project_id', projectId)
     .maybeSingle();
-  if (error) {
-    console.warn('programmes unavailable:', error.message);
-    return null;
-  }
+  if (error) throw error;
   return data;
 }
 
 /** Fetch programmes rows for many projects at once. Returns Map<project_id, programme>. */
 export async function fetchProgrammesByProject() {
   const { data, error } = await supabase.from('programmes').select('*');
-  if (error) return new Map();
+  if (error) throw error;
   return new Map(data.map(p => [p.project_id, p]));
 }
 

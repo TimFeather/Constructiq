@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Project, Task } from '@/api/entities';
-import { fetchProgrammeTasks, fetchProgramme, upsertProgramme, bulkUpdateTaskWbs, publishProgramme, unpublishProgramme } from '@/api/programmeData';
+import { programmeTasksQuery, fetchProgramme, upsertProgramme, bulkUpdateTaskWbs, publishProgramme, unpublishProgramme } from '@/api/programmeData';
 import { invokeFunction } from '@/api/supabaseClient';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
@@ -151,11 +151,7 @@ export default function Programme() {
 
   const projectIds = new Set(projects.map(p => p.id));
 
-  const { data: allTasks = [] } = useQuery({
-    queryKey: ['tasks', selectedProjectId],
-    queryFn: () => fetchProgrammeTasks(selectedProjectId),
-    staleTime: 30000,
-  });
+  const { data: allTasks = [] } = useQuery(programmeTasksQuery(selectedProjectId));
 
   // Programme row: data date + working calendar for the selected project
   const { data: programme = null } = useQuery({
