@@ -98,3 +98,54 @@ describe('TeamManager edit form', () => {
     expect(editRoleText()).toBe('');
   });
 });
+
+describe('TeamManager groups', () => {
+  let container;
+  let root;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  const render = async (project) => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={client}>
+          <TeamManager project={project} />
+        </QueryClientProvider>
+      );
+    });
+    await flush();
+  };
+
+  const headings = () => [...container.querySelectorAll('h3')].map(h => h.textContent);
+
+  it('splits the team into THS, Client and Subcontractors', async () => {
+    await render({ id: 'p1', name: 'Test', team: [
+      { full_name: 'Sam Pipe', role: 'Subcontractor', trade: 'Plumbing' },
+      { full_name: 'Sue Site', role: 'Site Manager' },
+      { full_name: 'Cam Client', role: 'Client' },
+    ] });
+
+    expect(headings()).toEqual(['THS Team', 'Client', 'Subcontractors']);
+    const sections = [...container.querySelectorAll('section')].map(s => s.textContent);
+    expect(sections[0]).toContain('Sue Site');
+    expect(sections[1]).toContain('Cam Client');
+    expect(sections[2]).toContain('Sam Pipe');
+  });
+
+  it('says when no client has been added', async () => {
+    await render({ id: 'p1', name: 'Test', client_name: 'The Smiths', team: [] });
+
+    expect(container.textContent).toContain("The Smiths is the client on record but hasn't been added to the team yet.");
+  });
+});

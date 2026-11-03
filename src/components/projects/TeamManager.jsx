@@ -8,12 +8,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Plus, Trash2, Users, UserCheck, Pencil, Loader2 } from 'lucide-react';
+import { Plus, Trash2, Users, UserCheck, Pencil, Loader2, BadgeCheck, Home, Briefcase, HardHat } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/components/ui/use-toast';
 import { isUserDeactivated } from '@/lib/userStatus';
 import { normalizeEmail } from '@/lib/normalizeEmail';
 import { logProjectActivity } from '@/lib/activityLog';
+import { groupTeam } from '@/lib/teamGroups';
 import PersonAutocomplete from '@/components/shared/PersonAutocomplete';
 import TradeSelect from '@/components/projects/TradeSelect';
 
@@ -36,6 +37,9 @@ const TRADES = [
 ];
 
 const emptyMember = { user_email: '', full_name: '', business_name: '', phone: '', role: '', trade: '' };
+
+const GROUP_ICONS = { ths: BadgeCheck, client: Home, other: Briefcase, subcontractor: HardHat };
+const GROUP_ROLES = ['Client', 'Subcontractor'];
 
 // A member's saved role can sit outside the active list (Subcontractors are added
 // from their own tab, roles can be retired in Settings). The Select shows blank when
@@ -297,46 +301,99 @@ export default function TeamManager({ project }) {
     setEditValues({});
   };
 
-  if (!isAllowed) {
+  const emptyGroupText = {
+    ths: 'No THS staff on this project yet.',
+    client: project.client_name
+      ? `${project.client_name} is the client on record but hasn't been added to the team yet.`
+      : 'No client added yet.',
+    subcontractor: isAllowed ? 'No subcontractors yet. Add them on the Subcontractors tab.' : 'No subcontractors yet.',
+  };
+
+  // Consultants & Others only shows when someone is in it.
+  const groups = groupTeam(project.team, projectRoles)
+    .filter(g => g.key !== 'other' || g.members.length > 0);
+
+  const renderMember = (member) => {
+    const i = member.index;
+    const matchedUser = allUsers.find(u => normalizeEmail(u.email) === normalizeEmail(member.user_email));
+    const isRegistered = !!matchedUser;
+    const isMemberDeactivated = matchedUser ? isUserDeactivated(matchedUser) : false;
+    const isEditing = isAllowed && editingIndex === i;
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Users className="w-5 h-5" /> Team Members
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {(project.team || []).length > 0 ? (
-            <div className="space-y-2">
-              {(project.team || []).map((member, i) => {
-                const matchedUser = allUsers.find(u => normalizeEmail(u.email) === normalizeEmail(member.user_email));
-                const isMemberDeactivated = matchedUser ? isUserDeactivated(matchedUser) : false;
-                return (
-                  <div key={i} className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-medium text-sm">{member.full_name}</span>
-                      <Badge variant="outline" className="text-xs">{member.role}</Badge>
-                      {member.trade && <Badge variant="secondary" className="text-xs">{member.trade}</Badge>}
-                      {isMemberDeactivated && (
-                        <Badge variant="outline" className="text-xs text-red-600 border-red-300 bg-red-50">Deactivated</Badge>
-                      )}
-                    </div>
-                    <div className="text-xs text-muted-foreground mt-0.5">
-                      {[member.business_name, member.user_email, member.phone].filter(Boolean).join(' · ')}
-                    </div>
-                  </div>
+      <div key={i} className={`p-3 rounded-lg border ${isEditing ? 'bg-primary/5 border-primary/20 lg:col-span-2' : 'bg-muted/50 border-transparent'}`}>
+        {isEditing ? (
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label className="text-xs">Full Name</Label>
+                <Input className="h-8 text-base md:text-xs" value={editValues.full_name || ''} onChange={e => setEditValues(v => ({ ...v, full_name: e.target.value }))} />
+              </div>
+              <div>
+                <Label className="text-xs">Role</Label>
+                <Select value={editValues.role || ''} onValueChange={val => setEditValues(v => ({ ...v, role: val }))}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>{roleNamesWithSaved(projectRoles, member.role).map(name => <SelectItem key={name} value={name}>{name}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">Phone</Label>
+                <Input className="h-8 text-base md:text-xs" value={editValues.phone || ''} onChange={e => setEditValues(v => ({ ...v, phone: e.target.value }))} />
+              </div>
+              <div>
+                <Label className="text-xs">Business Name</Label>
+                <Input className="h-8 text-base md:text-xs" value={editValues.business_name || ''} onChange={e => setEditValues(v => ({ ...v, business_name: e.target.value }))} />
+              </div>
+              {editValues.role === 'Subcontractor' && (
+                <div>
+                  <Label className="text-xs">Trade</Label>
+                  <TradeSelect trades={TRADES} value={editValues.trade} onChange={val => setEditValues(v => ({ ...v, trade: val }))} />
                 </div>
-                );
-              })}
+              )}
             </div>
-          ) : (
-            <p className="text-sm text-muted-foreground text-center py-2">No team members assigned</p>
-          )}
-        </CardContent>
-      </Card>
+            <div className="flex gap-2">
+              <Button size="sm" className="h-7 text-xs gap-1" onClick={saveEdit} disabled={updateMutation.isPending}>Save</Button>
+              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={cancelEdit}>Cancel</Button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-medium text-sm">{member.full_name}</span>
+                {/* The group heading already says Client / Subcontractor. */}
+                {member.role && !GROUP_ROLES.includes(member.role) && (
+                  <Badge variant="outline" className="text-xs">{member.role}</Badge>
+                )}
+                {member.trade && <Badge variant="secondary" className="text-xs">{member.trade}</Badge>}
+                {isAllowed && member.user_email && !isRegistered && (
+                  <Badge variant="secondary" className="text-xs text-amber-600 bg-amber-50">Invite Pending</Badge>
+                )}
+                {isAllowed && member.user_email && isRegistered && !isMemberDeactivated && (
+                  <UserCheck className="w-3.5 h-3.5 text-green-600" />
+                )}
+                {isMemberDeactivated && (
+                  <Badge variant="outline" className="text-xs text-red-600 border-red-300 bg-red-50">Deactivated</Badge>
+                )}
+              </div>
+              <div className="text-xs text-muted-foreground mt-0.5">
+                {[member.business_name, member.user_email, member.phone].filter(Boolean).join(' · ')}
+              </div>
+            </div>
+            {isAllowed && (
+              <div className="flex items-center gap-1 flex-shrink-0">
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => startEdit(i)}>
+                  <Pencil className="w-3.5 h-3.5 text-muted-foreground" />
+                </Button>
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => removeMember(i)}>
+                  <Trash2 className="w-4 h-4 text-destructive" />
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     );
-  }
+  };
 
   return (
     <Card>
@@ -345,156 +402,93 @@ export default function TeamManager({ project }) {
           <Users className="w-5 h-5" /> Team Members
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
-        {/* Existing members */}
-        {(project.team || []).length > 0 ? (
-          <div className="space-y-2">
-            {(project.team || []).map((member, i) => {
-              const matchedUser = allUsers.find(u => normalizeEmail(u.email) === normalizeEmail(member.user_email));
-              const isRegistered = !!matchedUser;
-              const isMemberDeactivated = matchedUser ? isUserDeactivated(matchedUser) : false;
-              const isEditing = editingIndex === i;
-              return (
-                <div key={i} className={`p-3 rounded-lg border ${isEditing ? 'bg-primary/5 border-primary/20' : 'bg-muted/50 border-transparent'}`}>
-                  {isEditing ? (
-                    <div className="space-y-2">
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <Label className="text-xs">Full Name</Label>
-                          <Input className="h-8 text-base md:text-xs" value={editValues.full_name || ''} onChange={e => setEditValues(v => ({ ...v, full_name: e.target.value }))} />
-                        </div>
-                        <div>
-                          <Label className="text-xs">Role</Label>
-                          <Select value={editValues.role || ''} onValueChange={val => setEditValues(v => ({ ...v, role: val }))}>
-                            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                            <SelectContent>{roleNamesWithSaved(projectRoles, member.role).map(name => <SelectItem key={name} value={name}>{name}</SelectItem>)}</SelectContent>
-                          </Select>
-                        </div>
-                        <div>
-                          <Label className="text-xs">Phone</Label>
-                          <Input className="h-8 text-base md:text-xs" value={editValues.phone || ''} onChange={e => setEditValues(v => ({ ...v, phone: e.target.value }))} />
-                        </div>
-                        <div>
-                          <Label className="text-xs">Business Name</Label>
-                          <Input className="h-8 text-base md:text-xs" value={editValues.business_name || ''} onChange={e => setEditValues(v => ({ ...v, business_name: e.target.value }))} />
-                        </div>
-                        {editValues.role === 'Subcontractor' && (
-                          <div>
-                            <Label className="text-xs">Trade</Label>
-                            <TradeSelect trades={TRADES} value={editValues.trade} onChange={val => setEditValues(v => ({ ...v, trade: val }))} />
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex gap-2">
-                        <Button size="sm" className="h-7 text-xs gap-1" onClick={saveEdit} disabled={updateMutation.isPending}>Save</Button>
-                        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={cancelEdit}>Cancel</Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-between">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-medium text-sm">{member.full_name}</span>
-                          <Badge variant="outline" className="text-xs">{member.role}</Badge>
-                          {member.trade && <Badge variant="secondary" className="text-xs">{member.trade}</Badge>}
-                          {member.user_email && !isRegistered && (
-                            <Badge variant="secondary" className="text-xs text-amber-600 bg-amber-50">Invite Pending</Badge>
-                          )}
-                          {member.user_email && isRegistered && !isMemberDeactivated && (
-                            <UserCheck className="w-3.5 h-3.5 text-green-600" />
-                          )}
-                          {isMemberDeactivated && (
-                            <Badge variant="outline" className="text-xs text-red-600 border-red-300 bg-red-50">Deactivated</Badge>
-                          )}
-                        </div>
-                        <div className="text-xs text-muted-foreground mt-0.5">
-                          {[member.business_name, member.user_email, member.phone].filter(Boolean).join(' · ')}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-1 flex-shrink-0">
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => startEdit(i)}>
-                          <Pencil className="w-3.5 h-3.5 text-muted-foreground" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => removeMember(i)}>
-                          <Trash2 className="w-4 h-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground text-center py-2">No team members assigned</p>
-        )}
+      <CardContent className="space-y-5">
+        {groups.map(group => {
+          const Icon = GROUP_ICONS[group.key];
+          return (
+            <section key={group.key}>
+              <div className="flex items-center gap-2 mb-2">
+                <Icon className="w-4 h-4 text-primary" />
+                <h3 className="text-sm font-semibold">{group.label}</h3>
+                <span className="text-xs text-muted-foreground">({group.members.length})</span>
+              </div>
+              {group.members.length > 0 ? (
+                <div className="grid gap-2 lg:grid-cols-2">{group.members.map(renderMember)}</div>
+              ) : (
+                <p className="text-sm text-muted-foreground px-3 py-2 rounded-lg border border-dashed">{emptyGroupText[group.key]}</p>
+              )}
+            </section>
+          );
+        })}
 
         {/* Add member form */}
-        <div className="border-t pt-4 space-y-3">
-          <p className="text-sm font-medium">Add Team Member</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <Label className="text-xs">Full Name *</Label>
-              <Input
-                value={newMember.full_name}
-                onChange={e => setNewMember({ ...newMember, full_name: e.target.value })}
-                placeholder="Full name"
-              />
-            </div>
-            <div>
-              <Label className="text-xs">Role *</Label>
-              <Select value={newMember.role} onValueChange={v => setNewMember({ ...newMember, role: v })}>
-                <SelectTrigger><SelectValue placeholder="Select role" /></SelectTrigger>
-                <SelectContent>
-                  {projectRoles.map(r => <SelectItem key={r.name} value={r.name}>{r.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              {newMember.role === 'Other' && (
-                <Input className="mt-2" value={customRole} onChange={e => setCustomRole(e.target.value)} placeholder="Enter custom role..." />
-              )}
-            </div>
-            <div className="relative sm:col-span-2">
-              <Label className="text-xs flex items-center gap-2">
-                Email
-                {detectingEmail && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />}
-                {emailStatus && !detectingEmail && <EmailStatusBadge status={emailStatus} />}
-              </Label>
-              <PersonAutocomplete
-                value={emailInput}
-                onChange={handleEmailInput}
-                onSelect={selectSuggestion}
-                onBlur={handleEmailBlur}
-                includeUsers
-                placeholder="Email (type to search or detect status)"
-              />
-              {emailStatus === 'pending' && (
-                <p className="text-xs text-amber-600 mt-1">An invitation already exists for this email. Adding this project will reuse it — no duplicate will be sent.</p>
-              )}
-            </div>
-            <div>
-              <Label className="text-xs">Phone</Label>
-              <Input value={newMember.phone} onChange={e => setNewMember({ ...newMember, phone: e.target.value })} placeholder="Phone" />
-            </div>
-            <div>
-              <Label className="text-xs">Business Name</Label>
-              <Input value={newMember.business_name} onChange={e => setNewMember({ ...newMember, business_name: e.target.value })} placeholder="Business name" />
-            </div>
-            {newMember.role === 'Subcontractor' && (
+        {isAllowed && (
+          <div className="border-t pt-4 space-y-3">
+            <p className="text-sm font-medium">Add Team Member</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <Label className="text-xs">Trade</Label>
-                <TradeSelect compact={false} trades={TRADES} value={newMember.trade} onChange={v => setNewMember(m => ({ ...m, trade: v }))} />
+                <Label className="text-xs">Full Name *</Label>
+                <Input
+                  value={newMember.full_name}
+                  onChange={e => setNewMember({ ...newMember, full_name: e.target.value })}
+                  placeholder="Full name"
+                />
               </div>
-            )}
+              <div>
+                <Label className="text-xs">Role *</Label>
+                <Select value={newMember.role} onValueChange={v => setNewMember({ ...newMember, role: v })}>
+                  <SelectTrigger><SelectValue placeholder="Select role" /></SelectTrigger>
+                  <SelectContent>
+                    {projectRoles.map(r => <SelectItem key={r.name} value={r.name}>{r.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                {newMember.role === 'Other' && (
+                  <Input className="mt-2" value={customRole} onChange={e => setCustomRole(e.target.value)} placeholder="Enter custom role..." />
+                )}
+              </div>
+              <div className="relative sm:col-span-2">
+                <Label className="text-xs flex items-center gap-2">
+                  Email
+                  {detectingEmail && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />}
+                  {emailStatus && !detectingEmail && <EmailStatusBadge status={emailStatus} />}
+                </Label>
+                <PersonAutocomplete
+                  value={emailInput}
+                  onChange={handleEmailInput}
+                  onSelect={selectSuggestion}
+                  onBlur={handleEmailBlur}
+                  includeUsers
+                  placeholder="Email (type to search or detect status)"
+                />
+                {emailStatus === 'pending' && (
+                  <p className="text-xs text-amber-600 mt-1">An invitation already exists for this email. Adding this project will reuse it — no duplicate will be sent.</p>
+                )}
+              </div>
+              <div>
+                <Label className="text-xs">Phone</Label>
+                <Input value={newMember.phone} onChange={e => setNewMember({ ...newMember, phone: e.target.value })} placeholder="Phone" />
+              </div>
+              <div>
+                <Label className="text-xs">Business Name</Label>
+                <Input value={newMember.business_name} onChange={e => setNewMember({ ...newMember, business_name: e.target.value })} placeholder="Business name" />
+              </div>
+              {newMember.role === 'Subcontractor' && (
+                <div>
+                  <Label className="text-xs">Trade</Label>
+                  <TradeSelect compact={false} trades={TRADES} value={newMember.trade} onChange={v => setNewMember(m => ({ ...m, trade: v }))} />
+                </div>
+              )}
+            </div>
+            <Button
+              onClick={addMember}
+              disabled={!newMember.full_name || !newMember.role || adding}
+              className="gap-2"
+            >
+              {adding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+              {adding ? 'Adding...' : 'Add Member'}
+            </Button>
           </div>
-          <Button
-            onClick={addMember}
-            disabled={!newMember.full_name || !newMember.role || adding}
-            className="gap-2"
-          >
-            {adding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-            {adding ? 'Adding...' : 'Add Member'}
-          </Button>
-        </div>
+        )}
       </CardContent>
     </Card>
   );
