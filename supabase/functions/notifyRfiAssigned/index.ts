@@ -130,6 +130,11 @@ Deno.serve(async (req: Request) => {
       return Response.json({ error: 'Project not found' }, { status: 404, headers: corsHeaders });
     }
 
+    // A closed project (migration 031) has locked its team out, so don't email them.
+    if (['Complete', 'Archived'].includes(project.status)) {
+      return Response.json({ success: true, total: 0, sent: 0, failed: 0, results: [] }, { headers: corsHeaders });
+    }
+
     // Authorize by context (mirrors migration 019's RFI-insert policy): internal
     // staff, or anyone on this project's team — external subcontractors included.
     const callerRole = senderProfile?.role;

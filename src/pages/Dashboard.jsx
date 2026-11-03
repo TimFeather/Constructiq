@@ -2,6 +2,7 @@ import React from 'react';
 import { Project, RFI } from '@/api/entities';
 import { documentsQuery } from '@/api/documentsData';
 import { taskSummariesQuery } from '@/api/taskSummaries';
+import { isOpenProject } from '@/api/projectStatus';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
 import { isAdmin } from '@/lib/permissions';
@@ -46,9 +47,11 @@ export default function Dashboard() {
     queryFn: () => Project.list('-created_at', 100),
   });
 
-  const projects = userIsAdmin
+  // Closed projects stay out of every count and deadline here, including for admins.
+  const projects = (userIsAdmin
     ? allProjects
-    : allProjects.filter(p => p.team?.some(m => m.user_email === user?.email));
+    : allProjects.filter(p => p.team?.some(m => m.user_email === user?.email))
+  ).filter(isOpenProject);
 
   const projectIds = new Set(projects.map(p => p.id));
 

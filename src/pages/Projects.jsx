@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { Project } from '@/api/entities';
+import { OPEN_PROJECT_STATUSES, setProjectStatus } from '@/api/projectStatus';
 import { taskSummariesQuery } from '@/api/taskSummaries';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
 import { Link } from 'react-router-dom';
-import { Plus, Search, Calendar, Archive, ArchiveRestore, Trash2 } from 'lucide-react';
+import { Plus, Search, Calendar, Archive, ArchiveRestore, CheckCircle2, Trash2 } from 'lucide-react';
 import { canEdit, isAdmin } from '@/lib/permissions';
-import { logProjectActivity } from '@/lib/activityLog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -20,8 +20,11 @@ import ProjectFormDialog from '@/components/projects/ProjectFormDialog';
 import { format } from 'date-fns';
 import { FolderKanban } from 'lucide-react';
 
-const ACTIVE_STATUSES   = ['Active', 'On Hold', 'Complete'];
-const ARCHIVED_STATUSES = ['Archived'];
+const VIEW_STATUSES = {
+  active:   OPEN_PROJECT_STATUSES,
+  complete: ['Complete'],
+  archived: ['Archived'],
+};
 
 export default function Projects() {
   const { user } = useAuth();
@@ -58,33 +61,27 @@ export default function Projects() {
     queryClient.invalidateQueries({ queryKey: ['contractInstructions'] });
   };
 
+  const statusErrorToast = (error) => {
+    toast({
+      variant: 'destructive',
+      title: 'Could not change project status',
+      description: error?.message || 'Something went wrong. Please try again.',
+    });
+  };
+
   const archiveMutation = useMutation({
-    mutationFn: (id) => Project.update(id, { status: 'Archived' }),
-    onSuccess: (_data, id) => {
+    mutationFn: (id) => setProjectStatus(id, 'Archived'),
+    onSuccess: () => {
       invalidateProjectChildren();
-      logProjectActivity({
-        projectId: id,
-        entityType: 'project',
-        eventType: 'status_changed',
-        user,
-        description: 'Project archived',
-      }).catch(() => {});
       setArchiveId(null);
     },
+    onError: statusErrorToast,
   });
 
   const restoreMutation = useMutation({
-    mutationFn: (id) => Project.update(id, { status: 'Active' }),
-    onSuccess: (_data, id) => {
-      invalidateProjectChildren();
-      logProjectActivity({
-        projectId: id,
-        entityType: 'project',
-        eventType: 'status_changed',
-        user,
-        description: 'Project restored to Active',
-      }).catch(() => {});
-    },
+    mutationFn: (id) => setProjectStatus(id, 'Active'),
+    onSuccess: invalidateProjectChildren,
+    onError: statusErrorToast,
   });
 
   const deleteMutation = useMutation({
@@ -105,11 +102,9 @@ export default function Projects() {
   // All authenticated users can see all projects (external = read-only)
   const projects = allProjects;
 
-  const viewProjects = projects.filter(p =>
-    viewMode === 'active'
-      ? ACTIVE_STATUSES.includes(p.status)
-      : ARCHIVED_STATUSES.includes(p.status)
-  );
+  const viewCount = (view) => projects.filter(p => VIEW_STATUSES[view].includes(p.status)).length;
+
+  const viewProjects = projects.filter(p => VIEW_STATUSES[viewMode].includes(p.status));
 
   const filtered = viewProjects.filter(p => {
     const matchSearch = p.name?.toLowerCase().includes(search.toLowerCase());
@@ -120,12 +115,13 @@ export default function Projects() {
   const projectToArchive = allProjects.find(p => p.id === archiveId);
   const projectToDelete  = allProjects.find(p => p.id === deleteId);
 
-  const activeCount   = projects.filter(p => ACTIVE_STATUSES.includes(p.status)).length;
-  const archivedCount = projects.filter(p => ARCHIVED_STATUSES.includes(p.status)).length;
+  const activeCount   = viewCount('active');
+  const completeCount = viewCount('complete');
+  const archivedCount = viewCount('archived');
 
   // Card corner buttons stay visible on touch screens; pad the card header so they
-  // don't sit on top of the status badge.
-  const cornerButtonCount = viewMode === 'active' ? Number(isAllowed) : Number(isAllowed) + Number(isAdminUser);
+  // don't sit on top of the status badge. The closed views are admin-only.
+  const cornerButtonCount = viewMode === 'active' ? Number(isAllowed) : 2;
   const cardHeaderPad = ['', 'touch:pr-8', 'touch:pr-16'][cornerButtonCount];
 
   return (
@@ -142,8 +138,8 @@ export default function Projects() {
         }
       />
 
-      {/* Active / Archived toggle */}
-      <div className="flex gap-2 mb-4">
+      {/* Active / Complete / Archived toggle. Closed projects are only visible to admins. */}
+      <div className="flex gap-2 mb-4 flex-wrap">
         <Button
           variant={viewMode === 'active' ? 'default' : 'outline'}
           size="sm"
@@ -151,14 +147,26 @@ export default function Projects() {
         >
           Active {activeCount > 0 && `(${activeCount})`}
         </Button>
-        <Button
-          variant={viewMode === 'archived' ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => { setViewMode('archived'); setStatusFilter('all'); }}
-        >
-          <Archive className="w-3.5 h-3.5 mr-1.5" />
-          Archived {archivedCount > 0 && `(${archivedCount})`}
-        </Button>
+        {isAdminUser && (
+          <>
+            <Button
+              variant={viewMode === 'complete' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => { setViewMode('complete'); setStatusFilter('all'); }}
+            >
+              <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+              Complete {completeCount > 0 && `(${completeCount})`}
+            </Button>
+            <Button
+              variant={viewMode === 'archived' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => { setViewMode('archived'); setStatusFilter('all'); }}
+            >
+              <Archive className="w-3.5 h-3.5 mr-1.5" />
+              Archived {archivedCount > 0 && `(${archivedCount})`}
+            </Button>
+          </>
+        )}
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3 mb-6">
@@ -173,7 +181,6 @@ export default function Projects() {
               <SelectItem value="all">All Status</SelectItem>
               <SelectItem value="Active">Active</SelectItem>
               <SelectItem value="On Hold">On Hold</SelectItem>
-              <SelectItem value="Complete">Complete</SelectItem>
             </SelectContent>
           </Select>
         )}
@@ -194,10 +201,10 @@ export default function Projects() {
       ) : filtered.length === 0 ? (
         <EmptyState
           icon={FolderKanban}
-          title={viewMode === 'archived' ? 'No archived projects' : 'No projects found'}
+          title={viewMode === 'active' ? 'No projects found' : `No ${viewMode} projects`}
           description={
-            viewMode === 'archived'
-              ? 'Archived projects will appear here'
+            viewMode !== 'active'
+              ? `${viewMode === 'archived' ? 'Archived' : 'Complete'} projects will appear here`
               : search || statusFilter !== 'all'
                 ? 'Try adjusting your filters'
                 : 'Create your first project to get started'
@@ -253,19 +260,25 @@ export default function Projects() {
                   <Archive className="w-3.5 h-3.5 text-muted-foreground" />
                 </button>
               )}
-              {viewMode === 'archived' && (
+              {viewMode !== 'active' && (
                 <div className="absolute top-2 right-2 can-hover:opacity-0 can-hover:group-hover:opacity-100 transition-opacity flex gap-1.5">
-                  {isAllowed && (
+                  <button
+                    className="p-1.5 rounded-md bg-card border shadow-sm hover:bg-primary/10"
+                    onClick={e => { e.preventDefault(); restoreMutation.mutate(project.id); }}
+                    disabled={restoreMutation.isPending}
+                    title="Reopen as Active"
+                  >
+                    <ArchiveRestore className="w-3.5 h-3.5 text-primary" />
+                  </button>
+                  {viewMode === 'complete' ? (
                     <button
-                      className="p-1.5 rounded-md bg-card border shadow-sm hover:bg-primary/10"
-                      onClick={e => { e.preventDefault(); restoreMutation.mutate(project.id); }}
-                      disabled={restoreMutation.isPending}
-                      title="Restore to Active"
+                      className="p-1.5 rounded-md bg-card border shadow-sm hover:bg-muted"
+                      onClick={e => { e.preventDefault(); setArchiveId(project.id); }}
+                      title="Archive project"
                     >
-                      <ArchiveRestore className="w-3.5 h-3.5 text-primary" />
+                      <Archive className="w-3.5 h-3.5 text-muted-foreground" />
                     </button>
-                  )}
-                  {isAdminUser && (
+                  ) : (
                     <button
                       className="p-1.5 rounded-md bg-card border shadow-sm hover:bg-destructive/10"
                       onClick={e => { e.preventDefault(); setDeleteId(project.id); }}
@@ -288,7 +301,7 @@ export default function Projects() {
           <AlertDialogHeader>
             <AlertDialogTitle>Archive project?</AlertDialogTitle>
             <AlertDialogDescription>
-              "{projectToArchive?.name}" will be moved to the archive. You can still view it under the Archived tab.
+              "{projectToArchive?.name}" will be closed and moved to the archive. The team and subcontractors lose access to its files and programme straight away{isAdminUser ? '' : ', and so will you'}. Only an admin can reopen it.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

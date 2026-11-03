@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Project, Task } from '@/api/entities';
 import { programmeTasksQuery, fetchProgramme, upsertProgramme, bulkUpdateTaskWbs, publishProgramme, unpublishProgramme } from '@/api/programmeData';
 import { invokeFunction } from '@/api/supabaseClient';
+import { isClosedStatus } from '@/api/projectStatus';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -68,7 +69,6 @@ const DELETE_CHUNK = 150;
 // request-body limit, so stay well clear of both. A real programme is 300–600KB.
 const MAX_ATTACHMENT_B64 = 8 * 1024 * 1024;
 const IMPORT_STAGES = ['Reading file', 'Parsing schedule', 'Creating tasks', 'Linking dependencies', 'Building hierarchy', 'Finalising'];
-const FINISHED_PROJECT_STATUSES = ['Complete', 'Archived'];
 
 export default function Programme() {
   const { user } = useAuth();
@@ -146,7 +146,7 @@ export default function Programme() {
   // Finished projects drop off the selector and the All Projects view. One opened
   // directly (?project= from its project page) still loads until you switch away.
   const projects = accessibleProjects.filter(p =>
-    !FINISHED_PROJECT_STATUSES.includes(p.status) || p.id === selectedProjectId
+    !isClosedStatus(p.status) || p.id === selectedProjectId
   );
 
   const projectIds = new Set(projects.map(p => p.id));
@@ -944,6 +944,10 @@ export default function Programme() {
               <Badge variant="outline" className="gap-1 border-amber-400 text-amber-700 bg-amber-50">
                 <Lock className="w-3 h-3" /> Locked
               </Badge>
+            )}
+
+            {projects.find(p => p.id === selectedProjectId)?.status === 'On Hold' && (
+              <Badge variant="outline" className="border-amber-400 text-amber-700 bg-amber-50">On Hold</Badge>
             )}
 
             <div className="hidden md:contents">

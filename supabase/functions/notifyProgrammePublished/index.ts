@@ -216,6 +216,11 @@ Deno.serve(async (req: Request) => {
       return Response.json({ error: 'Project not found' }, { status: 404, headers: corsHeaders });
     }
 
+    // A closed project (migration 031) has locked its team out, so don't email them.
+    if (['Complete', 'Archived'].includes(project.status)) {
+      return Response.json({ success: true, total: 0, sent: 0, failed: 0, results: [], log }, { headers: corsHeaders });
+    }
+
     const branding  = brandings?.[0] || {};
     const template  = customTemplates?.[0] || DEFAULT_TEMPLATE;
     const fromName  = branding.sender_name || branding.company_name || 'ConstructIQ';

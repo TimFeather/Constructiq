@@ -1,8 +1,12 @@
 import React, { useState } from 'react';
 import { Project } from '@/api/entities';
+import { isClosedStatus, setProjectStatus } from '@/api/projectStatus';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
+import { isAdmin } from '@/lib/permissions';
 import { logProjectActivity } from '@/lib/activityLog';
+import { useToast } from '@/components/ui/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,23 +23,37 @@ export default function ProjectFormDialog({ open, onOpenChange, project }) {
   const { user } = useAuth();
   const [form, setForm] = useState(project || initialState);
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const { toast } = useToast();
+
+  const isClosing = !!project?.id && isClosedStatus(form.status) && !isClosedStatus(project.status);
 
   const mutation = useMutation({
     mutationFn: async (data) => {
-      if (project?.id) return Project.update(project.id, data);
-      const created = await Project.create(data);
-      return created;
+      if (!project?.id) return Project.create(data);
+      // Status goes last: closing the project can end this user's access to it.
+      const { status, ...fields } = data;
+      const updated = await Project.update(project.id, fields);
+      await logProjectActivity({
+        projectId: project.id,
+        entityType: 'project',
+        eventType: 'project_updated',
+        user,
+        description: 'Project details updated',
+      });
+      if (status !== project.status) await setProjectStatus(project.id, status);
+      return updated;
+    },
+    onError: (error) => {
+      toast({
+        variant: 'destructive',
+        title: 'Could not save project',
+        description: error?.message || 'Something went wrong. Please try again.',
+      });
     },
     onSuccess: (result) => {
-      if (project?.id) {
-        logProjectActivity({
-          projectId: project.id,
-          entityType: 'project',
-          eventType: 'project_updated',
-          user,
-          description: 'Project details updated',
-        }).catch(() => {});
-      } else if (result?.id) {
+      if (isClosing && !isAdmin(user)) navigate('/projects');
+      if (!project?.id && result?.id) {
         logProjectActivity({
           projectId: result.id,
           entityType: 'project',
@@ -164,9 +182,16 @@ export default function ProjectFormDialog({ open, onOpenChange, project }) {
               <SelectContent>
                 <SelectItem value="Active">Active</SelectItem>
                 <SelectItem value="On Hold">On Hold</SelectItem>
-                <SelectItem value="Complete">Complete</SelectItem>
+                {project?.id && <SelectItem value="Complete">Complete</SelectItem>}
+                {project?.id && <SelectItem value="Archived">Archived</SelectItem>}
               </SelectContent>
             </Select>
+            {isClosing && (
+              <p className="text-xs text-amber-700 mt-2">
+                This closes the job. The team and subcontractors lose access to its files and programme as soon as you save
+                {isAdmin(user) ? '.' : ', and so will you.'} Only an admin can reopen it.
+              </p>
+            )}
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>

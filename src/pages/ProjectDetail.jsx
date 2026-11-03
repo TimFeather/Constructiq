@@ -7,7 +7,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ArrowLeft, Pencil, FileText, MessageSquareMore, BarChart2, ExternalLink, FileSignature, HardHat, Clock, Building2, MapPin, Phone } from 'lucide-react';
+import { ArrowLeft, Pencil, FileText, MessageSquareMore, BarChart2, ExternalLink, FileSignature, HardHat, Clock, Building2, MapPin, Phone, PauseCircle, Lock } from 'lucide-react';
+import { isClosedStatus } from '@/api/projectStatus';
 import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
 import TeamManager from '@/components/projects/TeamManager';
@@ -77,7 +78,7 @@ export default function ProjectDetail() {
   if (!project) {
     return (
       <div className="text-center py-16">
-        <p className="text-muted-foreground">Project not found</p>
+        <p className="text-muted-foreground">This project isn't available. It may have been closed, or you may not be on its team.</p>
         <Link to="/projects" className="text-primary hover:underline text-sm mt-2 block">Back to projects</Link>
       </div>
     );
@@ -134,6 +135,19 @@ export default function ProjectDetail() {
           </div>
         }
       />
+
+      {project.status === 'On Hold' && (
+        <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 text-amber-800 px-4 py-3 text-sm mb-4">
+          <PauseCircle className="w-4 h-4 flex-shrink-0" />
+          This project is on hold.
+        </div>
+      )}
+      {isClosedStatus(project.status) && (
+        <div className="flex items-center gap-2 rounded-lg border bg-muted text-muted-foreground px-4 py-3 text-sm mb-4">
+          <Lock className="w-4 h-4 flex-shrink-0" />
+          This project is closed ({project.status}). Only admins can see it. Change its status to reopen it for the team.
+        </div>
+      )}
 
       {/* Project info cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">

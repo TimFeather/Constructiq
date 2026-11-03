@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Project, RFI } from '@/api/entities';
+import { isClosedStatus, isOpenProject } from '@/api/projectStatus';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
 import { Link } from 'react-router-dom';
@@ -78,25 +79,25 @@ export default function RFIs() {
     ? allProjects
     : allProjects.filter(p => p.team?.some(m => normalizeEmail(m.user_email) === normalizeEmail(user?.email)));
 
-  const ACTIVE_STATUSES = ['Active', 'On Hold', 'Complete'];
-  const viewProjects = projects.filter(p =>
-    viewMode === 'archived'
-      ? p.status === 'Archived'
-      : ACTIVE_STATUSES.includes(p.status)
-  );
-  const activeProjectIds = new Set(projects.filter(p => ACTIVE_STATUSES.includes(p.status)).map(p => p.id));
-  const archivedProjectIds = new Set(projects.filter(p => p.status === 'Archived').map(p => p.id));
+  const openProjects = projects.filter(isOpenProject);
+  const viewProjects = viewMode === 'archived'
+    ? projects.filter(p => isClosedStatus(p.status))
+    : openProjects;
+  const activeProjectIds = new Set(openProjects.map(p => p.id));
+  const closedProjectIds = new Set(projects.filter(p => isClosedStatus(p.status)).map(p => p.id));
 
   const projectIds = new Set(projects.map(p => p.id));
   const allVisibleRfis = allRfis.filter(r => projectIds.has(r.project_id));
+  // Only Archived projects flag their RFIs as archived, so the closed view goes by the
+  // project's status: a Complete project's RFIs keep their flags.
   const rfis = viewMode === 'archived'
-    ? allVisibleRfis.filter(r => r.archived && archivedProjectIds.has(r.project_id))
+    ? allVisibleRfis.filter(r => closedProjectIds.has(r.project_id))
     : allVisibleRfis.filter(r => !r.archived && activeProjectIds.has(r.project_id));
   // Counts use the same "parent project status" criterion as the grid below,
   // not just the RFI's own archived flag, so the tab counts never disagree
   // with what's actually shown (see HANDOVER 2026-07-01 for the two-cache-key gotcha).
   const activeRfiCount = allVisibleRfis.filter(r => !r.archived && activeProjectIds.has(r.project_id)).length;
-  const archivedRfiCount = allVisibleRfis.filter(r => r.archived && archivedProjectIds.has(r.project_id)).length;
+  const closedRfiCount = allVisibleRfis.filter(r => closedProjectIds.has(r.project_id)).length;
   const projectMap = Object.fromEntries(projects.map(p => [p.id, p.name]));
 
   // Build per-project sequential RFI numbers
@@ -182,7 +183,7 @@ export default function RFIs() {
             ))}
           </div>
         )}
-        <RFIFormDialog open={showForm} onOpenChange={setShowForm} projects={projects} defaultProjectId={formDefaultProjectId} />
+        <RFIFormDialog open={showForm} onOpenChange={setShowForm} projects={openProjects} defaultProjectId={formDefaultProjectId} />
       </div>
     );
   }
@@ -209,14 +210,16 @@ export default function RFIs() {
         >
           Active {activeRfiCount > 0 && `(${activeRfiCount})`}
         </Button>
-        <Button
-          variant={viewMode === 'archived' ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setViewMode('archived')}
-        >
-          <Archive className="w-3.5 h-3.5 mr-1.5" />
-          Archived {archivedRfiCount > 0 && `(${archivedRfiCount})`}
-        </Button>
+        {user?.role === 'admin' && (
+          <Button
+            variant={viewMode === 'archived' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setViewMode('archived')}
+          >
+            <Archive className="w-3.5 h-3.5 mr-1.5" />
+            Closed {closedRfiCount > 0 && `(${closedRfiCount})`}
+          </Button>
+        )}
       </div>
 
       {/* Assigned to me — only show in active view */}
@@ -252,7 +255,7 @@ export default function RFIs() {
           const matchingProjects = viewProjects.filter(p => rfis.some(r => r.project_id === p.id));
           if (matchingProjects.length === 0) {
             return viewMode === 'archived'
-              ? <EmptyState icon={Archive} title="No archived RFIs" description="Archived RFIs will appear here when a project is archived" />
+              ? <EmptyState icon={Archive} title="No closed RFIs" description="RFIs will appear here when a project is complete or archived" />
               : <EmptyState icon={FolderKanban} title="No projects" description="You are not assigned to any projects" />;
           }
           return null;
@@ -288,7 +291,7 @@ export default function RFIs() {
         )}
       </section>
 
-      <RFIFormDialog open={showForm} onOpenChange={setShowForm} projects={projects} defaultProjectId={formDefaultProjectId} />
+      <RFIFormDialog open={showForm} onOpenChange={setShowForm} projects={openProjects} defaultProjectId={formDefaultProjectId} />
     </div>
   );
 }

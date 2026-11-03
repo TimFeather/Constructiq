@@ -2,6 +2,7 @@ import { uploadFile, removeFile } from '@/api/supabaseClient';
 import React, { useState, useRef } from 'react';
 import { Document, Project } from '@/api/entities';
 import { documentsQuery } from '@/api/documentsData';
+import { isClosedStatus, isOpenProject } from '@/api/projectStatus';
 import { logDocumentEvent } from '@/lib/auditLog';
 import { logProjectActivity } from '@/lib/activityLog';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -64,26 +65,26 @@ export default function Documents() {
     ? allProjects
     : allProjects.filter(p => p.team?.some(m => normalizeEmail(m.user_email) === normalizeEmail(user?.email)));
 
-  const ACTIVE_STATUSES = ['Active', 'On Hold', 'Complete'];
-  const activeProjectIds = new Set(projects.filter(p => ACTIVE_STATUSES.includes(p.status)).map(p => p.id));
-  const archivedProjectIds = new Set(projects.filter(p => p.status === 'Archived').map(p => p.id));
+  const openProjects = projects.filter(isOpenProject);
+  const activeProjectIds = new Set(openProjects.map(p => p.id));
+  const closedProjectIds = new Set(projects.filter(p => isClosedStatus(p.status)).map(p => p.id));
 
   const projectIds = new Set(projects.map(p => p.id));
   const allVisibleDocs = allDocuments.filter(d => projectIds.has(d.project_id));
+  // Only Archived projects flag their documents as archived, so the closed view goes by
+  // the project's status: a Complete project's documents keep their flags.
   const documents = viewMode === 'archived'
-    ? allVisibleDocs.filter(d => d.archived && archivedProjectIds.has(d.project_id))
+    ? allVisibleDocs.filter(d => closedProjectIds.has(d.project_id))
     : allVisibleDocs.filter(d => !d.archived && activeProjectIds.has(d.project_id));
   // Counts use the same "parent project status" criterion as the grid below,
   // not just the document's own archived flag, so the tab counts never disagree
   // with what's actually shown (see HANDOVER 2026-07-01 for the two-cache-key gotcha).
   const activeDocCount = allVisibleDocs.filter(d => !d.archived && activeProjectIds.has(d.project_id)).length;
-  const archivedDocCount = allVisibleDocs.filter(d => d.archived && archivedProjectIds.has(d.project_id)).length;
+  const closedDocCount = allVisibleDocs.filter(d => closedProjectIds.has(d.project_id)).length;
 
-  const viewProjects = projects.filter(p =>
-    viewMode === 'archived'
-      ? p.status === 'Archived'
-      : ACTIVE_STATUSES.includes(p.status)
-  );
+  const viewProjects = viewMode === 'archived'
+    ? projects.filter(p => isClosedStatus(p.status))
+    : openProjects;
 
   const statusMutation = useMutation({
     mutationFn: ({ id, status }) => Document.update(id, { status }),
@@ -222,14 +223,16 @@ export default function Documents() {
             >
               Active {activeDocCount > 0 && `(${activeDocCount})`}
             </Button>
-            <Button
-              variant={viewMode === 'archived' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setViewMode('archived')}
-            >
-              <Archive className="w-3.5 h-3.5 mr-1.5" />
-              Archived {archivedDocCount > 0 && `(${archivedDocCount})`}
-            </Button>
+            {user?.role === 'admin' && (
+              <Button
+                variant={viewMode === 'archived' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setViewMode('archived')}
+              >
+                <Archive className="w-3.5 h-3.5 mr-1.5" />
+                Closed {closedDocCount > 0 && `(${closedDocCount})`}
+              </Button>
+            )}
           </div>
           <div className="relative mb-6">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -254,7 +257,7 @@ export default function Documents() {
             );
             if (matchingProjects.length === 0) {
               return viewMode === 'archived'
-                ? <EmptyState icon={Archive} title="No archived documents" description="Archived documents will appear here when a project is archived" />
+                ? <EmptyState icon={Archive} title="No closed documents" description="Documents will appear here when a project is complete or archived" />
                 : <EmptyState icon={FolderOpen} title="No projects found" description={search ? "Try adjusting your search" : "Projects will appear here once created"} />;
             }
             return null;
@@ -311,7 +314,7 @@ export default function Documents() {
               <Select value={uploadForm.project_id} onValueChange={v => setUploadForm({...uploadForm, project_id: v, folder: ''})}>
                 <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
                 <SelectContent>
-                  {projects.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                  {openProjects.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
