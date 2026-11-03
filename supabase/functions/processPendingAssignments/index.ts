@@ -4,10 +4,14 @@
  * Login-triggered sync: activates all PendingProjectAssignment records
  * for the authenticated user's email.
  *
- * Idempotent:
+ * Idempotent, and safe to run twice at once:
  *  - Checks Project.team for existing email before appending.
- *  - Skips assignments already Activated or Cancelled.
- *  - Marks InvitedUser as Accepted once all assignments processed.
+ *  - Skips assignments already Activated or Cancelled; each one is claimed
+ *    (Pending → Activated) before the team is touched, so a concurrent run
+ *    can't add the member twice.
+ *  - Marks the user's Pending InvitedUser Accepted — with or without project
+ *    assignments, since signing in proves they registered. The same status flip
+ *    claims the one-time profile initialization.
  *  - Initializes User.role and profile from invitation metadata (first login only).
  *  - Never downgrades admin users.
  *  - Never overwrites existing values.
@@ -76,27 +80,28 @@ Deno.serve(async (req: Request) => {
     const now = new Date().toISOString();
 
     // Fetch all pending assignments for this email
-    const { data: assignments } = await supabaseAdmin
+    const assignmentsRes = await supabaseAdmin
       .from('pending_project_assignments')
       .select('*')
       .match({ email, status: 'Pending' });
-
-    if (!assignments || assignments.length === 0) {
-      return Response.json({ activated: 0, skipped: 0, roleAssigned: null }, { headers: corsHeaders });
+    if (assignmentsRes.error) {
+      throw new Error(`Could not read pending_project_assignments: ${assignmentsRes.error.message}`);
     }
-
-    console.info('INVITATION ACTIVATION STARTED', { email, count: assignments.length });
+    const assignments: any[] = assignmentsRes.data ?? [];
 
     let activated = 0;
     let skipped = 0;
 
     // Batch load all projects in one query to avoid N+1
     const projectIds = [...new Set(assignments.map((a: any) => a.project_id).filter(Boolean))];
-    const { data: batchProjectRows } = await supabaseAdmin
-      .from('projects')
-      .select('*')
-      .in('id', projectIds);
+    const { data: batchProjectRows } = projectIds.length > 0
+      ? await supabaseAdmin.from('projects').select('*').in('id', projectIds)
+      : { data: [] };
     const projectMap = new Map((batchProjectRows ?? []).map((p: any) => [p.id, p]));
+
+    if (assignments.length > 0) {
+      console.info('INVITATION ACTIVATION STARTED', { email, count: assignments.length });
+    }
 
     for (const assignment of assignments) {
       try {
@@ -108,6 +113,19 @@ Deno.serve(async (req: Request) => {
             .from('pending_project_assignments')
             .update({ status: 'Cancelled' })
             .eq('id', assignment.id);
+          skipped++;
+          continue;
+        }
+
+        // Claim it first: only the run that flips Pending → Activated may add the member.
+        const { data: claimed, error: claimErr } = await supabaseAdmin
+          .from('pending_project_assignments')
+          .update({ status: 'Activated' })
+          .eq('id', assignment.id)
+          .eq('status', 'Pending')
+          .select('id');
+        if (claimErr) throw new Error(`claim failed: ${claimErr.message}`);
+        if (!claimed?.length) {
           skipped++;
           continue;
         }
@@ -124,17 +142,20 @@ Deno.serve(async (req: Request) => {
             role: assignment.role,
             trade: assignment.trade || '',
           });
-          await supabaseAdmin
+          const { error: teamErr } = await supabaseAdmin
             .from('projects')
             .update({ team })
             .eq('id', project.id);
+          if (teamErr) {
+            // Hand the assignment back so the next sign-in retries it.
+            await supabaseAdmin
+              .from('pending_project_assignments')
+              .update({ status: 'Pending' })
+              .eq('id', assignment.id);
+            throw new Error(`team update failed: ${teamErr.message}`);
+          }
           console.info('PROJECT MEMBERSHIP CREATED', { email, projectId: project.id, projectName: project.name, role: assignment.role });
         }
-
-        await supabaseAdmin
-          .from('pending_project_assignments')
-          .update({ status: 'Activated' })
-          .eq('id', assignment.id);
 
         await supabaseAdmin.from('audit_logs').insert({
           action: 'Project Assignment Activated',
@@ -157,110 +178,112 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // Mark InvitedUser as Accepted if all assignments are now resolved
-    if (activated > 0) {
-      const { data: inviteRows } = await supabaseAdmin
-        .from('invited_users')
+    // Accept the invite. Signing in proves they registered, so this doesn't wait
+    // on assignments — a plain "Invite to ConstructIQ" has none, and those used to
+    // sit in Pending Invitations forever with their invited role never applied.
+    // The status flip is also the claim on the profile initialization below.
+    const acceptRes = await supabaseAdmin
+      .from('invited_users')
+      .update({ status: 'Accepted' })
+      .eq('email', email)
+      .eq('status', 'Pending')
+      .select('*');
+    if (acceptRes.error) {
+      throw new Error(`Could not accept invited_users: ${acceptRes.error.message}`);
+    }
+    const pendingInvite = acceptRes.data?.[0];
+    const inviteAccepted = !!pendingInvite;
+
+    if (pendingInvite) {
+      // Derive permission role:
+      //  1. If app_role is already a valid system role, use it directly.
+      //  2. Otherwise look up the project_role name in the project_roles table.
+      //  3. Fall back to 'external' if the lookup fails.
+      const rawRole = (pendingInvite.app_role || '').toLowerCase().trim();
+      let permissionRole: string;
+      if (VALID_APP_ROLES.includes(rawRole)) {
+        permissionRole = rawRole;
+      } else {
+        const projectRoleName = pendingInvite.project_role || assignments[0]?.role || '';
+        permissionRole = await getSystemRoleFromDb(projectRoleName);
+        console.info(`[processPendingAssignments] Resolved project role "${projectRoleName}" → "${permissionRole}" via project_roles table`);
+      }
+
+      // ── Profile initialization (first registration only) ──────────────────
+      const profileAssignment = assignments[0];
+      const projectRole = pendingInvite.project_role || profileAssignment?.role || '';
+
+      // Fetch current user record to check existing values
+      const { data: currentUserRow } = await supabaseAdmin
+        .from('users')
         .select('*')
-        .eq('email', email);
-      const pendingInvite = (inviteRows ?? []).find((i: any) => i.status === 'Pending');
+        .eq('id', user.id)
+        .single();
+      const currentUser: any = currentUserRow || {};
+      const currentRole = (currentUser.role || '').toLowerCase();
+      const isAdmin = currentRole === 'admin';
 
-      if (pendingInvite) {
-        // Derive permission role:
-        //  1. If app_role is already a valid system role, use it directly.
-        //  2. Otherwise look up the project_role name in the project_roles table.
-        //  3. Fall back to 'external' if the lookup fails.
-        const rawRole = (pendingInvite.app_role || '').toLowerCase().trim();
-        let permissionRole: string;
-        if (VALID_APP_ROLES.includes(rawRole)) {
-          permissionRole = rawRole;
-        } else {
-          const projectRoleName = pendingInvite.project_role || assignments[0]?.role || '';
-          permissionRole = await getSystemRoleFromDb(projectRoleName);
-          console.info(`[processPendingAssignments] Resolved project role "${projectRoleName}" → "${permissionRole}" via project_roles table`);
-        }
+      // Never downgrade admins; never overwrite an already-set permission role
+      const shouldSetRole = !isAdmin && (!currentRole || currentRole === 'user' || currentRole === 'external' || currentRole === '');
 
-        // ── Profile initialization (first registration only) ──────────────────
-        const profileAssignment = assignments[0];
-        const projectRole = pendingInvite.project_role || profileAssignment?.role || '';
+      const profileUpdate: Record<string, any> = {};
 
-        // Fetch current user record to check existing values
-        const { data: currentUserRow } = await supabaseAdmin
-          .from('users')
-          .select('*')
-          .eq('id', user.id)
-          .single();
-        const currentUser: any = currentUserRow || {};
-        const currentRole = (currentUser.role || '').toLowerCase();
-        const isAdmin = currentRole === 'admin';
+      if (shouldSetRole) {
+        profileUpdate.role = permissionRole;
+      }
 
-        // Never downgrade admins; never overwrite an already-set permission role
-        const shouldSetRole = !isAdmin && (!currentRole || currentRole === 'user' || currentRole === 'external' || currentRole === '');
+      // Populate profile columns — only fill missing fields, registration values win.
+      // users table has first_name/last_name/phone/business_name as top-level columns.
+      if (!currentUser.first_name && profileAssignment?.full_name) {
+        const parts = profileAssignment.full_name.trim().split(' ');
+        profileUpdate.first_name = parts[0] || '';
+        if (parts.length > 1) profileUpdate.last_name = parts.slice(1).join(' ');
+      }
+      if (!currentUser.last_name && !profileUpdate.last_name && profileAssignment?.full_name) {
+        const parts = profileAssignment.full_name.trim().split(' ');
+        if (parts.length > 1) profileUpdate.last_name = parts.slice(1).join(' ');
+      }
+      if (!currentUser.phone && profileAssignment?.phone) {
+        profileUpdate.phone = profileAssignment.phone;
+      }
+      if (!currentUser.business_name && profileAssignment?.business_name) {
+        profileUpdate.business_name = profileAssignment.business_name;
+      }
 
-        const profileUpdate: Record<string, any> = {};
-
-        if (shouldSetRole) {
-          profileUpdate.role = permissionRole;
-        }
-
-        // Populate profile columns — only fill missing fields, registration values win.
-        // users table has first_name/last_name/phone/business_name as top-level columns.
-        if (!currentUser.first_name && profileAssignment?.full_name) {
-          const parts = profileAssignment.full_name.trim().split(' ');
-          profileUpdate.first_name = parts[0] || '';
-          if (parts.length > 1) profileUpdate.last_name = parts.slice(1).join(' ');
-        }
-        if (!currentUser.last_name && !profileUpdate.last_name && profileAssignment?.full_name) {
-          const parts = profileAssignment.full_name.trim().split(' ');
-          if (parts.length > 1) profileUpdate.last_name = parts.slice(1).join(' ');
-        }
-        if (!currentUser.phone && profileAssignment?.phone) {
-          profileUpdate.phone = profileAssignment.phone;
-        }
-        if (!currentUser.business_name && profileAssignment?.business_name) {
-          profileUpdate.business_name = profileAssignment.business_name;
-        }
-
-        if (Object.keys(profileUpdate).length > 0) {
-          await supabaseAdmin
-            .from('users')
-            .update(profileUpdate)
-            .eq('id', user.id);
-          if (shouldSetRole) {
-            console.info(`ROLE ASSIGNED: ${permissionRole}`, { email, userId: user.id });
-          }
-        }
-
+      if (Object.keys(profileUpdate).length > 0) {
         await supabaseAdmin
-          .from('invited_users')
-          .update({ status: 'Accepted' })
-          .eq('id', pendingInvite.id);
-
-        // Audit log — profile initialization
-        if (Object.keys(profileUpdate).length > 0) {
-          await supabaseAdmin.from('audit_logs').insert({
-            action: 'User Profile Initialized From Invitation',
-            entity_type: 'User',
-            entity_id: user.id,
-            invitation_id: pendingInvite.id,
-            user_id: user.id,
-            user_name: user.full_name || user.email,
-            description: `Profile initialized for ${user.email} — projectRole: ${projectRole}, permissionRole: ${permissionRole}`,
-            created_date: now,
-          });
+          .from('users')
+          .update(profileUpdate)
+          .eq('id', user.id);
+        if (shouldSetRole) {
+          console.info(`ROLE ASSIGNED: ${permissionRole}`, { email, userId: user.id });
         }
+      }
 
+      // Audit log — profile initialization
+      if (Object.keys(profileUpdate).length > 0) {
         await supabaseAdmin.from('audit_logs').insert({
-          action: 'User Registered',
-          entity_type: 'InvitedUser',
-          entity_id: pendingInvite.id,
+          action: 'User Profile Initialized From Invitation',
+          entity_type: 'User',
+          entity_id: user.id,
           invitation_id: pendingInvite.id,
           user_id: user.id,
           user_name: user.full_name || user.email,
-          description: `${user.email} registered and accepted invitation (permission role: ${permissionRole})`,
+          description: `Profile initialized for ${user.email} — projectRole: ${projectRole}, permissionRole: ${permissionRole}`,
           created_date: now,
         });
       }
+
+      await supabaseAdmin.from('audit_logs').insert({
+        action: 'User Registered',
+        entity_type: 'InvitedUser',
+        entity_id: pendingInvite.id,
+        invitation_id: pendingInvite.id,
+        user_id: user.id,
+        user_name: user.full_name || user.email,
+        description: `${user.email} registered and accepted invitation (permission role: ${permissionRole})`,
+        created_date: now,
+      });
     }
 
     const finalRole = activated > 0
@@ -271,11 +294,11 @@ Deno.serve(async (req: Request) => {
         })()
       : null;
 
-    if (activated > 0) {
-      console.info('USER SETUP COMPLETE', { email, activated, skipped, roleAssigned: finalRole });
+    if (activated > 0 || inviteAccepted) {
+      console.info('USER SETUP COMPLETE', { email, activated, skipped, inviteAccepted, roleAssigned: finalRole });
     }
 
-    return Response.json({ activated, skipped, roleAssigned: finalRole }, { headers: corsHeaders });
+    return Response.json({ activated, skipped, inviteAccepted, roleAssigned: finalRole }, { headers: corsHeaders });
 
   } catch (error: any) {
     console.error('[processPendingAssignments] ERROR:', error?.message, error?.stack);

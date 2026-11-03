@@ -4,6 +4,18 @@ import { queryClientInstance } from '@/lib/query-client';
 
 const AuthContext = createContext();
 
+// Workspace setup (processPendingAssignments) has to outlive a page load: Login and
+// Register do a full redirect the moment signInWithPassword resolves, which used to
+// kill the call mid-flight. The new page never retried it, so invites sat in
+// Settings → Pending Invitations long after people had registered. This flag carries
+// the job across the redirect and is cleared only once a run comes back.
+const WORKSPACE_SETUP_KEY = 'ciq:workspace-setup-pending';
+const workspaceSetupFlag = {
+  set:   () => { try { sessionStorage.setItem(WORKSPACE_SETUP_KEY, '1'); } catch { /* storage blocked */ } },
+  isSet: () => { try { return sessionStorage.getItem(WORKSPACE_SETUP_KEY) === '1'; } catch { return false; } },
+  clear: () => { try { sessionStorage.removeItem(WORKSPACE_SETUP_KEY); } catch { /* storage blocked */ } },
+};
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -51,6 +63,9 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const loadUserProfile = async (authUser, runWorkspaceSetup = false) => {
+    // Before any await: SIGNED_IN reaches here synchronously inside signInWithPassword,
+    // so the flag is down before Login/Register can redirect.
+    if (runWorkspaceSetup) workspaceSetupFlag.set();
     try {
       // Only show loading state on first load or explicit workspace setup (use ref — state is stale in closure)
       if (runWorkspaceSetup || !authCheckedRef.current) setIsLoadingAuth(true);
@@ -110,9 +125,10 @@ export const AuthProvider = ({ children }) => {
       isAuthenticatedRef.current = true;
       setAuthError(null);
 
-      // Only run workspace setup on actual sign-in, not token refreshes or tab focus
+      // Only run workspace setup on actual sign-in (or the page load a sign-in redirected
+      // to — see WORKSPACE_SETUP_KEY), not token refreshes or tab focus.
       // Guard with ref to prevent duplicate runs even if multiple auth events fire
-      if (!runWorkspaceSetup || workspaceSetupDoneRef.current) return;
+      if (!workspaceSetupFlag.isSet() || workspaceSetupDoneRef.current) return;
 
       workspaceSetupDoneRef.current = true;
 
@@ -120,7 +136,10 @@ export const AuthProvider = ({ children }) => {
       try {
         setIsSettingUpWorkspace(true);
         const { data, error: fnError } = await supabase.functions.invoke('processPendingAssignments', {});
-        if (!fnError && data?.activated > 0) {
+        workspaceSetupFlag.clear();
+        // The page that redirected here may have got its run in first, so refresh
+        // after any clean run rather than only when this one changed something.
+        if (!fnError) {
           // Re-fetch profile to get updated role
           const { data: refreshed } = await supabase.from('users').select('*').eq('id', authUser.id).single();
           if (refreshed) {
@@ -135,6 +154,7 @@ export const AuthProvider = ({ children }) => {
         setTimeout(async () => {
           try {
             await supabase.functions.invoke('processPendingAssignments', {});
+            workspaceSetupFlag.clear();
           } catch (retryErr) {
             console.warn('[AuthContext] processPendingAssignments retry also failed:', retryErr?.message);
           }
