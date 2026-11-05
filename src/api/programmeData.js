@@ -183,6 +183,14 @@ export async function fetchProgramme(projectId) {
 }
 
 /** Fetch programmes rows for many projects at once. Returns Map<project_id, programme>. */
+/** The one query for every programme row, as a Map keyed by project_id. */
+export function programmesByProjectQuery() {
+  return {
+    queryKey: ['programmes'],
+    queryFn: fetchProgrammesByProject,
+  };
+}
+
 export async function fetchProgrammesByProject() {
   const { data, error } = await supabase.from('programmes').select('*');
   if (error) throw error;

@@ -150,6 +150,11 @@ function rollupSummaryTasks(tasks, resolvedMap, summaryIds, calendar = DEFAULT_C
   };
   summaryList.sort((a, b) => depthOf(b) - depthOf(a));
 
+  // Progress work per processed summary: { work, done } summed over every leaf
+  // beneath it. A child summary contributes its own leaves, never its stored
+  // percent_complete (nothing keeps that column current, so it's usually 0).
+  const progressWork = new Map();
+
   for (const summary of summaryList) {
     const childIds = children.get(summary.id) || [];
     if (!childIds.length) continue;
@@ -175,15 +180,20 @@ function rollupSummaryTasks(tasks, resolvedMap, summaryIds, calendar = DEFAULT_C
     dayAfterFinish.setDate(dayAfterFinish.getDate() + 1);
     const durationDays = Math.max(1, countWorkingDays(minStart, dayAfterFinish, calendar));
 
-    // Progress rollup — weighted average by duration
-    const childProgressList = childIds
-      .map(cid => tasks.find(t => t.id === cid))
-      .filter(Boolean)
-      .map(t => ({ pct: t.percent_complete || 0, dur: t.duration || 1 }));
-    const totalDur = childProgressList.reduce((s, c) => s + c.dur, 0);
-    const rolledProgress = totalDur > 0
-      ? Math.round(childProgressList.reduce((s, c) => s + c.pct * c.dur, 0) / totalDur)
-      : 0;
+    // Progress rollup — duration-weighted across all leaves beneath (deepest
+    // summaries were processed first, so a child summary's totals are ready).
+    let work = 0, done = 0;
+    for (const cid of childIds) {
+      const nested = progressWork.get(cid);
+      if (nested) { work += nested.work; done += nested.done; continue; }
+      const child = byId.get(cid);
+      if (!child) continue;
+      const dur = child.duration || 1;
+      work += dur;
+      done += (Number(child.percent_complete) || 0) * dur;
+    }
+    progressWork.set(summary.id, { work, done });
+    const rolledProgress = work > 0 ? Math.round(done / work) : 0;
 
     const existing = resolvedMap.get(summary.id) || {};
     resolvedMap.set(summary.id, {

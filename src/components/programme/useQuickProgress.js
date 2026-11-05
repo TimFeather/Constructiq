@@ -3,8 +3,9 @@
  *
  * Extracted from the old FieldProgress page so both the (now-removed) Field
  * page and the Look Ahead tab can drive QuickProgressSheet through the same
- * mutation: insert a TaskProgressLog row (with optional photo), then cascade
- * the CPM reschedule for the task's own project and invalidate ['tasks'].
+ * mutation: save the task (cascading the CPM reschedule for its own project,
+ * unless that programme is locked for this user), then record the
+ * TaskProgressLog row (with optional photo) and invalidate ['tasks'].
  *
  * The sheet can also add working days when a task needs more time: the
  * extension and the % update are saved through one engine run.
@@ -22,7 +23,7 @@ import { useAuth } from '@/lib/AuthContext';
 import { useToast } from '@/components/ui/use-toast';
 import { calendarForProgramme } from '@/lib/scheduling/scheduleEngine';
 import { countWorkingDays, parseDate } from '@/lib/scheduling/calendarEngine';
-import { updateTaskProgress, extendTask, previewFieldUpdate } from '@/lib/scheduleUpdateService';
+import { updateTaskProgress, extendTask, previewFieldUpdate, lockedProjectIdsFor } from '@/lib/scheduleUpdateService';
 import { uploadFile, removeFile } from '@/api/supabaseClient';
 
 const dayAfter = (dateStr) => {
@@ -58,16 +59,16 @@ export default function useQuickProgress({ allTasks, programmesByProject }) {
         projectStart,
         calendar: calendarForProgramme(programme, projectTasks),
         dataDate: programme?.data_date || null,
+        // Locked: progress saves without the date cascade the lock would reject
+        lockedProjectIds: lockedProjectIdsFor(programmesByProject, user?.role === 'admin'),
       },
     };
   };
 
   // A locked (published) programme's dates are frozen for everyone but admins —
   // progress can still be logged, but days can't be added.
-  const isLocked = (task) => {
-    if (!task || user?.role === 'admin') return false;
-    return programmesByProject?.get(task.project_id)?.status === 'published';
-  };
+  const isLocked = (task) =>
+    !!task && lockedProjectIdsFor(programmesByProject, user?.role === 'admin').has(task.project_id);
 
   const canExtend = (task) => !!task && !(task.is_milestone || task.duration === 0) && !isLocked(task);
 
@@ -105,6 +106,21 @@ export default function useQuickProgress({ allTasks, programmesByProject }) {
       if (photoFile) {
         photo = await uploadFile(photoFile, 'project-files');
       }
+      const discardPhoto = () => (photo ? removeFile(photo.bucket, photo.path).catch(() => {}) : null);
+
+      // Task first: a history row must never claim progress the task didn't get.
+      let result;
+      try {
+        result = extending
+          ? await extendTask(task.id, { percent_complete: percent, extraDays }, projectTasks, options)
+          : await updateTaskProgress(task.id, percent, projectTasks, options);
+      } catch (err) {
+        await discardPhoto();
+        throw err;
+      }
+      const { patches, scheduledMap } = result;
+
+      let historySaved = true;
       try {
         await TaskProgressLog.create({
           task_id: task.id,
@@ -117,15 +133,22 @@ export default function useQuickProgress({ allTasks, programmesByProject }) {
           photo_path: photo?.path || null,
         });
       } catch (err) {
-        if (photo) await removeFile(photo.bucket, photo.path);
-        throw err;
+        historySaved = false;
+        await discardPhoto();
+        console.warn('task_progress_log write failed (progress itself saved):', err.message);
       }
 
-      const { patches, scheduledMap } = extending
-        ? await extendTask(task.id, { percent_complete: percent, extraDays }, projectTasks, options)
-        : await updateTaskProgress(task.id, percent, projectTasks, options);
-
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      if (!historySaved) {
+        toast({
+          title: 'Progress saved, history entry failed',
+          description: `${task.name} is at ${percent}%, but its history entry${photo ? ' and photo' : ''} didn’t save.`,
+          variant: 'destructive',
+          duration: 6000,
+        });
+        setActiveTask(null);
+        return;
+      }
       const downstream = patches.length > 1
         ? ` — ${patches.length - 1} downstream task${patches.length === 2 ? '' : 's'} rescheduled`
         : '';

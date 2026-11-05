@@ -92,6 +92,40 @@ async function writeChangeLog(rows) {
 }
 
 /**
+ * A published programme's dates are frozen for everyone but admins (the
+ * tasks_programme_lock trigger, migration 012), but progress can still be
+ * recorded against it. Callers pass `lockedProjectIds` (see
+ * lockedProjectIdsFor) so the service never attempts a date write the
+ * database will reject.
+ */
+export const SCHEDULE_LOCKED_MESSAGE =
+  'This programme is published and locked, so its dates can’t change. Ask an admin to unpublish it.';
+
+/** Fields the publish lock freezes, as far as the service can change them. */
+const LOCKED_FIELDS = ['start_date', 'end_date', 'duration', 'predecessors', 'constraint'];
+
+function isScheduleLocked(task, options) {
+  return !!options?.lockedProjectIds?.has(task.project_id);
+}
+
+/**
+ * Project ids whose schedule is locked for this user: every published
+ * programme, unless the user is an admin.
+ *
+ * @param {Map<string, Object>|undefined} programmesByProject - project_id → programmes row
+ * @param {boolean} isAdmin
+ * @returns {Set<string>}
+ */
+export function lockedProjectIdsFor(programmesByProject, isAdmin) {
+  if (isAdmin || !programmesByProject) return new Set();
+  const ids = new Set();
+  for (const p of programmesByProject.values()) {
+    if (p?.status === 'published') ids.add(p.project_id);
+  }
+  return ids;
+}
+
+/**
  * Map service-level changes onto DB columns for the direct task update.
  * - `constraint` is an engine-side alias for the constraint_data column
  * - `predecessors` is persisted to task_dependencies rows, not the tasks table
@@ -121,12 +155,15 @@ function toDbPayload(changes) {
  *   calendar     - working calendar (from calendarForProgramme)
  *   dataDate     - programme data date (yyyy-MM-dd or null)
  *   criticalToleranceDays - flag tasks critical when float ≤ this many days
+ *   lockedProjectIds - Set of project ids whose dates this user can't change
  * @returns {Promise<{ patches: Array, scheduledMap: Map, mergedTasks: Array }>}
  */
 export async function applyScheduleUpdate(taskId, changes, allTasks, options = {}) {
   const { userId = null, projectStart, calendar, dataDate, criticalToleranceDays = 0 } = options;
   const task = allTasks.find(t => t.id === taskId);
   if (!task) throw new Error(`Task ${taskId} not found`);
+  // A cascade rewrites dates, which the lock rejects — fail before any write.
+  if (isScheduleLocked(task, options)) throw new Error(SCHEDULE_LOCKED_MESSAGE);
 
   // 1. Merge change into task list
   const mergedTasks = allTasks.map(t =>
@@ -300,7 +337,11 @@ export async function updateTaskProgress(taskId, percent_complete, allTasks, opt
   // finish (and every successor) can move, so the cascade must run.
   const uncompleted = 'actual_finish' in changes && changes.actual_finish === null;
 
-  if (finishSlipped || startSlipped || uncompleted) {
+  // On a locked programme only the progress fields are saved. The Gantt still
+  // shows the slip: the engine pins the task to its actual dates and moves its
+  // successors every time it draws. Their stored dates catch up on the next
+  // admin save.
+  if ((finishSlipped || startSlipped || uncompleted) && !isScheduleLocked(task, options)) {
     // Real slip (or early finish): cascade through the network
     return applyScheduleUpdate(taskId, changes, allTasks, options);
   }
@@ -386,12 +427,14 @@ export async function updateTaskFull(taskId, newData, allTasks, options = {}) {
   if (!task) throw new Error(`Task ${taskId} not found`);
 
   const scheduleFields = ['start_date', 'end_date', 'duration', 'predecessors', 'constraint', 'percent_complete', 'actual_start', 'actual_finish'];
-  const hasScheduleChange = scheduleFields.some(f => {
-    if (!(f in newData)) return false;
-    return JSON.stringify(task[f] ?? null) !== JSON.stringify(newData[f] ?? null);
-  });
+  const changed = (f) => f in newData && JSON.stringify(task[f] ?? null) !== JSON.stringify(newData[f] ?? null);
+  const hasScheduleChange = scheduleFields.some(changed);
+  const locked = isScheduleLocked(task, options);
 
-  if (hasScheduleChange) {
+  // Locked: progress and notes save directly (no cascade); dates can't change.
+  if (locked && LOCKED_FIELDS.some(changed)) throw new Error(SCHEDULE_LOCKED_MESSAGE);
+
+  if (hasScheduleChange && !locked) {
     return applyScheduleUpdate(taskId, newData, allTasks, options);
   }
 

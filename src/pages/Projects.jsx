@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Project } from '@/api/entities';
 import { OPEN_PROJECT_STATUSES, setProjectStatus } from '@/api/projectStatus';
-import { taskSummariesQuery } from '@/api/taskSummaries';
+import { programmeTasksQuery, programmesByProjectQuery } from '@/api/programmeData';
+import { forecastLeafTasks, isOverdue, localDateStr } from '@/lib/programme/overdue';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
 import { Link } from 'react-router-dom';
@@ -44,7 +45,24 @@ export default function Projects() {
     queryFn: () => Project.list('-created_at', 100),
   });
 
-  const { data: allTasks = [] } = useQuery(taskSummariesQuery());
+  const { data: allTasks = [] } = useQuery(programmeTasksQuery('all'));
+  const { data: programmesByProject } = useQuery(programmesByProjectQuery());
+
+  // Per project: every task row, and the overdue count on the Gantt's terms
+  // (leaf tasks, forecast finish — see lib/programme/overdue.js).
+  const taskStats = useMemo(() => {
+    const stats = new Map();
+    const statFor = (id) => {
+      if (!stats.has(id)) stats.set(id, { count: 0, overdue: 0 });
+      return stats.get(id);
+    };
+    for (const t of allTasks) statFor(t.project_id).count++;
+    const today = localDateStr();
+    for (const t of forecastLeafTasks(allTasks, programmesByProject)) {
+      if (isOverdue(t, today)) statFor(t.project_id).overdue++;
+    }
+    return stats;
+  }, [allTasks, programmesByProject]);
 
   // Archiving/restoring a project cascades to its documents, RFIs, tasks, and CIs
   // (DB trigger). Those are cached under both a per-project key (['documents', id],
@@ -227,11 +245,7 @@ export default function Projects() {
                       <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{project.description}</p>
                     )}
                     {(() => {
-                      const today = new Date().toISOString().split('T')[0];
-                      const taskCount = allTasks.filter(t => t.project_id === project.id).length;
-                      const overdue = allTasks.filter(t =>
-                        t.project_id === project.id && t.end_date && t.end_date < today && (t.percent_complete || 0) < 100
-                      ).length;
+                      const { count: taskCount = 0, overdue = 0 } = taskStats.get(project.id) || {};
                       return (
                         <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
                           {project.start_date && (

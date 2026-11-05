@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Project, RFI } from '@/api/entities';
 import { documentsQuery } from '@/api/documentsData';
-import { taskSummariesQuery } from '@/api/taskSummaries';
+import { programmeTasksQuery, programmesByProjectQuery } from '@/api/programmeData';
+import { forecastLeafTasks, isOverdue, isDueBetween, localDateStr } from '@/lib/programme/overdue';
 import { isOpenProject } from '@/api/projectStatus';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
@@ -67,7 +68,12 @@ export default function Dashboard() {
   });
 
   const { data: allTasks = [] } = useQuery({
-    ...taskSummariesQuery(),
+    ...programmeTasksQuery('all'),
+    enabled: projectIds.size > 0 || userIsAdmin,
+  });
+
+  const { data: programmesByProject } = useQuery({
+    ...programmesByProjectQuery(),
     enabled: projectIds.size > 0 || userIsAdmin,
   });
 
@@ -80,22 +86,28 @@ export default function Dashboard() {
   const recentDocs = documents.slice(0, 5);
   const recentRfis = rfis.slice(0, 5);
 
-  const today = new Date().toISOString().split('T')[0];
-  const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const today = localDateStr();
+  const nextWeek = localDateStr(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
   const projectMap = Object.fromEntries(projects.map(p => [p.id, p.name]));
+
+  // Leaf tasks with the Gantt's forecast finish (see lib/programme/overdue.js).
+  // The engine runs per project, so forecasting everything then filtering is the same.
+  const allForecastTasks = useMemo(
+    () => forecastLeafTasks(allTasks, programmesByProject),
+    [allTasks, programmesByProject],
+  );
+  const forecastTasks = allForecastTasks.filter(t => projectIds.has(t.project_id));
 
   // Deadlines only count assigned tasks: staff see everyone's (to chase them),
   // everyone else sees only tasks assigned to them.
   const isStaff = ['admin', 'internal', 'pricing'].includes(user?.role);
-  const deadlineTasks = tasks.filter(t => (isStaff ? taskAssignees(t).length > 0 : isAssignedTo(t, user?.email)));
+  const deadlineTasks = forecastTasks.filter(t => (isStaff ? taskAssignees(t).length > 0 : isAssignedTo(t, user?.email)));
+  const byFinish = (a, b) => a.forecast_finish.localeCompare(b.forecast_finish);
 
-  const overdueTasks = deadlineTasks
-    .filter(t => t.end_date && t.end_date < today && (t.percent_complete || 0) < 100)
-    .sort((a, b) => a.end_date.localeCompare(b.end_date));
-
-  const dueSoonTasks = deadlineTasks
-    .filter(t => t.end_date && t.end_date >= today && t.end_date <= nextWeek && (t.percent_complete || 0) < 100)
-    .sort((a, b) => a.end_date.localeCompare(b.end_date));
+  const overdueTasks = deadlineTasks.filter(t => isOverdue(t, today)).sort(byFinish);
+  const dueSoonTasks = deadlineTasks.filter(t => isDueBetween(t, today, nextWeek)).sort(byFinish);
+  // yyyy-MM-dd parsed at local midnight ('yyyy-MM-dd' alone parses as UTC)
+  const shortDate = (d) => format(new Date(`${d}T00:00:00`), 'MMM d');
 
   return (
     <div>
@@ -132,7 +144,7 @@ export default function Dashboard() {
                       </p>
                     </div>
                     <div className="text-right flex-shrink-0 ml-2">
-                      <p className="text-xs font-medium text-red-600">{format(new Date(task.end_date), 'MMM d')}</p>
+                      <p className="text-xs font-medium text-red-600">{shortDate(task.forecast_finish)}</p>
                       <p className="text-xs text-muted-foreground">{task.percent_complete || 0}%</p>
                     </div>
                   </Link>
@@ -157,7 +169,7 @@ export default function Dashboard() {
                       </p>
                     </div>
                     <div className="text-right flex-shrink-0 ml-2">
-                      <p className="text-xs font-medium text-amber-600">{format(new Date(task.end_date), 'MMM d')}</p>
+                      <p className="text-xs font-medium text-amber-600">{shortDate(task.forecast_finish)}</p>
                       <p className="text-xs text-muted-foreground">{task.percent_complete || 0}%</p>
                     </div>
                   </Link>

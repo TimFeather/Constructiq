@@ -50,10 +50,10 @@ import { buildBaselineMap } from '@/lib/scheduling/baselineEngine';
 import { TaskBaselineItem } from '@/api/entities';
 import { runScheduleEngine, runScheduleEngineByProject, calendarForProgramme } from '@/lib/scheduling/scheduleEngine';
 import { countWorkingDays } from '@/lib/scheduling/calendarEngine';
-import { updateTaskStartDate, updateTaskDuration, updateTaskDependency, updateTaskFull, updateTaskProgress } from '@/lib/scheduleUpdateService';
+import { updateTaskStartDate, updateTaskDuration, updateTaskDependency, updateTaskFull, updateTaskProgress, lockedProjectIdsFor } from '@/lib/scheduleUpdateService';
 import { createTaskInline } from '@/lib/programme/createTask';
 import { indentTask, outdentTask } from '@/lib/wbsUtils';
-import { fetchProgrammesByProject } from '@/api/programmeData';
+import { programmesByProjectQuery } from '@/api/programmeData';
 import { canEdit, canImport, canExport } from '@/lib/permissions';
 import { getVisibleTasks } from '@/lib/programme/visibleTasks';
 import { upcomingAssignedTasks } from '@/lib/programme/assignees';
@@ -163,10 +163,7 @@ export default function Programme() {
   // All programmes (calendar/data date per project) — used for the cross-project
   // view and by Look Ahead's quick-progress cascade (which needs each task's
   // own-project calendar regardless of the current project filter).
-  const { data: programmesByProject } = useQuery({
-    queryKey: ['programmes'],
-    queryFn: fetchProgrammesByProject,
-  });
+  const { data: programmesByProject } = useQuery(programmesByProjectQuery());
 
   // Baseline overlay: items for the selected baseline
   const { data: baselineItems = [] } = useQuery({
@@ -236,14 +233,23 @@ export default function Programme() {
     });
   }, [tasks, projectStart, programme, programmesByProject, selectedProjectId]);
 
-  // Context every schedule mutation needs (audit user, calendar, data date)
+  // Projects whose dates this user can't change (published, non-admin). Per
+  // task's project, so the All Projects view honours each programme's lock.
+  const lockedProjectIds = useMemo(() => {
+    const ids = lockedProjectIdsFor(programmesByProject, isAdmin);
+    if (!isAdmin && selectedProjectId !== 'all' && programme?.status === 'published') ids.add(selectedProjectId);
+    return ids;
+  }, [programmesByProject, isAdmin, selectedProjectId, programme?.status]);
+
+  // Context every schedule mutation needs (audit user, calendar, data date, lock)
   const scheduleOptions = useMemo(() => ({
     userId: user?.id || null,
     projectStart,
     calendar: selectedProjectId !== 'all' ? calendarForProgramme(programme, tasks) : undefined,
     dataDate: selectedProjectId !== 'all' ? (programme?.data_date || null) : null,
     criticalToleranceDays: selectedProjectId !== 'all' ? (programme?.critical_slack_tolerance_days || 0) : 0,
-  }), [user?.id, projectStart, programme, tasks, selectedProjectId]);
+    lockedProjectIds,
+  }), [user?.id, projectStart, programme, tasks, selectedProjectId, lockedProjectIds]);
 
   // Publish freezes the schedule for non-admins; admin can always edit/unpublish.
   const programmeLocked = programme?.status === 'published';
@@ -251,6 +257,9 @@ export default function Programme() {
   const programmeEditable = canEdit(user, 'programme') && selectedProjectId !== 'all' && !lockedForMe;
   const canDeleteTasks = ['admin', 'pricing', 'internal'].includes(user?.role) && !lockedForMe;
   const taskEditable = canEdit(user, 'programme') && !lockedForMe;
+  // Publishing freezes dates, not progress: the progress panel stays open to
+  // anyone who can edit the programme (the service saves it without a cascade).
+  const progressEditable = canEdit(user, 'programme');
   const canImportExport = canImport(user, 'programme') && canExport(user, 'programme');
   const canPublish = ['admin', 'internal', 'pricing'].includes(user?.role) && selectedProjectId !== 'all';
 
@@ -1232,7 +1241,7 @@ export default function Programme() {
         tasks={tasks}
         scheduledMap={scheduledMap}
         scheduleOptions={scheduleOptions}
-        editable={taskEditable}
+        editable={progressEditable}
         open={!!selectedTask}
         onOpenChange={open => { if (!open) setSelectedTask(null); }}
         onEdit={taskEditable ? (t) => { setSelectedTask(null); setEditingTask(t); } : undefined}

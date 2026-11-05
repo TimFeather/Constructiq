@@ -16,6 +16,9 @@ import {
   updateTaskDuration,
   updateTaskDependency,
   updateTaskProgress,
+  updateTaskFull,
+  lockedProjectIdsFor,
+  SCHEDULE_LOCKED_MESSAGE,
 } from '../scheduleUpdateService.js';
 
 const CAL = { type: '5day', holidays: [], shutdowns: [] };
@@ -180,5 +183,90 @@ describe('updateTaskProgress', () => {
     expect(bulkUpdateSchedule).toHaveBeenCalled();
     const patched = bulkUpdateSchedule.mock.calls[0][0];
     expect(patched.some(p => p.id === 'B')).toBe(true);
+  });
+});
+
+// Published programme, non-admin: the DB lock (migration 012) rejects any
+// date change, so the service must save progress without the cascade.
+describe('locked (published) programme', () => {
+  const LOCKED = { ...OPTS, lockedProjectIds: new Set(['p1']) };
+
+  it('saves a late completion as progress only — no date writes, no cascade', async () => {
+    const tasks = makeTasks();
+    // Planned finish 2026-01-09; completing today is a finish slip
+    const { patches } = await updateTaskProgress('A', 100, tasks, LOCKED);
+
+    expect(patches).toEqual([]);
+    expect(bulkUpdateSchedule).not.toHaveBeenCalled();
+    expect(Task.update).toHaveBeenCalledTimes(1);
+    const payload = Task.update.mock.calls[0][1];
+    expect(payload.percent_complete).toBe(100);
+    expect(payload.actual_finish).toBeTruthy();
+    for (const field of ['start_date', 'end_date', 'duration']) expect(payload).not.toHaveProperty(field);
+  });
+
+  it('still shows the slip in the returned schedule (engine pins to actuals)', async () => {
+    const tasks = makeTasks();
+    const { scheduledMap } = await updateTaskProgress('A', 100, tasks, LOCKED);
+    // B follows A's actual finish (today), so it is no longer at its planned 12 Jan
+    expect(scheduledMap.get('B').startStr).not.toBe('2026-01-12');
+  });
+
+  it('un-completing saves without a cascade too', async () => {
+    const tasks = makeTasks();
+    tasks[0].percent_complete = 100;
+    tasks[0].actual_start = '2026-01-05';
+    tasks[0].actual_finish = '2026-01-07';
+    await updateTaskProgress('A', 50, tasks, LOCKED);
+    expect(bulkUpdateSchedule).not.toHaveBeenCalled();
+    expect(Task.update.mock.calls[0][1].actual_finish).toBeNull();
+  });
+
+  it('only locks the listed projects', async () => {
+    const tasks = makeTasks();
+    await updateTaskProgress('A', 100, tasks, { ...OPTS, lockedProjectIds: new Set(['other']) });
+    expect(bulkUpdateSchedule).toHaveBeenCalled();
+  });
+
+  it('refuses date edits with a clear message before writing anything', async () => {
+    const tasks = makeTasks();
+    await expect(updateTaskDuration('A', 7, tasks, LOCKED)).rejects.toThrow(SCHEDULE_LOCKED_MESSAGE);
+    expect(Task.update).not.toHaveBeenCalled();
+    expect(bulkUpdateSchedule).not.toHaveBeenCalled();
+  });
+
+  it('updateTaskFull saves progress and notes directly, no cascade', async () => {
+    const tasks = makeTasks();
+    const { patches } = await updateTaskFull('A', {
+      percent_complete: 100, actual_start: '2026-01-05', actual_finish: '2026-01-14', status_notes: 'Done',
+    }, tasks, LOCKED);
+    expect(patches).toEqual([]);
+    expect(bulkUpdateSchedule).not.toHaveBeenCalled();
+    expect(Task.update).toHaveBeenCalledTimes(1);
+    expect(Task.update.mock.calls[0][1]).toEqual({
+      percent_complete: 100, actual_start: '2026-01-05', actual_finish: '2026-01-14', status_notes: 'Done',
+    });
+  });
+
+  it('updateTaskFull refuses a date change', async () => {
+    const tasks = makeTasks();
+    await expect(updateTaskFull('A', { duration: 9 }, tasks, LOCKED)).rejects.toThrow(SCHEDULE_LOCKED_MESSAGE);
+    expect(Task.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('lockedProjectIdsFor', () => {
+  const programmes = new Map([
+    ['p1', { project_id: 'p1', status: 'published' }],
+    ['p2', { project_id: 'p2', status: 'draft' }],
+  ]);
+
+  it('lists published programmes for non-admins', () => {
+    expect([...lockedProjectIdsFor(programmes, false)]).toEqual(['p1']);
+  });
+
+  it('locks nothing for admins or before programmes load', () => {
+    expect(lockedProjectIdsFor(programmes, true).size).toBe(0);
+    expect(lockedProjectIdsFor(undefined, false).size).toBe(0);
   });
 });
