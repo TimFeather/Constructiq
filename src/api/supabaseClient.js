@@ -71,6 +71,16 @@ export async function invokeFunction(name, payload = {}) {
   }
 
   if (error) {
+    // No HTTP response reached the app: offline, or the CORS preflight failed. A Supabase
+    // outage does the second (a 503 preflight has no CORS headers, so the browser
+    // blocks it). The raw "Failed to send a request to the Edge Function" told users
+    // nothing about what to do next.
+    if (error.name === 'FunctionsFetchError') {
+      throw new Error(
+        `Couldn't reach the server (${name}). Check your internet connection and try again ` +
+        `in a minute. If it keeps happening, the server may be having an outage.`
+      );
+    }
     // Try to extract the real error message from the function's JSON response body
     try {
       const body = await error.context?.json?.();
@@ -86,6 +96,16 @@ export async function invokeFunction(name, payload = {}) {
       throw new Error(
         `The server ran out of resources handling this request (${name}). This usually means ` +
         `the file or data was too large. Try a smaller file, or contact your administrator.`
+      );
+    }
+    // 503 comes from Supabase when a function fails to boot or the edge runtime is
+    // unavailable, before our code runs (none of our functions return 503 themselves),
+    // so nothing was saved and trying again is safe. 502/504 are left alone on purpose:
+    // they can arrive after the function has already done work.
+    if (error.context?.status === 503) {
+      throw new Error(
+        `The server is temporarily unavailable (${name}). Nothing was saved. ` +
+        `Please try again in a minute.`
       );
     }
     throw error;

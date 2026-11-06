@@ -566,6 +566,18 @@ function NTTForm({ value, onChange, tender, uploading, setUploading }) {
   );
 }
 
+// Sits between the scrolling form and the footer so a save error is always on
+// screen. Inside the scroll area it landed under the document list, below the
+// fold, and a failed Save looked like the button did nothing.
+function DialogErrorBar({ error }) {
+  if (!error) return null;
+  return (
+    <div role="alert" className="mx-6 mb-3 flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm shrink-0">
+      <AlertTriangle className="w-4 h-4 flex-shrink-0" /> {error}
+    </div>
+  );
+}
+
 // ── Edit NTT Dialog (Draft only) ──────────────────────────────────────────────
 
 function EditNTTDialog({ tender, notice, onClose, onSaved }) {
@@ -610,12 +622,9 @@ function EditNTTDialog({ tender, notice, onClose, onSaved }) {
 
         <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4">
           <NTTForm value={form} onChange={setForm} tender={tender} uploading={uploading} setUploading={setUploading} />
-          {error && (
-            <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
-              <AlertTriangle className="w-4 h-4 flex-shrink-0" /> {error}
-            </div>
-          )}
         </div>
+
+        <DialogErrorBar error={error} />
 
         <DialogFooter className="px-6 py-4 border-t shrink-0 gap-2">
           <Button variant="outline" onClick={onClose} disabled={saving || uploading}>Cancel</Button>
@@ -672,12 +681,9 @@ function CreateNTTDialog({ tender, onClose, onCreated }) {
             <Input value="Auto-generated" disabled className="bg-muted text-muted-foreground mt-1" />
           </div>
           <NTTForm value={form} onChange={setForm} tender={tender} uploading={uploading} setUploading={setUploading} />
-          {error && (
-            <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
-              <AlertTriangle className="w-4 h-4 flex-shrink-0" /> {error}
-            </div>
-          )}
         </div>
+
+        <DialogErrorBar error={error} />
 
         <DialogFooter className="px-6 py-4 border-t shrink-0 gap-2">
           <Button variant="outline" onClick={onClose} disabled={saving || uploading}>Cancel</Button>
