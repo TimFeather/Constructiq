@@ -17,7 +17,8 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Plus, Send, Archive, ChevronDown, ChevronUp, AlertTriangle, CheckCircle2, Upload, X, Pencil, Paperclip, Download, Trash2 } from 'lucide-react';
+import { Plus, Send, Archive, ChevronDown, ChevronUp, ChevronRight, AlertTriangle, CheckCircle2, Upload, X, Pencil, Paperclip, Download, Trash2, FolderClosed, FolderOpen } from 'lucide-react';
+import { buildTree as buildDocTree } from '@/components/tenders/DocTable';
 import { format } from 'date-fns';
 import { useToast } from '@/components/ui/use-toast';
 
@@ -469,13 +470,27 @@ function NTTForm({ value, onChange, tender, uploading, setUploading }) {
   const removeAttachment = (fileUrl) =>
     patch({ attachments: value.attachments.filter(a => a.file_url !== fileUrl) });
 
-  const toggleTenderDoc = (doc) => {
-    const exists = value.attachments.some(a => a.file_url === doc.file_url);
-    patch({
-      attachments: exists
-        ? value.attachments.filter(a => a.file_url !== doc.file_url)
-        : [...value.attachments, { file_url: doc.file_url, file_name: doc.name }],
-    });
+  const selectedUrls = useMemo(
+    () => new Set(value.attachments.map(a => a.file_url)),
+    [value.attachments],
+  );
+
+  // Adds or removes a batch of tender docs at once: one file, or a whole folder
+  // (its subfolders included). Adding skips anything already attached.
+  const setTenderDocs = (docs, select) => {
+    const urls = new Set(docs.map(d => d.file_url));
+    if (!select) {
+      patch({ attachments: value.attachments.filter(a => !urls.has(a.file_url)) });
+      return;
+    }
+    const seen = new Set(selectedUrls);
+    const added = [];
+    for (const d of docs) {
+      if (seen.has(d.file_url)) continue;
+      seen.add(d.file_url);
+      added.push({ file_url: d.file_url, file_name: d.name });
+    }
+    patch({ attachments: [...value.attachments, ...added] });
   };
 
   return (
@@ -528,15 +543,33 @@ function NTTForm({ value, onChange, tender, uploading, setUploading }) {
         {uploadError && <p className="text-xs text-red-600 mt-1">{uploadError}</p>}
       </div>
 
+      {/* Select from existing tender docs. Sits ABOVE the attachments list so ticking
+          a file never pushes the picker down the dialog while you're working in it. */}
+      {tenderDocs.length > 0 && (
+        <div>
+          <Label>Or select from existing tender documents</Label>
+          <p className="text-xs text-muted-foreground mt-0.5">Tick a folder to attach everything in it.</p>
+          <TenderDocPicker docs={tenderDocs} selectedUrls={selectedUrls} onSetDocs={setTenderDocs} />
+        </div>
+      )}
+
       {/* Current attachments — uploaded files + ticked existing tender documents */}
       {value.attachments.length > 0 && (
         <div>
-          <Label>Attachments ({value.attachments.length})</Label>
-          <div className="mt-1 space-y-1">
+          <div className="flex items-center justify-between gap-2">
+            <Label>Attachments ({value.attachments.length})</Label>
+            <button type="button" onClick={() => patch({ attachments: [] })}
+              className="text-xs text-muted-foreground hover:text-red-600">
+              Remove all
+            </button>
+          </div>
+          <div className="mt-1 space-y-1 max-h-40 overflow-y-auto pr-1">
             {value.attachments.map((f, i) => (
               <div key={f.file_url || i} className="flex items-center justify-between gap-2 text-xs bg-green-50 border border-green-200 rounded px-2 py-1.5">
                 <span className="text-green-800 break-all">{f.file_name}</span>
-                <button onClick={() => removeAttachment(f.file_url)} className="text-green-600 hover:text-red-500 flex-shrink-0">
+                <button type="button" onClick={() => removeAttachment(f.file_url)}
+                  aria-label={`Remove ${f.file_name}`}
+                  className="text-green-600 hover:text-red-500 flex-shrink-0">
                   <X className="w-3 h-3" />
                 </button>
               </div>
@@ -544,23 +577,83 @@ function NTTForm({ value, onChange, tender, uploading, setUploading }) {
           </div>
         </div>
       )}
+    </>
+  );
+}
 
-      {/* Select from existing tender docs */}
-      {tenderDocs.length > 0 && (
-        <div>
-          <Label>Or select from existing tender documents</Label>
-          <div className="mt-1 border rounded-lg divide-y max-h-48 overflow-y-auto">
-            {tenderDocs.map((doc, i) => {
-              const selected = value.attachments.some(a => a.file_url === doc.file_url);
-              return (
-                <label key={i} className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-muted/30">
-                  <input type="checkbox" checked={selected} onChange={() => toggleTenderDoc(doc)} className="rounded flex-shrink-0" />
-                  <span className="text-sm break-all">{doc.name}</span>
-                </label>
-              );
-            })}
-          </div>
-        </div>
+// ── Tender document picker (folder tree) ──────────────────────────────────────
+// Same folders as the tender's Documents tab (folder_path). Each folder has a
+// tick box that attaches or removes every file under it, subfolders included.
+// Folders start collapsed (unless something inside is already attached) so a
+// tender with hundreds of photos stays a short list.
+
+function docsUnder(node) {
+  const out = node.files.map(f => f.doc);
+  for (const child of node.children.values()) out.push(...docsUnder(child));
+  return out;
+}
+
+function TenderDocPicker({ docs, selectedUrls, onSetDocs }) {
+  const tree = useMemo(() => buildDocTree(docs), [docs]);
+  return (
+    <div className="mt-1 border rounded-lg max-h-[40vh] overflow-y-auto py-1">
+      <PickerFolderContents node={tree} depth={0} selectedUrls={selectedUrls} onSetDocs={onSetDocs} />
+    </div>
+  );
+}
+
+function PickerFolderContents({ node, depth, selectedUrls, onSetDocs }) {
+  const childKeys = [...node.children.keys()].sort((a, b) => a.localeCompare(b));
+  return (
+    <>
+      {childKeys.map(key => (
+        <PickerFolder key={key} node={node.children.get(key)} depth={depth}
+          selectedUrls={selectedUrls} onSetDocs={onSetDocs} />
+      ))}
+      {node.files.map(({ doc, idx }) => (
+        <label key={idx} className="flex items-center gap-2 pr-3 py-1.5 cursor-pointer hover:bg-muted/30"
+          style={{ paddingLeft: `${depth * 20 + 12}px` }}>
+          <input type="checkbox" checked={selectedUrls.has(doc.file_url)}
+            onChange={(e) => onSetDocs([doc], e.target.checked)} className="rounded flex-shrink-0" />
+          <span className="text-sm break-all">{doc.name}</span>
+        </label>
+      ))}
+    </>
+  );
+}
+
+function PickerFolder({ node, depth, selectedUrls, onSetDocs }) {
+  const folderDocs = useMemo(() => docsUnder(node), [node]);
+  const selectedCount = folderDocs.filter(d => selectedUrls.has(d.file_url)).length;
+  const all  = folderDocs.length > 0 && selectedCount === folderDocs.length;
+  const some = selectedCount > 0 && !all;
+  const [open, setOpen] = useState(selectedCount > 0);
+
+  return (
+    <>
+      <div className="flex items-center gap-2 pr-3 py-1.5 hover:bg-muted/30"
+        style={{ paddingLeft: `${depth * 20 + 12}px` }}>
+        <input type="checkbox" checked={all}
+          ref={el => { if (el) el.indeterminate = some; }}
+          onChange={() => onSetDocs(folderDocs, !all)}
+          aria-label={`${all ? 'Remove' : 'Attach'} everything in ${node.name}`}
+          className="rounded flex-shrink-0" />
+        <button type="button" onClick={() => setOpen(o => !o)} aria-expanded={open}
+          className="flex items-center gap-1.5 flex-1 min-w-0 text-left text-sm font-medium">
+          {open
+            ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+            : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />}
+          {open
+            ? <FolderOpen className="w-4 h-4 text-amber-500 flex-shrink-0" />
+            : <FolderClosed className="w-4 h-4 text-amber-500 flex-shrink-0" />}
+          <span className="truncate">{node.name}</span>
+          <span className="text-xs font-normal text-muted-foreground flex-shrink-0">
+            {selectedCount > 0 ? `${selectedCount} of ${folderDocs.length}` : `(${folderDocs.length})`}
+          </span>
+        </button>
+      </div>
+      {open && (
+        <PickerFolderContents node={node} depth={depth + 1} selectedUrls={selectedUrls} onSetDocs={onSetDocs} />
       )}
     </>
   );

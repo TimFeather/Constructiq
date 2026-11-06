@@ -22,8 +22,9 @@ function getExt(name) {
  * folder_path examples: '', 'Tender Package/', 'Tender Package/Architectural/'
  *
  * Tree nodes: { name, files: [{doc, idx}], children: Map<name, node> }
+ * Also used by the NTT document picker, so both show the same folders.
  */
-function buildTree(docs) {
+export function buildTree(docs) {
   const root = { name: '', files: [], children: new Map() };
 
   docs.forEach((doc, idx) => {
