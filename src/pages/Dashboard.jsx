@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { Project, RFI } from '@/api/entities';
 import { documentsQuery } from '@/api/documentsData';
-import { programmeTasksQuery, programmesByProjectQuery } from '@/api/programmeData';
+import { programmeTasksQuery, programmesByProjectQuery, companyCalendarQuery } from '@/api/programmeData';
 import { forecastLeafTasks, isOverdue, isDueBetween, localDateStr } from '@/lib/programme/overdue';
 import { isOpenProject } from '@/api/projectStatus';
 import { useQuery } from '@tanstack/react-query';
@@ -77,6 +77,11 @@ export default function Dashboard() {
     enabled: projectIds.size > 0 || userIsAdmin,
   });
 
+  const { data: companyCalendar } = useQuery({
+    ...companyCalendarQuery(),
+    enabled: projectIds.size > 0 || userIsAdmin,
+  });
+
   const rfis = allRfis.filter(r => projectIds.has(r.project_id));
   const documents = allDocuments.filter(d => projectIds.has(d.project_id));
   const tasks = allTasks.filter(t => projectIds.has(t.project_id));
@@ -93,8 +98,8 @@ export default function Dashboard() {
   // Leaf tasks with the Gantt's forecast finish (see lib/programme/overdue.js).
   // The engine runs per project, so forecasting everything then filtering is the same.
   const allForecastTasks = useMemo(
-    () => forecastLeafTasks(allTasks, programmesByProject),
-    [allTasks, programmesByProject],
+    () => forecastLeafTasks(allTasks, programmesByProject, companyCalendar),
+    [allTasks, programmesByProject, companyCalendar],
   );
   const forecastTasks = allForecastTasks.filter(t => projectIds.has(t.project_id));
 

@@ -17,7 +17,8 @@
  */
 import { useState } from 'react';
 import { format } from 'date-fns';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { companyCalendarQuery } from '@/api/programmeData';
 import { TaskProgressLog } from '@/api/entities';
 import { useAuth } from '@/lib/AuthContext';
 import { useToast } from '@/components/ui/use-toast';
@@ -38,6 +39,7 @@ export default function useQuickProgress({ allTasks, programmesByProject }) {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { data: companyCalendar } = useQuery(companyCalendarQuery());
 
   const [activeTask, setActiveTask] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -57,7 +59,7 @@ export default function useQuickProgress({ allTasks, programmesByProject }) {
       options: {
         userId: user?.id || null,
         projectStart,
-        calendar: calendarForProgramme(programme, projectTasks),
+        calendar: calendarForProgramme(programme, projectTasks, companyCalendar),
         dataDate: programme?.data_date || null,
         // Locked: progress saves without the date cascade the lock would reject
         lockedProjectIds: lockedProjectIdsFor(programmesByProject, user?.role === 'admin'),

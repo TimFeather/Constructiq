@@ -197,6 +197,61 @@ export async function fetchProgrammesByProject() {
   return new Map(data.map(p => [p.project_id, p]));
 }
 
+// ─── Company calendar (migration 033) ─────────────────────────────────────────
+// Shutdowns + custom holidays that apply to every programme, merged with each
+// programme's own by calendarForProgramme. One row, id = true.
+
+export const EMPTY_COMPANY_CALENDAR = Object.freeze({ holidays: [], shutdowns: [] });
+
+// PostgREST / Postgres codes for "that table isn't there" — migration 033 not run yet
+const TABLE_MISSING = new Set(['42P01', 'PGRST205']);
+
+/**
+ * The one query for the company calendar. Every screen that schedules must
+ * pass its data to calendarForProgramme — a screen without it would put tasks
+ * on different dates from the Gantt (and cascade-save them there).
+ */
+export function companyCalendarQuery() {
+  return {
+    queryKey: ['company_calendar'],
+    queryFn: fetchCompanyCalendar,
+    staleTime: 5 * 60 * 1000,
+  };
+}
+
+export async function fetchCompanyCalendar() {
+  const { data, error } = await supabase
+    .from('company_calendar')
+    .select('holidays, shutdowns')
+    .maybeSingle();
+  if (error) {
+    // Before the migration runs, schedule exactly as before
+    if (TABLE_MISSING.has(error.code)) return EMPTY_COMPANY_CALENDAR;
+    throw error;
+  }
+  return {
+    holidays: data?.holidays || [],
+    shutdowns: data?.shutdowns || [],
+  };
+}
+
+/** Replace the company-wide holidays/shutdowns. Admin only (RLS). */
+export async function updateCompanyCalendar({ holidays, shutdowns }) {
+  const { data, error } = await supabase
+    .from('company_calendar')
+    .update({ holidays, shutdowns, updated_at: new Date().toISOString() })
+    .eq('id', true)
+    .select('id');
+  if (error) {
+    if (TABLE_MISSING.has(error.code)) {
+      throw new Error('Company-wide settings need database migration 033 (company_calendar) to be run first.');
+    }
+    throw error;
+  }
+  // RLS filters a non-admin's update to zero rows rather than erroring
+  if (!data?.length) throw new Error('Only admins can change settings for all programmes.');
+}
+
 /**
  * Update (or create on first write) the programmes row for a project.
  */

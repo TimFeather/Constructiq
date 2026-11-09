@@ -26,12 +26,13 @@ export function localDateStr(d = new Date()) {
  *
  * @param {Array} tasks - engine-shape tasks (programmeTasksQuery), any projects
  * @param {Map<string, Object>} [programmesByProject] - project_id → programmes row
+ * @param {Object|null} [company] - company-wide holidays/shutdowns (companyCalendarQuery)
  * @returns {Array}
  */
-export function forecastLeafTasks(tasks, programmesByProject) {
+export function forecastLeafTasks(tasks, programmesByProject, company = null) {
   if (!tasks?.length) return [];
   const parentIds = new Set(tasks.filter(t => t.parent_id).map(t => t.parent_id));
-  const scheduled = runScheduleEngineByProject(tasks, programmesByProject || new Map());
+  const scheduled = runScheduleEngineByProject(tasks, programmesByProject || new Map(), company);
   return tasks
     .filter(t => !parentIds.has(t.id))
     .map(t => ({ ...t, forecast_finish: scheduled.get(t.id)?.finishStr || t.end_date || null }));

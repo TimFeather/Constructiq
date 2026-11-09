@@ -298,34 +298,32 @@ export function getNzHolidaysForRange(startYear, endYear, options = {}) {
  * DEFAULT_CALENDAR shape ({ type, holidays, shutdowns }), plus an
  * hours_per_day field.
  *
+ * Company-wide holidays and shutdowns (company_calendar, migration 033)
+ * apply on top of the programme's own.
+ *
  * @param {{ calendar?: object } | null | undefined} programme
  *   Row-like object with a `calendar` JSONB field (may include type,
  *   holidays[], shutdowns[], hours_per_day, region).
  * @param {number} startYear
  * @param {number} endYear
+ * @param {{ holidays?: string[], shutdowns?: Array<{start: string, end: string}> } | null} [company]
  * @returns {{ type: string, holidays: string[], shutdowns: Array<{start: string, end: string}>, hours_per_day: number }}
  */
-export function buildProjectCalendar(programme, startYear, endYear) {
-  if (!programme) {
-    return {
-      type: '5day',
-      holidays: getNzHolidaysForRange(startYear, endYear, { region: 'hawkes-bay' }),
-      shutdowns: [],
-      hours_per_day: 8,
-    };
-  }
-
-  const calendar = programme.calendar || {};
+export function buildProjectCalendar(programme, startYear, endYear, company = null) {
+  const calendar = programme?.calendar || {};
   const region = calendar.region || 'hawkes-bay';
   const generatedHolidays = getNzHolidaysForRange(startYear, endYear, { region });
-  const manualHolidays = calendar.holidays || [];
 
-  const holidays = Array.from(new Set([...generatedHolidays, ...manualHolidays])).sort();
+  const holidays = Array.from(new Set([
+    ...generatedHolidays,
+    ...(company?.holidays || []),
+    ...(calendar.holidays || []),
+  ])).sort();
 
   return {
     type: calendar.type || '5day',
     holidays,
-    shutdowns: calendar.shutdowns || [],
+    shutdowns: [...(company?.shutdowns || []), ...(calendar.shutdowns || [])],
     hours_per_day: calendar.hours_per_day || 8,
   };
 }

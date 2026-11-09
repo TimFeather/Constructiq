@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Project } from '@/api/entities';
 import { OPEN_PROJECT_STATUSES, setProjectStatus } from '@/api/projectStatus';
-import { programmeTasksQuery, programmesByProjectQuery } from '@/api/programmeData';
+import { programmeTasksQuery, programmesByProjectQuery, companyCalendarQuery } from '@/api/programmeData';
 import { forecastLeafTasks, isOverdue, localDateStr } from '@/lib/programme/overdue';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
@@ -47,6 +47,7 @@ export default function Projects() {
 
   const { data: allTasks = [] } = useQuery(programmeTasksQuery('all'));
   const { data: programmesByProject } = useQuery(programmesByProjectQuery());
+  const { data: companyCalendar } = useQuery(companyCalendarQuery());
 
   // Per project: every task row, and the overdue count on the Gantt's terms
   // (leaf tasks, forecast finish — see lib/programme/overdue.js).
@@ -58,11 +59,11 @@ export default function Projects() {
     };
     for (const t of allTasks) statFor(t.project_id).count++;
     const today = localDateStr();
-    for (const t of forecastLeafTasks(allTasks, programmesByProject)) {
+    for (const t of forecastLeafTasks(allTasks, programmesByProject, companyCalendar)) {
       if (isOverdue(t, today)) statFor(t.project_id).overdue++;
     }
     return stats;
-  }, [allTasks, programmesByProject]);
+  }, [allTasks, programmesByProject, companyCalendar]);
 
   // Archiving/restoring a project cascades to its documents, RFIs, tasks, and CIs
   // (DB trigger). Those are cached under both a per-project key (['documents', id],

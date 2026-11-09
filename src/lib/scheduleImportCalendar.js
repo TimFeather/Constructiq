@@ -2,7 +2,7 @@
  * scheduleImportCalendar.js
  *
  * ConstructIQ schedules imported programmes on its own calendar (NZ public
- * holidays + programme shutdowns), not the calendar saved in the MS Project
+ * holidays + company and programme shutdowns), not the calendar saved in the MS Project
  * file. Where the two disagree — e.g. MS Project works Mon 4 Jan 2027, the
  * observed Day after New Year's — imported dates drift from MS Project's.
  * This module finds those days and measures the drift so the import can warn
@@ -105,11 +105,51 @@ export function parsedToEngineTasks(parsedTasks) {
   }));
 }
 
-/** Why CIQ doesn't work a day: holiday name, shutdown or weekend. */
-function ciqReason(date, calendar, holidayNames) {
+const MSP_UNNAMED = 'Non-working in MS Project';
+const MAX_RUN_DAYS = 400; // matches calendarEngine's longest allowed shutdown
+
+/**
+ * The file's whole close-down behind a range of MS Project non-working days,
+ * as a CIQ shutdown. A range only holds days the calendars disagree on, so it
+ * can start or end short of the file's exception (25 Dec and 1–3 Jan are off
+ * in both). Walk outward over days the file doesn't work, keeping the
+ * outermost day of the same-named exception, so the shutdown matches the
+ * dates set in MS Project.
+ */
+function fileShutdown(range, mspCalendar) {
+  const offInFile = (date) => {
+    const ex = mspCalendar.exceptions.get(date);
+    return ex ? !ex.working : !mspCalendar.weekdays[parseDate(date).getDay()];
+  };
+  const sameException = (date) => {
+    const ex = mspCalendar.exceptions.get(date);
+    return !!ex && !ex.working && (ex.name || MSP_UNNAMED) === range.reason;
+  };
+  const walk = (from, step) => {
+    let edge = from;
+    const d = parseDate(from);
+    for (let i = 0; i < MAX_RUN_DAYS; i++) {
+      d.setDate(d.getDate() + step);
+      const date = toDateStr(d);
+      if (!offInFile(date)) break;
+      if (sameException(date)) edge = date;
+    }
+    return edge;
+  };
+  return { start: walk(range.start, -1), end: walk(range.end, 1) };
+}
+
+/**
+ * Why CIQ doesn't work a day: holiday name, shutdown or weekend. `calendar`
+ * already includes the company's shutdowns/holidays, so check those first.
+ */
+function ciqReason(date, calendar, holidayNames, company) {
   if (holidayNames.has(date)) return holidayNames.get(date);
-  if ((calendar.shutdowns || []).some(s => date >= s.start && date <= s.end)) return 'Shutdown in programme settings';
-  if ((calendar.holidays || []).includes(date)) return 'Holiday in programme settings';
+  const inShutdown = (list) => (list || []).some(s => date >= s.start && date <= s.end);
+  if (inShutdown(company?.shutdowns)) return 'Company shutdown';
+  if (inShutdown(calendar.shutdowns)) return 'Programme shutdown';
+  if ((company?.holidays || []).includes(date)) return 'Company holiday';
+  if ((calendar.holidays || []).includes(date)) return 'Programme holiday';
   return 'Weekend in CIQ';
 }
 
@@ -121,10 +161,12 @@ function ciqReason(date, calendar, holidayNames) {
  * @param {Array} parsedTasks - parseXML output (after manual-scheduling constraints)
  * @param {Object|null} mspCalendar - parseMspdiCalendar output
  * @param {Object} ciqCalendar - calendarForProgramme output
- * @param {{ region?: string, dataDate?: string|null }} [options]
+ * @param {{ region?: string, dataDate?: string|null, company?: Object|null }} [options]
+ *   company: the company calendar ciqCalendar was built with, to name company shutdowns
  * @returns {null | {
  *   calendarName: string,
- *   ranges: Array<{ start, end, days, mspWorking, reason }>,
+ *   ranges: Array<{ start, end, days, mspWorking, reason, shutdown? }>,
+ *     // shutdown: { start, end } — the file's full close-down, on MS Project non-working ranges
  *   weekPatternDays: number,
  *   tasksShifted: number,
  *   taskCount: number,
@@ -166,8 +208,8 @@ export function compareImportCalendar(parsedTasks, mspCalendar, ciqCalendar, opt
       date,
       mspWorking,
       reason: mspWorking
-        ? ciqReason(date, ciqCalendar, holidayNames)
-        : (exception?.name || 'Non-working in MS Project'),
+        ? ciqReason(date, ciqCalendar, holidayNames, options.company)
+        : (exception?.name || MSP_UNNAMED),
     });
   }
   if (!days.length && !weekPatternDays) return null;
@@ -189,6 +231,10 @@ export function compareImportCalendar(parsedTasks, mspCalendar, ciqCalendar, opt
     } else {
       ranges.push({ start: d.date, end: d.date, days: 1, mspWorking: d.mspWorking, reason: d.reason });
     }
+  }
+  // MS Project's close-downs can be copied into CIQ as shutdowns
+  for (const r of ranges) {
+    if (!r.mspWorking) r.shutdown = fileShutdown(r, mspCalendar);
   }
 
   // Schedule twice — CIQ's calendar vs one that follows the file — and compare.

@@ -113,7 +113,10 @@ function MissingTaskRow({ task }) {
   );
 }
 
-export default function ImportDiffDialog({ open, onOpenChange, diff, onConfirm, onCancel, fileName, calendarWarning }) {
+export default function ImportDiffDialog({
+  open, onOpenChange, diff, onConfirm, onCancel, fileName, calendarWarning,
+  shutdownScopes = [], onAddShutdown, addingShutdown = false,
+}) {
   const added = diff?.added || [];
   const changed = diff?.changed || [];
   const missing = diff?.missing || [];
@@ -141,7 +144,12 @@ export default function ImportDiffDialog({ open, onOpenChange, diff, onConfirm, 
           </DialogDescription>
         </DialogHeader>
 
-        <ImportCalendarWarning warning={calendarWarning} />
+        <ImportCalendarWarning
+          warning={calendarWarning}
+          shutdownScopes={shutdownScopes}
+          onAddShutdown={onAddShutdown}
+          addingShutdown={addingShutdown}
+        />
 
         {hasNoChanges ? (
           <div className="py-10 text-center text-sm text-muted-foreground">

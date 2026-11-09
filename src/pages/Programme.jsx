@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Project, Task } from '@/api/entities';
-import { programmeTasksQuery, fetchProgramme, upsertProgramme, bulkUpdateTaskWbs, publishProgramme, unpublishProgramme } from '@/api/programmeData';
+import { programmeTasksQuery, fetchProgramme, upsertProgramme, bulkUpdateTaskWbs, publishProgramme, unpublishProgramme, companyCalendarQuery, fetchCompanyCalendar, updateCompanyCalendar } from '@/api/programmeData';
 import { invokeFunction } from '@/api/supabaseClient';
 import { isClosedStatus } from '@/api/projectStatus';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { format } from 'date-fns';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -102,6 +103,8 @@ export default function Programme() {
   // MS Project resources that need a person picked before import:
   // { parsedTasks, resources, matches, calendarWarning, fileName }
   const [pendingResourceImport, setPendingResourceImport] = useState(null);
+  // Saving an "Add as shutdown" from the import calendar warning
+  const [addingShutdown, setAddingShutdown] = useState(false);
 
   // Delete state
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -164,6 +167,8 @@ export default function Programme() {
   // view and by Look Ahead's quick-progress cascade (which needs each task's
   // own-project calendar regardless of the current project filter).
   const { data: programmesByProject } = useQuery(programmesByProjectQuery());
+  // Shutdowns/holidays for every programme — goes to every calendarForProgramme call
+  const { data: companyCalendar } = useQuery(companyCalendarQuery());
 
   // Baseline overlay: items for the selected baseline
   const { data: baselineItems = [] } = useQuery({
@@ -224,14 +229,14 @@ export default function Programme() {
   const scheduledMap = useMemo(() => {
     if (!tasks.length) return new Map();
     if (selectedProjectId === 'all') {
-      return runScheduleEngineByProject(tasks, programmesByProject || new Map());
+      return runScheduleEngineByProject(tasks, programmesByProject || new Map(), companyCalendar);
     }
-    const calendar = calendarForProgramme(programme, tasks);
+    const calendar = calendarForProgramme(programme, tasks, companyCalendar);
     return runScheduleEngine(tasks, projectStart, calendar, {
       dataDate: programme?.data_date || null,
       criticalToleranceDays: programme?.critical_slack_tolerance_days || 0,
     });
-  }, [tasks, projectStart, programme, programmesByProject, selectedProjectId]);
+  }, [tasks, projectStart, programme, programmesByProject, companyCalendar, selectedProjectId]);
 
   // Projects whose dates this user can't change (published, non-admin). Per
   // task's project, so the All Projects view honours each programme's lock.
@@ -245,11 +250,11 @@ export default function Programme() {
   const scheduleOptions = useMemo(() => ({
     userId: user?.id || null,
     projectStart,
-    calendar: selectedProjectId !== 'all' ? calendarForProgramme(programme, tasks) : undefined,
+    calendar: selectedProjectId !== 'all' ? calendarForProgramme(programme, tasks, companyCalendar) : undefined,
     dataDate: selectedProjectId !== 'all' ? (programme?.data_date || null) : null,
     criticalToleranceDays: selectedProjectId !== 'all' ? (programme?.critical_slack_tolerance_days || 0) : 0,
     lockedProjectIds,
-  }), [user?.id, projectStart, programme, tasks, selectedProjectId, lockedProjectIds]);
+  }), [user?.id, projectStart, programme, companyCalendar, tasks, selectedProjectId, lockedProjectIds]);
 
   // Publish freezes the schedule for non-admins; admin can always edit/unpublish.
   const programmeLocked = programme?.status === 'published';
@@ -462,11 +467,11 @@ export default function Programme() {
       if (r.earlyFinish && (!maxFinish || r.earlyFinish > maxFinish)) maxFinish = r.earlyFinish;
     });
     if (!minStart || !maxFinish) return null;
-    const calendar = calendarForProgramme(programme, tasks);
+    const calendar = calendarForProgramme(programme, tasks, companyCalendar);
     const dayAfterFinish = new Date(maxFinish);
     dayAfterFinish.setDate(dayAfterFinish.getDate() + 1);
     return countWorkingDays(minStart, dayAfterFinish, calendar);
-  }, [scheduledMap, programme, tasks, selectedProjectId]);
+  }, [scheduledMap, programme, companyCalendar, tasks, selectedProjectId]);
 
   const projectsById = useMemo(() => new Map(projects.map(p => [p.id, p.name])), [projects]);
 
@@ -487,22 +492,87 @@ export default function Programme() {
     });
   };
 
-  // CIQ schedules on its own calendar (NZ holidays + shutdowns), not the file's —
-  // find where they disagree so the import can warn before writing anything.
+  // CIQ schedules on its own calendar (NZ holidays + company and programme
+  // shutdowns), not the file's — find where they disagree so the import can
+  // warn before writing anything. The warning keeps the file's side
+  // (`recheck`) so it can be run again after a close-down is added as a shutdown.
+  const compareWithProgramme = (mspCalendar, parsedTasks, prog, company) => {
+    const warning = compareImportCalendar(
+      parsedTasks,
+      mspCalendar,
+      calendarForProgramme(prog, parsedTasks, company),
+      { region: prog?.calendar?.region, dataDate: prog?.data_date || null, company },
+    );
+    return warning && { ...warning, recheck: { mspCalendar, parsedTasks } };
+  };
+
   // A failed check must never block the import.
   const checkImportCalendar = (text, parsedTasks) => {
     try {
-      return compareImportCalendar(
-        parsedTasks,
-        parseMspdiCalendar(text),
-        calendarForProgramme(programme, parsedTasks),
-        { region: programme?.calendar?.region, dataDate: programme?.data_date || null },
-      );
+      return compareWithProgramme(parseMspdiCalendar(text), parsedTasks, programme, companyCalendar);
     } catch (err) {
       console.warn('import calendar check failed:', err.message);
       return null;
     }
   };
+
+  // "Add as shutdown" in the calendar warning: save that close-down to the
+  // company-wide shutdowns (scope 'company', admins) or this programme's
+  // (scope 'programme'), as Schedule settings would, then hand the re-checked
+  // warning to `applyWarning` — null once the calendars agree.
+  const addImportShutdown = async (warning, range, scope, applyWarning) => {
+    if (!warning?.recheck || !range?.shutdown) return;
+    const { mspCalendar, parsedTasks } = warning.recheck;
+    const forAll = scope === 'company';
+
+    setAddingShutdown(true);
+    let prog;
+    let company;
+    try {
+      // Build on what's saved now rather than what this screen loaded, so a
+      // shutdown added elsewhere in the meantime isn't overwritten
+      [prog, company] = await Promise.all([fetchProgramme(selectedProjectId), fetchCompanyCalendar()]);
+      if (forAll) {
+        company = { ...company, shutdowns: [...company.shutdowns, range.shutdown] };
+        await updateCompanyCalendar(company);
+      } else {
+        const calendar = { ...(prog?.calendar || {}), shutdowns: [...(prog?.calendar?.shutdowns || []), range.shutdown] };
+        await upsertProgramme(selectedProjectId, { calendar });
+        prog = { ...(prog || {}), calendar };
+      }
+    } catch (err) {
+      toast({ title: 'Shutdown not added', description: err.message, variant: 'destructive' });
+      return;
+    } finally {
+      setAddingShutdown(false);
+    }
+    if (forAll) {
+      queryClient.invalidateQueries({ queryKey: ['company_calendar'] });
+    } else {
+      queryClient.invalidateQueries({ queryKey: ['programme'] });
+      queryClient.invalidateQueries({ queryKey: ['programmes'] });
+    }
+
+    const day = (d) => format(new Date(`${d}T00:00:00`), 'd MMM yyyy');
+    toast({
+      title: forAll ? 'Shutdown added for all programmes' : 'Shutdown added',
+      description: `${day(range.shutdown.start)} – ${day(range.shutdown.end)} is now in ${forAll ? 'every programme’s' : 'this programme’s'} schedule settings.`,
+      duration: 4000,
+    });
+
+    try {
+      applyWarning(compareWithProgramme(mspCalendar, parsedTasks, prog, company));
+    } catch (err) {
+      console.warn('import calendar re-check failed:', err.message);
+      applyWarning(null);
+    }
+  };
+
+  // Which "Add as shutdown" buttons this user gets on the import warning
+  const shutdownScopes = [
+    ...(isAdmin ? ['company'] : []),
+    ...(programmeEditable ? ['programme'] : []),
+  ];
 
   // Resources assigned to at least one task. Like the calendar check, a failed
   // read must never block the import; tasks then simply come in unassigned.
@@ -702,7 +772,7 @@ export default function Programme() {
   const selectedProjectName = projects.find(p => p.id === selectedProjectId)?.name || 'programme';
 
   const handleExportMspdi = () => {
-    const calendar = calendarForProgramme(programme, tasks);
+    const calendar = calendarForProgramme(programme, tasks, companyCalendar);
     downloadMspdi(tasks, programme, {
       projectName: selectedProjectName,
       holidays: calendar.holidays,
@@ -997,6 +1067,8 @@ export default function Programme() {
               <ScheduleSettingsPopover
                 projectId={selectedProjectId}
                 programme={programme}
+                companyCalendar={companyCalendar}
+                canEditCompany={isAdmin}
                 tasks={tasks}
               />
             )}
@@ -1273,6 +1345,12 @@ export default function Programme() {
         diff={pendingImport?.diff || null}
         fileName={pendingImport?.fileName || ''}
         calendarWarning={pendingImport?.calendarWarning || null}
+        shutdownScopes={shutdownScopes}
+        onAddShutdown={(range, scope) => addImportShutdown(
+          pendingImport?.calendarWarning, range, scope,
+          (warning) => setPendingImport(p => p && { ...p, calendarWarning: warning }),
+        )}
+        addingShutdown={addingShutdown}
         onConfirm={handleConfirmUpdateImport}
         onCancel={() => { setPendingImport(null); setMppFile(null); }}
       />
@@ -1284,17 +1362,32 @@ export default function Programme() {
       >
         <AlertDialogContent className="sm:max-w-xl">
           <AlertDialogHeader>
-            <AlertDialogTitle>Some dates won&rsquo;t match MS Project</AlertDialogTitle>
+            <AlertDialogTitle>
+              {pendingCalendarImport && !pendingCalendarImport.warning
+                ? 'Dates now match MS Project'
+                : <>Some dates won&rsquo;t match MS Project</>}
+            </AlertDialogTitle>
             <AlertDialogDescription>
               <span className="font-medium text-foreground">{pendingCalendarImport?.fileName}</span> is ready
-              to import, but CIQ&rsquo;s calendar moves some of its dates.
+              to import
+              {pendingCalendarImport && !pendingCalendarImport.warning
+                ? <>. Its close-down is now in the schedule settings, so CIQ&rsquo;s dates line up with MS Project&rsquo;s.</>
+                : <>, but CIQ&rsquo;s calendar moves some of its dates.</>}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="max-h-[50vh] overflow-y-auto">
-            <ImportCalendarWarning warning={pendingCalendarImport?.warning} />
+            <ImportCalendarWarning
+              warning={pendingCalendarImport?.warning}
+              shutdownScopes={shutdownScopes}
+              onAddShutdown={(range, scope) => addImportShutdown(
+                pendingCalendarImport?.warning, range, scope,
+                (warning) => setPendingCalendarImport(p => p && { ...p, warning }),
+              )}
+              addingShutdown={addingShutdown}
+            />
           </div>
-          <AlertDialogAction onClick={handleConfirmCalendarImport}>
-            Import anyway
+          <AlertDialogAction onClick={handleConfirmCalendarImport} disabled={addingShutdown}>
+            {pendingCalendarImport && !pendingCalendarImport.warning ? 'Import' : 'Import anyway'}
           </AlertDialogAction>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
         </AlertDialogContent>

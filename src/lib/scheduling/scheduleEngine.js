@@ -26,10 +26,11 @@ import { buildProjectCalendar } from './nzHolidays.js';
 export { wouldCreateCycle };
 
 /**
- * Derive the working calendar + data date for a programme row (from the
- * programmes table). Holidays are generated across the schedule's year span.
+ * Derive the working calendar for a programme row (from the programmes
+ * table), with the company-wide holidays/shutdowns (companyCalendarQuery)
+ * applied on top. Holidays are generated across the schedule's year span.
  */
-export function calendarForProgramme(programme, tasks = []) {
+export function calendarForProgramme(programme, tasks = [], company = null) {
   const years = tasks
     .flatMap(t => [t.start_date, t.end_date])
     .filter(Boolean)
@@ -38,7 +39,7 @@ export function calendarForProgramme(programme, tasks = []) {
   const thisYear = new Date().getFullYear();
   const startYear = years.length ? Math.min(...years, thisYear) : thisYear;
   const endYear = (years.length ? Math.max(...years, thisYear) : thisYear) + 2;
-  return buildProjectCalendar(programme, startYear, endYear);
+  return buildProjectCalendar(programme, startYear, endYear, company);
 }
 
 /**
@@ -93,9 +94,10 @@ export function runScheduleEngine(tasks, projectStartDate, calendar = DEFAULT_CA
  *
  * @param {Array} tasks - tasks across multiple projects
  * @param {Map<string, Object>} programmesByProject - project_id → programmes row
+ * @param {Object|null} [company] - company-wide holidays/shutdowns (companyCalendarQuery)
  * @returns {Map<string, ScheduleResult>} merged result map
  */
-export function runScheduleEngineByProject(tasks, programmesByProject = new Map()) {
+export function runScheduleEngineByProject(tasks, programmesByProject = new Map(), company = null) {
   const byProject = new Map();
   for (const task of tasks) {
     if (!byProject.has(task.project_id)) byProject.set(task.project_id, []);
@@ -105,7 +107,7 @@ export function runScheduleEngineByProject(tasks, programmesByProject = new Map(
   const merged = new Map();
   for (const [projectId, projectTasks] of byProject) {
     const programme = programmesByProject.get(projectId) || null;
-    const calendar = calendarForProgramme(programme, projectTasks);
+    const calendar = calendarForProgramme(programme, projectTasks, company);
     const result = runScheduleEngine(projectTasks, null, calendar, {
       dataDate: programme?.data_date || null,
       criticalToleranceDays: programme?.critical_slack_tolerance_days || 0,

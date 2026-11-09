@@ -2,9 +2,12 @@
  * Schedule settings for a project's programme: data date (status date the
  * engine schedules remaining work from), the working-week calendar, custom
  * holidays and shutdown periods. NZ public holidays + regional anniversary
- * are generated automatically — this dialog only manages the calendar JSONB
- * (programmes.calendar); the engine (buildProjectCalendar) already merges
- * generated + custom holidays and reads shutdowns, so this is UI-only work.
+ * are generated automatically.
+ *
+ * Holidays and shutdowns come in two layers, both merged by the engine
+ * (buildProjectCalendar): company-wide ones (company_calendar, migration 033,
+ * admins only) that apply to every programme, and this programme's own
+ * (programmes.calendar JSONB).
  */
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -16,7 +19,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Settings2, X } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
-import { upsertProgramme } from '@/api/programmeData';
+import { upsertProgramme, updateCompanyCalendar } from '@/api/programmeData';
 import { getNzHolidaysForRange } from '@/lib/scheduling/nzHolidays';
 import { format } from 'date-fns';
 
@@ -32,7 +35,90 @@ function yearSpan(tasks) {
   return { startYear, endYear };
 }
 
-export default function ScheduleSettingsPopover({ projectId, programme, tasks = [] }) {
+const fmtDate = (d) => format(new Date(`${d}T00:00:00`), 'dd MMM yyyy');
+const sameList = (a, b) => JSON.stringify(a || []) === JSON.stringify(b || []);
+
+function LayerHeading({ children, hint }) {
+  return (
+    <div className="flex items-baseline justify-between gap-2 mt-2 first:mt-1">
+      <span className="text-[11px] font-semibold text-muted-foreground">{children}</span>
+      {hint && <span className="text-[10px] text-muted-foreground">{hint}</span>}
+    </div>
+  );
+}
+
+/** Custom holiday dates with add/remove, or read-only. */
+function HolidayList({ dates, onChange, readOnly = false }) {
+  const [newDate, setNewDate] = useState('');
+  const add = () => {
+    if (!newDate || dates.includes(newDate)) return;
+    onChange([...dates, newDate].sort());
+    setNewDate('');
+  };
+  return (
+    <>
+      <div className="flex flex-wrap gap-1.5 mt-1">
+        {dates.map(d => (
+          <Badge key={d} variant="secondary" className="gap-1 text-[10px] font-mono">
+            {fmtDate(d)}
+            {!readOnly && (
+              <button type="button" onClick={() => onChange(dates.filter(x => x !== d))} className="hover:text-destructive">
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </Badge>
+        ))}
+        {dates.length === 0 && <span className="text-[11px] text-muted-foreground">None added</span>}
+      </div>
+      {!readOnly && (
+        <div className="flex gap-2 mt-1.5">
+          <Input type="date" value={newDate} onChange={e => setNewDate(e.target.value)} className="h-8" />
+          <Button type="button" variant="outline" size="sm" onClick={add} disabled={!newDate}>Add</Button>
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Shutdown ranges with add/remove, or read-only. */
+function ShutdownList({ ranges, onChange, readOnly = false }) {
+  const [start, setStart] = useState('');
+  const [end, setEnd] = useState('');
+  const valid = start && end && start <= end;
+  const add = () => {
+    if (!valid) return;
+    onChange([...ranges, { start, end }]);
+    setStart('');
+    setEnd('');
+  };
+  return (
+    <>
+      <div className="space-y-1.5 mt-1">
+        {ranges.map((s, i) => (
+          <div key={`${s.start}-${s.end}-${i}`} className="flex items-center justify-between text-[11px] rounded border px-2 py-1">
+            <span className="font-mono">{fmtDate(s.start)} – {fmtDate(s.end)}</span>
+            {!readOnly && (
+              <button type="button" onClick={() => onChange(ranges.filter((_, j) => j !== i))} className="hover:text-destructive">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        ))}
+        {ranges.length === 0 && <span className="text-[11px] text-muted-foreground">None added</span>}
+      </div>
+      {!readOnly && (
+        <div className="flex gap-2 mt-1.5 items-center">
+          <Input type="date" value={start} onChange={e => setStart(e.target.value)} className="h-8" placeholder="Start" />
+          <span className="text-muted-foreground text-xs">to</span>
+          <Input type="date" value={end} onChange={e => setEnd(e.target.value)} className="h-8" placeholder="End" />
+          <Button type="button" variant="outline" size="sm" onClick={add} disabled={!valid}>Add</Button>
+        </div>
+      )}
+    </>
+  );
+}
+
+export default function ScheduleSettingsPopover({ projectId, programme, companyCalendar = null, canEditCompany = false, tasks = [] }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -41,9 +127,8 @@ export default function ScheduleSettingsPopover({ projectId, programme, tasks = 
   const [slackTolerance, setSlackTolerance] = useState('0');
   const [customHolidays, setCustomHolidays] = useState([]);
   const [shutdowns, setShutdowns] = useState([]);
-  const [newHoliday, setNewHoliday] = useState('');
-  const [newShutdownStart, setNewShutdownStart] = useState('');
-  const [newShutdownEnd, setNewShutdownEnd] = useState('');
+  const [companyHolidays, setCompanyHolidays] = useState([]);
+  const [companyShutdowns, setCompanyShutdowns] = useState([]);
 
   useEffect(() => {
     setDataDate(programme?.data_date || '');
@@ -51,10 +136,9 @@ export default function ScheduleSettingsPopover({ projectId, programme, tasks = 
     setSlackTolerance(String(programme?.critical_slack_tolerance_days ?? 0));
     setCustomHolidays(programme?.calendar?.holidays || []);
     setShutdowns(programme?.calendar?.shutdowns || []);
-    setNewHoliday('');
-    setNewShutdownStart('');
-    setNewShutdownEnd('');
-  }, [programme, open]);
+    setCompanyHolidays(companyCalendar?.holidays || []);
+    setCompanyShutdowns(companyCalendar?.shutdowns || []);
+  }, [programme, companyCalendar, open]);
 
   const region = programme?.calendar?.region || 'hawkes-bay';
   const { startYear, endYear } = useMemo(() => yearSpan(tasks), [tasks]);
@@ -70,42 +154,45 @@ export default function ScheduleSettingsPopover({ projectId, programme, tasks = 
     return grouped;
   }, [startYear, endYear, region]);
 
-  const addHoliday = () => {
-    if (!newHoliday || customHolidays.includes(newHoliday)) return;
-    setCustomHolidays(h => [...h, newHoliday].sort());
-    setNewHoliday('');
-  };
-
-  const removeHoliday = (date) => setCustomHolidays(h => h.filter(d => d !== date));
-
-  const addShutdown = () => {
-    if (!newShutdownStart || !newShutdownEnd || newShutdownStart > newShutdownEnd) return;
-    setShutdowns(s => [...s, { start: newShutdownStart, end: newShutdownEnd }]);
-    setNewShutdownStart('');
-    setNewShutdownEnd('');
-  };
-
-  const removeShutdown = (idx) => setShutdowns(s => s.filter((_, i) => i !== idx));
+  const companyChanged = canEditCompany && (
+    !sameList(companyHolidays, companyCalendar?.holidays) || !sameList(companyShutdowns, companyCalendar?.shutdowns)
+  );
 
   const saveMutation = useMutation({
-    mutationFn: () => upsertProgramme(projectId, {
-      data_date: dataDate || null,
-      critical_slack_tolerance_days: Math.max(0, parseInt(slackTolerance, 10) || 0),
-      calendar: {
-        ...(programme?.calendar || {}),
-        type: weekType,
-        holidays: customHolidays,
-        shutdowns,
-      },
-    }),
+    mutationFn: async () => {
+      await upsertProgramme(projectId, {
+        data_date: dataDate || null,
+        critical_slack_tolerance_days: Math.max(0, parseInt(slackTolerance, 10) || 0),
+        calendar: {
+          ...(programme?.calendar || {}),
+          type: weekType,
+          holidays: customHolidays,
+          shutdowns,
+        },
+      });
+      if (companyChanged) {
+        try {
+          await updateCompanyCalendar({ holidays: companyHolidays, shutdowns: companyShutdowns });
+        } catch (e) {
+          throw new Error(`This programme's settings were saved, but not the ones for all programmes: ${e.message}`);
+        }
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['programme'] });
       queryClient.invalidateQueries({ queryKey: ['programmes'] });
+      if (companyChanged) queryClient.invalidateQueries({ queryKey: ['company_calendar'] });
       toast({ title: 'Schedule settings saved', duration: 2500 });
       setOpen(false);
     },
-    onError: (e) => toast({ title: 'Save failed', description: e.message, variant: 'destructive' }),
+    onError: (e) => {
+      queryClient.invalidateQueries({ queryKey: ['programme'] });
+      queryClient.invalidateQueries({ queryKey: ['programmes'] });
+      toast({ title: 'Save failed', description: e.message, variant: 'destructive' });
+    },
   });
+
+  const companyHint = canEditCompany ? 'applies to every programme' : 'set by an admin · every programme';
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -176,54 +263,19 @@ export default function ScheduleSettingsPopover({ projectId, programme, tasks = 
           </div>
 
           <div>
-            <Label className="text-xs">Custom holidays</Label>
-            <div className="flex flex-wrap gap-1.5 mt-1.5">
-              {customHolidays.map(d => (
-                <Badge key={d} variant="secondary" className="gap-1 text-[10px] font-mono">
-                  {format(new Date(`${d}T00:00:00`), 'dd MMM yyyy')}
-                  <button onClick={() => removeHoliday(d)} className="hover:text-destructive">
-                    <X className="w-3 h-3" />
-                  </button>
-                </Badge>
-              ))}
-              {customHolidays.length === 0 && (
-                <span className="text-[11px] text-muted-foreground">None added</span>
-              )}
-            </div>
-            <div className="flex gap-2 mt-2">
-              <Input type="date" value={newHoliday} onChange={e => setNewHoliday(e.target.value)} className="h-8" />
-              <Button type="button" variant="outline" size="sm" onClick={addHoliday} disabled={!newHoliday}>Add</Button>
-            </div>
+            <Label className="text-xs">Shutdown periods</Label>
+            <LayerHeading hint={companyHint}>All programmes</LayerHeading>
+            <ShutdownList ranges={companyShutdowns} onChange={setCompanyShutdowns} readOnly={!canEditCompany} />
+            <LayerHeading>This programme only</LayerHeading>
+            <ShutdownList ranges={shutdowns} onChange={setShutdowns} />
           </div>
 
           <div>
-            <Label className="text-xs">Shutdown periods</Label>
-            <div className="space-y-1.5 mt-1.5">
-              {shutdowns.map((s, i) => (
-                <div key={i} className="flex items-center justify-between text-[11px] rounded border px-2 py-1">
-                  <span className="font-mono">
-                    {format(new Date(`${s.start}T00:00:00`), 'dd MMM yyyy')} – {format(new Date(`${s.end}T00:00:00`), 'dd MMM yyyy')}
-                  </span>
-                  <button onClick={() => removeShutdown(i)} className="hover:text-destructive">
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              ))}
-              {shutdowns.length === 0 && (
-                <span className="text-[11px] text-muted-foreground">None added</span>
-              )}
-            </div>
-            <div className="flex gap-2 mt-2 items-center">
-              <Input type="date" value={newShutdownStart} onChange={e => setNewShutdownStart(e.target.value)} className="h-8" placeholder="Start" />
-              <span className="text-muted-foreground text-xs">to</span>
-              <Input type="date" value={newShutdownEnd} onChange={e => setNewShutdownEnd(e.target.value)} className="h-8" placeholder="End" />
-              <Button
-                type="button" variant="outline" size="sm" onClick={addShutdown}
-                disabled={!newShutdownStart || !newShutdownEnd || newShutdownStart > newShutdownEnd}
-              >
-                Add
-              </Button>
-            </div>
+            <Label className="text-xs">Custom holidays</Label>
+            <LayerHeading hint={companyHint}>All programmes</LayerHeading>
+            <HolidayList dates={companyHolidays} onChange={setCompanyHolidays} readOnly={!canEditCompany} />
+            <LayerHeading>This programme only</LayerHeading>
+            <HolidayList dates={customHolidays} onChange={setCustomHolidays} />
           </div>
         </div>
 

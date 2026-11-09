@@ -140,6 +140,26 @@ describe('buildProjectCalendar', () => {
     expect(cal.holidays).toEqual([...cal.holidays].sort());
   });
 
+  it("adds the company's holidays and shutdowns to the programme's own", () => {
+    const company = { holidays: ['2026-12-24'], shutdowns: [{ start: '2026-12-21', end: '2027-01-08' }] };
+    const programme = { calendar: { holidays: ['2026-03-02'], shutdowns: [{ start: '2026-07-06', end: '2026-07-10' }] } };
+    const cal = buildProjectCalendar(programme, 2026, 2026, company);
+
+    expect(cal.holidays).toContain('2026-12-24');
+    expect(cal.holidays).toContain('2026-03-02');
+    expect(cal.holidays).toContain('2026-10-26'); // generated Labour Day still there
+    expect(cal.shutdowns).toEqual([
+      { start: '2026-12-21', end: '2027-01-08' },
+      { start: '2026-07-06', end: '2026-07-10' },
+    ]);
+  });
+
+  it('applies the company calendar to a project with no programme row yet', () => {
+    const cal = buildProjectCalendar(null, 2026, 2026, { shutdowns: [{ start: '2026-12-21', end: '2027-01-08' }] });
+    expect(cal.type).toBe('5day');
+    expect(cal.shutdowns).toEqual([{ start: '2026-12-21', end: '2027-01-08' }]);
+  });
+
   it('defaults type and hours_per_day when the programme calendar omits them', () => {
     const programme = { calendar: {} };
     const cal = buildProjectCalendar(programme, 2026, 2026);

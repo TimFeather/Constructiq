@@ -93,8 +93,29 @@ describe('compareImportCalendar', () => {
     // 25–28 Dec and 1–3 Jan are off in both calendars, so the run is bridged
     expect(w.ranges[0]).toEqual({
       start: '2026-12-22', end: '2026-12-31', days: 6, mspWorking: false, reason: 'Christmas Shut-down Period',
+      // the file's whole exception, including the 1–3 Jan days both calendars already have off
+      shutdown: { start: '2026-12-22', end: '2027-01-03' },
     });
     expect(w.finishShiftDays).toBeLessThan(0); // CIQ works through the shutdown → finishes earlier
+  });
+
+  it("clears the close-down once its shutdown is added, leaving only what a shutdown can't fix", () => {
+    const before = check(OVER_NEW_YEAR, null);
+    const after = check(OVER_NEW_YEAR, { calendar: { shutdowns: [before.ranges[0].shutdown] } });
+    expect(after.ranges.every(r => r.mspWorking)).toBe(true);
+    expect(after.ranges[0].shutdown).toBeUndefined();
+  });
+
+  it('counts a company-wide shutdown, and names it when CIQ is off but MS Project works', () => {
+    const parsed = parseXML(OVER_NEW_YEAR, 'p1');
+    // Company close-down runs a day past the file's, into Mon 4 Jan → 5 Jan
+    const company = { shutdowns: [{ start: '2026-12-22', end: '2027-01-05' }] };
+    const w = compareImportCalendar(
+      parsed, parseMspdiCalendar(OVER_NEW_YEAR), calendarForProgramme(null, parsed, company), { company },
+    );
+    expect(w.ranges.some(r => !r.mspWorking)).toBe(false); // file's close-down already covered
+    const tue = w.ranges.find(r => r.start === '2027-01-05');
+    expect(tue).toMatchObject({ mspWorking: true, reason: 'Company shutdown' });
   });
 
   it('returns null when no task is affected', () => {
