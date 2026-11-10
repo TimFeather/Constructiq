@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Project, RFI, Tender } from '@/api/entities';
 import { projectDocumentsQuery } from '@/api/documentsData';
-import { programmeTasksQuery } from '@/api/programmeData';
+import { programmeTasksQuery, fetchProgramme, companyCalendarQuery } from '@/api/programmeData';
+import { runScheduleEngine, calendarForProgramme } from '@/lib/scheduling/scheduleEngine';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
@@ -58,6 +59,31 @@ export default function ProjectDetail() {
     ...programmeTasksQuery(id),
     enabled: activeTab === 'programme',
   });
+
+  // The Gantt shows the engine's dates, not the stored ones — stored dates go
+  // stale (progress on a published programme doesn't rewrite the following
+  // tasks, summary rows aren't kept current). Run the engine here on the same
+  // programme calendar + data date so this list matches the full programme.
+  const { data: programme = null } = useQuery({
+    queryKey: ['programme', id],
+    queryFn: () => fetchProgramme(id),
+    enabled: activeTab === 'programme',
+  });
+  const { data: companyCalendar } = useQuery({
+    ...companyCalendarQuery(),
+    enabled: activeTab === 'programme',
+  });
+  const scheduledMap = useMemo(() => {
+    if (!projectTasks.length) return new Map();
+    return runScheduleEngine(projectTasks, null, calendarForProgramme(programme, projectTasks, companyCalendar), {
+      dataDate: programme?.data_date || null,
+      criticalToleranceDays: programme?.critical_slack_tolerance_days || 0,
+    });
+  }, [projectTasks, programme, companyCalendar]);
+  const summaryIds = useMemo(
+    () => new Set(projectTasks.filter(t => t.parent_id).map(t => t.parent_id)),
+    [projectTasks],
+  );
 
   // Find linked tender (if this project was converted from one)
   const { data: linkedTenders = [] } = useQuery({
@@ -251,7 +277,15 @@ export default function ProjectDetail() {
                       </thead>
                       <tbody className="divide-y">
                         {projectTasks.map(task => {
-                          const pct = task.percent_complete || 0;
+                          // Same values the Gantt's task list shows (TaskList getRowCtx)
+                          const resolved = scheduledMap.get(task.id);
+                          const start = resolved?.startStr || task.start_date;
+                          const end = resolved?.finishStr || task.end_date;
+                          const duration = resolved?.durationDays ?? task.duration ?? 1;
+                          const isMilestone = task.is_milestone || task.duration === 0;
+                          const pct = summaryIds.has(task.id)
+                            ? (resolved?.rolledProgress ?? task.percent_complete ?? 0)
+                            : (task.percent_complete || 0);
                           const indent = (task.level || 0) * 12;
                           return (
                             <tr key={task.id} className="hover:bg-muted/20">
@@ -263,12 +297,12 @@ export default function ProjectDetail() {
                                 {assigneeNames(task) || '—'}
                               </td>
                               <td className="px-3 py-1.5 text-center text-muted-foreground font-mono">
-                                {task.start_date ? format(new Date(task.start_date), 'dd/MM/yy') : '—'}
+                                {start ? format(new Date(start), 'dd/MM/yy') : '—'}
                               </td>
                               <td className="px-3 py-1.5 text-center text-muted-foreground font-mono">
-                                {task.end_date ? format(new Date(task.end_date), 'dd/MM/yy') : '—'}
+                                {end ? format(new Date(end), 'dd/MM/yy') : '—'}
                               </td>
-                              <td className="px-3 py-1.5 text-center text-muted-foreground">{task.duration || '—'}d</td>
+                              <td className="px-3 py-1.5 text-center text-muted-foreground">{isMilestone ? '—' : `${duration}d`}</td>
                               <td className="px-3 py-1.5">
                                 <div className="flex items-center gap-1.5">
                                   <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
