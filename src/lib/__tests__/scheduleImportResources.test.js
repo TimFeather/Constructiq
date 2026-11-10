@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   normalizeName, tradeKey, assignableMembers, matchResources, needsReview,
   resolveAssignees, assigneesKey, buildResourceMap, memberOptionLabel,
+  labelLinker, linkTradeAssignees, linkTradeResourceMap,
 } from '../scheduleImportResources.js';
 
 const TEAM = [
@@ -183,5 +184,73 @@ describe('buildResourceMap', () => {
       3: { name: 'Old resource', action: 'ignore' },
       5: { name: 'Builder', action: 'label' },
     });
+  });
+});
+
+describe('trade aliases from Settings → Trades and programme labels', () => {
+  it('links the labels programmes use to the trades subs are filed under', () => {
+    expect(tradeKey('Landscaper')).toBe(tradeKey('Landscaping'));
+    expect(tradeKey('HVAC Installer')).toBe(tradeKey('HVAC'));
+    expect(tradeKey('Vinyl Layer')).toBe(tradeKey('Flooring'));
+    expect(tradeKey('Kitchen Installer')).toBe(tradeKey('Kitchen Joinery'));
+    expect(tradeKey('Concrete Placer')).toBe(tradeKey('Concrete'));
+    expect(tradeKey('Earthworks Contractor')).toBe(tradeKey('Earthworks'));
+    expect(tradeKey('Aluminium')).toBe(tradeKey('Aluminium Joinery'));
+    expect(tradeKey('Fencer')).toBe(tradeKey('Fencing'));
+    expect(tradeKey('Builder')).not.toBe(tradeKey('Carpentry'));
+  });
+});
+
+describe('labelLinker / linkTradeAssignees / linkTradeResourceMap', () => {
+  const draft = { invite_email: 'new@tiles.co.nz', invite_status: 'Draft', full_name: 'Tia', business_name: 'Tile Co', role: 'Subcontractor', trade: 'Tiling' };
+  const TEAM_WITH_DRAFT = [...TEAM, draft];
+
+  it('finds the member a label names: business/person first, then a trade one sub covers', () => {
+    const memberFor = labelLinker(TEAM_WITH_DRAFT);
+    expect(memberFor('Plumber')?.user_email).toBe('office@abcplumbing.co.nz');
+    expect(memberFor('ABC Plumbing Ltd')?.user_email).toBe('office@abcplumbing.co.nz');
+    expect(memberFor('Roofer')?.user_email).toBe('ross@toproofs.co.nz');
+    // Two electricians: never guessed
+    expect(memberFor('Electrician')).toBeNull();
+    // Gib Fixers has no email; the Draft tiler isn't invited yet
+    expect(memberFor('Gib Stopper')).toBeNull();
+    expect(memberFor('Tiler')).toBeNull();
+    expect(memberFor('Builder')).toBeNull();
+  });
+
+  it('relinks name-only assignees and leaves emailed ones alone', () => {
+    const tasks = [
+      { id: 't1', assignees: [{ name: 'Plumber', email: null, msp_resource_uid: 4, units: 0.5 }, { name: 'Builder', email: null }] },
+      { id: 't2', assignees: [{ name: 'Builder', email: null }] },
+      { id: 't3', assignees: [
+        { name: 'ABC Plumbing', person: 'Sam Pipe', email: 'office@abcplumbing.co.nz', units: 1 },
+        { name: 'Plumbers', email: null },
+      ] },
+      { id: 't4', assignees: [{ name: 'Electrician', email: null }] },
+    ];
+    const changes = linkTradeAssignees(tasks, TEAM);
+    expect(changes.map(c => c.id)).toEqual(['t1', 't3']);
+    expect(changes[0].assignees).toEqual([
+      { name: 'ABC Plumbing', person: 'Sam Pipe', email: 'office@abcplumbing.co.nz', msp_resource_uid: 4, units: 0.5 },
+      { name: 'Builder', email: null },
+    ]);
+    // Already on the task → the label folds into the existing assignee
+    expect(changes[1].assignees).toHaveLength(1);
+    expect(changes[1].before).toBe(tasks[2].assignees);
+  });
+
+  it('turns saved label choices into member choices so re-imports keep the link', () => {
+    const map = {
+      1: { name: 'Plumber', action: 'label' },
+      2: { name: 'Builder', action: 'label' },
+      3: { name: 'Roofer', action: 'ignore' },
+    };
+    expect(linkTradeResourceMap(map, TEAM)).toEqual({
+      1: { name: 'Plumber', action: 'member', email: 'office@abcplumbing.co.nz' },
+      2: { name: 'Builder', action: 'label' },
+      3: { name: 'Roofer', action: 'ignore' },
+    });
+    expect(linkTradeResourceMap({ 2: { name: 'Builder', action: 'label' } }, TEAM)).toBeNull();
+    expect(linkTradeResourceMap(null, TEAM)).toBeNull();
   });
 });

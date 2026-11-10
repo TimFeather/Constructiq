@@ -15,6 +15,8 @@ import { isUserDeactivated } from '@/lib/userStatus';
 import { normalizeEmail } from '@/lib/normalizeEmail';
 import { logProjectActivity } from '@/lib/activityLog';
 import { groupTeam } from '@/lib/teamGroups';
+import { isDraftMember, memberEmail } from '@/lib/teamInvites';
+import { useTradeList } from '@/hooks/useTradeList';
 import PersonAutocomplete from '@/components/shared/PersonAutocomplete';
 import TradeSelect from '@/components/projects/TradeSelect';
 
@@ -28,12 +30,6 @@ const FALLBACK_ROLES = [
   { name: 'Quantity Surveyor', permission_role: 'pricing' },
   { name: 'Subcontractor', permission_role: 'external' },
   { name: 'Other', permission_role: 'external' },
-];
-
-const TRADES = [
-  'Electrical', 'Plumbing', 'HVAC', 'Carpentry', 'Masonry',
-  'Painting', 'Roofing', 'Flooring', 'Landscaping', 'Demolition',
-  'Concrete', 'Steel Erection', 'Glazing', 'Fire Protection'
 ];
 
 const emptyMember = { user_email: '', full_name: '', business_name: '', phone: '', role: '', trade: '' };
@@ -73,6 +69,7 @@ export default function TeamManager({ project }) {
   const { user } = useAuth();
   const { toast } = useToast();
   const isAllowed = ['admin', 'internal', 'pricing'].includes(user?.role);
+  const TRADES = useTradeList();
   const [newMember, setNewMember] = useState(emptyMember);
   const [customRole, setCustomRole] = useState('');
   const [emailInput, setEmailInput] = useState('');
@@ -160,6 +157,12 @@ export default function TeamManager({ project }) {
 
   const addMember = async () => {
     if (!newMember.full_name || !newMember.role) return;
+    const email = normalizeEmail(newMember.user_email);
+    const staged = email && (project.team || []).find(m => isDraftMember(m) && memberEmail(m) === email);
+    if (staged) {
+      toast({ title: 'Already waiting to be invited', description: `${staged.full_name || email} is on the Subcontractors tab — use Send Invites there.` });
+      return;
+    }
     setAdding(true);
     try {
       const member = { ...newMember, user_email: normalizeEmail(newMember.user_email) };
@@ -365,6 +368,9 @@ export default function TeamManager({ project }) {
                   <Badge variant="outline" className="text-xs">{member.role}</Badge>
                 )}
                 {member.trade && <Badge variant="secondary" className="text-xs">{member.trade}</Badge>}
+                {isAllowed && isDraftMember(member) && (
+                  <Badge variant="secondary" className="text-xs text-gray-600 bg-gray-100">Not invited yet</Badge>
+                )}
                 {isAllowed && member.user_email && !isRegistered && (
                   <Badge variant="secondary" className="text-xs text-amber-600 bg-amber-50">Invite Pending</Badge>
                 )}
@@ -376,7 +382,7 @@ export default function TeamManager({ project }) {
                 )}
               </div>
               <div className="text-xs text-muted-foreground mt-0.5">
-                {[member.business_name, member.user_email, member.phone].filter(Boolean).join(' · ')}
+                {[member.business_name, member.user_email || member.invite_email, member.phone].filter(Boolean).join(' · ')}
               </div>
             </div>
             {isAllowed && (

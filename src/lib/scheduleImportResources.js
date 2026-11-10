@@ -40,7 +40,9 @@ export function normalizeName(value) {
 
 // CIQ trades name the work ("Plumbing", "Gib stopping"); an MS Project trade
 // resource usually names the person ("Plumber", "Gib stopper"). Each group maps
-// both onto one key. Built from the trades on live project teams (2026-10-30).
+// both onto one key. Built from the trades on live project teams (2026-10-30),
+// then widened to the Settings → Trades list and the trade labels programmes
+// actually use as resources ("Landscaper", "Vinyl Layer", 2026-11-10).
 const TRADE_ALIASES = {
   plumbing: ['plumbing', 'plumber'],
   electrical: ['electrical', 'electrician', 'electric', 'sparky', 'sparkie'],
@@ -49,12 +51,22 @@ const TRADE_ALIASES = {
   tiling: ['tiling', 'tiler'],
   glazing: ['glazing', 'glazier'],
   'gib stopping': ['gib stopping', 'gib stopper', 'stopper', 'stopping', 'plasterer', 'plastering'],
-  flooring: ['flooring', 'floor layer', 'floorer', 'carpet layer'],
+  flooring: ['flooring', 'floor layer', 'floorer', 'carpet layer', 'carpet', 'vinyl layer', 'vinyl', 'carpet and vinyl'],
   scaffolding: ['scaffolding', 'scaffolder', 'scaffold'],
-  joinery: ['joinery', 'joiner'],
-  'kitchen joinery': ['kitchen joinery', 'kitchen joiner', 'cabinet maker', 'cabinetmaker', 'kitchen'],
-  'aluminium joinery': ['aluminium joinery', 'aluminum joinery', 'aluminium joiner', 'aluminum joiner'],
-  concrete: ['concrete', 'concreter', 'concreting'],
+  joinery: ['joinery', 'joiner', 'internal joinery'],
+  'kitchen joinery': ['kitchen joinery', 'kitchen joiner', 'cabinet maker', 'cabinetmaker', 'kitchen', 'kitchen installer', 'kitchen fitter'],
+  'aluminium joinery': ['aluminium joinery', 'aluminum joinery', 'aluminium joiner', 'aluminum joiner', 'aluminium', 'aluminum'],
+  concrete: ['concrete', 'concreter', 'concreting', 'concrete placer', 'concrete placing'],
+  hvac: ['hvac', 'hvac installer', 'heat pump', 'heat pump installer', 'air conditioning'],
+  landscaping: ['landscaping', 'landscaper', 'planting', 'softscaping', 'planting softscaping'],
+  fencing: ['fencing', 'fencer'],
+  demolition: ['demolition', 'demolisher', 'demo'],
+  carpentry: ['carpentry', 'carpenter'],
+  masonry: ['masonry', 'mason', 'stonemason', 'blocklayer', 'block layer'],
+  'int doors': ['int doors', 'internal doors', 'interior doors', 'door installer', 'door hanger'],
+  stairs: ['stairs', 'stair builder', 'stair installer'],
+  furnishings: ['furnishings', 'curtains', 'curtain installer', 'blinds', 'curtains and blinds'],
+  cleaning: ['cleaning', 'cleaner'],
   earthworks: ['earthworks', 'excavation', 'excavator', 'digger', 'digger driver'],
   'steel erection': ['steel erection', 'steel erector', 'steelworker', 'steel fixer'],
   'fire protection': ['fire protection', 'sprinkler fitter', 'fire sprinkler'],
@@ -230,6 +242,93 @@ export function buildResourceMap(previousMap, resources, choices) {
     next[String(r.uid)] = choice.action === 'member'
       ? { name: r.name, action: 'member', email: normalizeEmail(choice.email) }
       : { name: r.name, action: choice.action };
+  }
+  return next;
+}
+
+// key → the one member it points at. A key two different people share is
+// dropped, so "Plumber" is never guessed between two plumbers.
+function uniqueIndex(members, keysOf) {
+  const byKey = new Map();
+  const shared = new Set();
+  for (const m of members) {
+    for (const key of keysOf(m)) {
+      if (!key) continue;
+      const prev = byKey.get(key);
+      if (prev && prev.user_email !== m.user_email) shared.add(key);
+      else byKey.set(key, m);
+    }
+  }
+  for (const key of shared) byKey.delete(key);
+  return byKey;
+}
+
+/**
+ * Resolver for name-only assignees and labelled resources: the team member a
+ * label names, by business or person name first ("ABC Plumbing"), then by
+ * trade ("Plumber" → the one Plumbing sub). Same order as matchResources, but
+ * only unambiguous hits; anything else stays a label.
+ *
+ * @param {Array} team - project.team
+ * @returns {(label: string) => Object|null}
+ */
+export function labelLinker(team) {
+  const members = assignableMembers(team);
+  const byName = uniqueIndex(members, m => [normalizeName(m.business_name), normalizeName(m.full_name)]);
+  const byTrade = uniqueIndex(members, m => [tradeKey(m.trade)]);
+  return (label) => byName.get(normalizeName(label)) || byTrade.get(tradeKey(label)) || null;
+}
+
+/**
+ * Link name-only assignees ("Plumber", "ABC Plumbing") to the team member
+ * they name, so a programme written before the subs were appointed picks them
+ * up once they are. Assignees with an email are never touched.
+ *
+ * @param {Array} tasks - { id, assignees } rows
+ * @param {Array} team  - project.team
+ * @returns {Array<{ id, before, assignees }>} only the tasks that changed
+ */
+export function linkTradeAssignees(tasks, team) {
+  const memberFor = labelLinker(team);
+
+  const changed = [];
+  for (const task of tasks || []) {
+    const before = Array.isArray(task.assignees) ? task.assignees : [];
+    if (!before.some(a => !a.email && memberFor(a.name))) continue;
+
+    const assignees = [];
+    const seen = new Set();
+    for (const a of before) {
+      const member = !a.email ? memberFor(a.name) : null;
+      const next = member
+        ? { name: memberDisplayName(member), person: member.full_name || null, email: member.user_email, msp_resource_uid: a.msp_resource_uid ?? null, units: a.units ?? 1 }
+        : a;
+      // "Plumber" on a task that already lists the plumbing sub → one assignee
+      const key = assigneeKey(next);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      assignees.push(next);
+    }
+    changed.push({ id: task.id, before, assignees });
+  }
+  return changed;
+}
+
+/**
+ * The same link for programmes.resource_map, so the next MS Project import
+ * keeps the trade resource on the member instead of re-labelling it.
+ *
+ * @returns {Object|null} the new map, or null when nothing changed
+ */
+export function linkTradeResourceMap(resourceMap, team) {
+  const memberFor = labelLinker(team);
+  let next = null;
+  for (const [uid, entry] of Object.entries(resourceMap || {})) {
+    if (entry?.action !== 'label') continue;
+    const member = memberFor(entry.name);
+    if (!member) continue;
+    next = next || { ...resourceMap };
+    next[uid] = { name: entry.name, action: 'member', email: member.user_email };
   }
   return next;
 }

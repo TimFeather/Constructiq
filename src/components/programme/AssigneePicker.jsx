@@ -1,10 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useId, useMemo, useState } from 'react';
 import { Plus, X, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { normalizeEmail } from '@/lib/normalizeEmail';
-import { assignableMembers, memberDisplayName, memberOptionLabel, normalizeName } from '@/lib/scheduleImportResources';
+import { assignableMembers, labelLinker, memberDisplayName, memberOptionLabel, normalizeName } from '@/lib/scheduleImportResources';
+import { useTradeList } from '@/hooks/useTradeList';
 import { assigneeLabel } from '@/lib/programme/assignees';
 
 /**
@@ -16,6 +17,9 @@ import { assigneeLabel } from '@/lib/programme/assignees';
  */
 export default function AssigneePicker({ value = [], onChange, team = [] }) {
   const members = useMemo(() => assignableMembers(team), [team]);
+  const memberFor = useMemo(() => labelLinker(team), [team]);
+  const trades = useTradeList();
+  const tradeListId = useId();
   const [label, setLabel] = useState('');
 
   const assigned = new Set(value.filter(a => a.email).map(a => normalizeEmail(a.email)));
@@ -32,7 +36,15 @@ export default function AssigneePicker({ value = [], onChange, team = [] }) {
   const addLabel = () => {
     const name = label.trim();
     setLabel('');
-    if (!name || value.some(a => !a.email && normalizeName(a.name) === normalizeName(name))) return;
+    if (!name) return;
+    // "Plumbing" / "Plumber" / "ABC Plumbing" when that sub is on the team →
+    // assign the sub, so the task shows under their My Tasks.
+    const member = memberFor(name);
+    if (member) {
+      if (!assigned.has(member.user_email)) addMember(member.user_email);
+      return;
+    }
+    if (value.some(a => !a.email && normalizeName(a.name) === normalizeName(name))) return;
     onChange([...value, { name, email: null, msp_resource_uid: null, units: 1 }]);
   };
 
@@ -70,10 +82,14 @@ export default function AssigneePicker({ value = [], onChange, team = [] }) {
       )}
 
       <div className="flex items-center gap-1.5">
-        <Input value={label} placeholder="Or add a name, e.g. Builder"
+        <Input value={label} placeholder="Or add a trade or name, e.g. Builder"
+          list={tradeListId}
           onChange={e => setLabel(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addLabel(); } }}
           className="h-8 text-xs" />
+        <datalist id={tradeListId}>
+          {trades.map(t => <option key={t} value={t} />)}
+        </datalist>
         <Button type="button" variant="outline" size="sm" className="h-8 px-2 gap-1 text-xs flex-shrink-0"
           disabled={!label.trim()} onClick={addLabel}>
           <Plus className="w-3 h-3" /> Add

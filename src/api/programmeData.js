@@ -13,7 +13,8 @@
 
 import { supabase } from '@/api/supabaseClient';
 import { fetchAllRows } from '@/api/fetchAllRows';
-import { Programme, Task, TaskDependency } from '@/api/entities';
+import { Programme, Task, TaskChangeLog, TaskDependency } from '@/api/entities';
+import { linkTradeAssignees, linkTradeResourceMap } from '@/lib/scheduleImportResources';
 
 /** Attach engine-shaped predecessors + constraint to a task list. */
 function attachEngineShape(tasks, depsBySuccessor) {
@@ -261,6 +262,56 @@ export async function upsertProgramme(projectId, fields) {
     return Programme.update(existing.id, { ...fields, updated_at: new Date().toISOString() });
   }
   return Programme.create({ project_id: projectId, ...fields });
+}
+
+/**
+ * Just the assignees of a project's tasks — for screens outside the
+ * programme that only need who is on what (not the ['tasks'] cache key,
+ * which belongs to fetchProgrammeTasks).
+ */
+export function fetchTaskAssignees(projectId) {
+  return fetchAllRows(() => supabase
+    .from('tasks').select('id, assignees', { count: 'exact' })
+    .eq('project_id', projectId)
+    .order('id', { ascending: true }));
+}
+
+/**
+ * Point a project's name-only programme resources ("Plumber", "ABC Plumbing")
+ * at the team member they name — see linkTradeAssignees. Run after subs join
+ * the team so a programme built on trades links up to them. Assignees aren't
+ * schedule fields (the publish lock leaves them editable), so tasks are
+ * updated directly, with the change logged like an editor save.
+ *
+ * @returns {Promise<number>} how many tasks were relinked
+ */
+export async function linkProgrammeToTeam(projectId, team, userId = null) {
+  if (!projectId) return 0;
+  const rows = await fetchTaskAssignees(projectId);
+
+  const changes = linkTradeAssignees(rows, team);
+  const CHUNK = 20;
+  for (let i = 0; i < changes.length; i += CHUNK) {
+    await Promise.all(changes.slice(i, i + CHUNK).map(c => Task.update(c.id, { assignees: c.assignees })));
+  }
+  if (changes.length) {
+    TaskChangeLog.bulkCreate(changes.map(c => ({
+      task_id: c.id,
+      project_id: projectId,
+      field_changed: 'assignees',
+      old_value: JSON.stringify(c.before),
+      new_value: JSON.stringify(c.assignees),
+      changed_by: userId,
+      trigger_task_id: null,
+    }))).catch(err => console.warn('task_change_log write failed (link unaffected):', err.message));
+  }
+
+  // The saved import choices too, or the next MS Project update re-labels them.
+  const programme = await fetchProgramme(projectId);
+  const nextMap = programme ? linkTradeResourceMap(programme.resource_map, team) : null;
+  if (nextMap) await Programme.update(programme.id, { resource_map: nextMap });
+
+  return changes.length;
 }
 
 /**
