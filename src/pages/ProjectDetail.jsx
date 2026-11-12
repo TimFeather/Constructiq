@@ -12,6 +12,7 @@ import { ArrowLeft, Pencil, FileText, MessageSquareMore, BarChart2, ExternalLink
 import { isClosedStatus } from '@/api/projectStatus';
 import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
+import { PhoneLink } from '@/components/shared/ContactActions';
 import TeamManager from '@/components/projects/TeamManager';
 import ProjectFormDialog from '@/components/projects/ProjectFormDialog';
 import ProjectSubcontractors from '@/components/projects/ProjectSubcontractors';
@@ -139,7 +140,7 @@ export default function ProjectDetail() {
               )}
               {project.client_phone && (
                 <span className="inline-flex items-center gap-1.5">
-                  <Phone className="w-3.5 h-3.5" /> {project.client_phone}
+                  <Phone className="w-3.5 h-3.5" /> <PhoneLink phone={project.client_phone} />
                 </span>
               )}
             </div>

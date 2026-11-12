@@ -18,6 +18,7 @@ import { groupTeam } from '@/lib/teamGroups';
 import { isDraftMember, memberEmail } from '@/lib/teamInvites';
 import { useTradeList } from '@/hooks/useTradeList';
 import PersonAutocomplete from '@/components/shared/PersonAutocomplete';
+import { ContactButtons, EmailLink, PhoneLink } from '@/components/shared/ContactActions';
 import TradeSelect from '@/components/projects/TradeSelect';
 
 // Fallback roles if ProjectRole entity is empty
@@ -322,6 +323,7 @@ export default function TeamManager({ project }) {
     const isRegistered = !!matchedUser;
     const isMemberDeactivated = matchedUser ? isUserDeactivated(matchedUser) : false;
     const isEditing = isAllowed && editingIndex === i;
+    const contactEmail = member.user_email || member.invite_email;
     return (
       <div key={i} className={`p-3 rounded-lg border ${isEditing ? 'bg-primary/5 border-primary/20 lg:col-span-2' : 'bg-muted/50 border-transparent'}`}>
         {isEditing ? (
@@ -359,6 +361,7 @@ export default function TeamManager({ project }) {
             </div>
           </div>
         ) : (
+          <>
           <div className="flex items-center justify-between">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
@@ -381,9 +384,15 @@ export default function TeamManager({ project }) {
                   <Badge variant="outline" className="text-xs text-red-600 border-red-300 bg-red-50">Deactivated</Badge>
                 )}
               </div>
-              <div className="text-xs text-muted-foreground mt-0.5">
-                {[member.business_name, member.user_email || member.invite_email, member.phone].filter(Boolean).join(' · ')}
-              </div>
+              {(member.business_name || contactEmail || member.phone) && (
+                <div className="text-xs text-muted-foreground mt-0.5 break-words">
+                  {[
+                    member.business_name && <span key="b">{member.business_name}</span>,
+                    contactEmail && <EmailLink key="e" email={contactEmail} />,
+                    member.phone && <PhoneLink key="p" phone={member.phone} />,
+                  ].filter(Boolean).flatMap((el, n) => (n ? [<span key={`s${n}`}> · </span>, el] : [el]))}
+                </div>
+              )}
             </div>
             {isAllowed && (
               <div className="flex items-center gap-1 flex-shrink-0">
@@ -396,6 +405,8 @@ export default function TeamManager({ project }) {
               </div>
             )}
           </div>
+          <ContactButtons phone={member.phone} email={contactEmail} name={member.full_name} className="mt-2" />
+          </>
         )}
       </div>
     );

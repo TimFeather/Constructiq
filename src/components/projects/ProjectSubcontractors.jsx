@@ -18,6 +18,7 @@ import { isDraftMember, memberEmail } from '@/lib/teamInvites';
 import { linkTradeAssignees } from '@/lib/scheduleImportResources';
 import { useTradeList } from '@/hooks/useTradeList';
 import PersonAutocomplete from '@/components/shared/PersonAutocomplete';
+import { ContactButtons, EmailLink, PhoneLink } from '@/components/shared/ContactActions';
 import TradeSelect from '@/components/projects/TradeSelect';
 
 const emptyForm = { user_email: '', full_name: '', business_name: '', phone: '', trade: '', quote_ref: '' };
@@ -374,13 +375,14 @@ export default function ProjectSubcontractors({ project, linkedTenderId }) {
           <div className="space-y-1">
             {email && (
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Mail className="w-3 h-3" />
-                <a href={`mailto:${email}`} className="hover:text-foreground transition-colors truncate">{email}</a>
+                <Mail className="w-3 h-3 flex-shrink-0" />
+                <EmailLink email={email} className="truncate" />
               </div>
             )}
             {sub.phone && (
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Phone className="w-3 h-3" /> {sub.phone}
+                <Phone className="w-3 h-3 flex-shrink-0" />
+                <PhoneLink phone={sub.phone} />
               </div>
             )}
             {sub.quote_ref && (
@@ -409,6 +411,7 @@ export default function ProjectSubcontractors({ project, linkedTenderId }) {
               <Badge variant="outline" className="text-xs text-red-600 border-red-300 bg-red-50">Deactivated</Badge>
             )}
           </div>
+          <ContactButtons phone={sub.phone} email={email} name={sub.full_name} className="pt-1" />
         </CardContent>
       </Card>
     );
