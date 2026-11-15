@@ -46,6 +46,7 @@ export default function ForgotPassword() {
       {sent ? (
         <p className="text-sm text-foreground text-center">
           If an account exists with that email, you'll receive a password reset link shortly.
+          If you were invited but never finished creating your account, we'll send a link to set it up instead.
           If you request more than one, only the newest link will work.
         </p>
       ) : (

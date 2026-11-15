@@ -1,7 +1,9 @@
 /**
  * passwordReset
  *
- * Shared by requestPasswordReset (self-service) and adminResetPassword.
+ * Shared by requestPasswordReset (self-service) and adminResetPassword. Also
+ * sends the account-setup email requestPasswordReset falls back to for an
+ * invitee who has no account to reset.
  *
  * Why we build the link instead of using generateLink's action_link:
  * action_link (and the link in Supabase's own reset email) points at
@@ -45,6 +47,22 @@ const DEFAULT_BODY = `
   This link can only be used once and will expire after a while. If you did not request this, you can safely ignore this email — your password will not change.
 </p>`;
 
+// Sent instead of a reset link when "Forgot password" is used by someone who was
+// invited but never created their account — see requestPasswordReset.
+// Mirrors lib/emailTemplates.js account_setup; a DB template overrides this.
+const SETUP_DEFAULT_BODY = `
+<p>Hi <strong>{name}</strong>,</p>
+<p>You asked to reset your <strong>{company_name}</strong> password, but your account hasn't been set up yet — you were invited, and the invitation was never completed.</p>
+<p>Click the button below to create your account and choose a password. It takes about a minute.</p>
+<p style="margin-top:24px;">
+  <a href="{setup_link}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#fff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">
+    Set up your account
+  </a>
+</p>
+<p style="font-size:13px;color:#6b7280;margin-top:16px;">
+  Use this email address to log in afterwards. If you did not request this, you can safely ignore this email.
+</p>`;
+
 export interface ResetEmail {
   to: string;
   name: string;
@@ -62,11 +80,54 @@ export async function sendPasswordResetEmail(
   resendApiKey: string,
   { to, name, resetLink, senderName, sentBy = null }: ResetEmail,
 ): Promise<void> {
+  await sendAuthEmail(supabaseAdmin, resendApiKey, {
+    to,
+    templateKey: 'password_reset',
+    defaultSubject: 'Reset your ConstructIQ password',
+    defaultBody: DEFAULT_BODY,
+    vars: { name, reset_link: resetLink, ...(senderName ? { sender_name: senderName } : {}) },
+    sentBy,
+  });
+}
+
+/**
+ * Sends the branded `account_setup` email (a registration link for an invitee
+ * with no account yet) and logs it in email_messages (kind 'account_setup').
+ * Throws if the send failed.
+ */
+export async function sendAccountSetupEmail(
+  supabaseAdmin: any,
+  resendApiKey: string,
+  { to, name, setupLink }: { to: string; name: string; setupLink: string },
+): Promise<void> {
+  await sendAuthEmail(supabaseAdmin, resendApiKey, {
+    to,
+    templateKey: 'account_setup',
+    defaultSubject: 'Finish setting up your ConstructIQ account',
+    defaultBody: SETUP_DEFAULT_BODY,
+    vars: { name, setup_link: setupLink },
+  });
+}
+
+interface AuthEmail {
+  to: string;
+  templateKey: string;        // email_templates.template_key, also the email_messages kind
+  defaultSubject: string;
+  defaultBody: string;
+  vars: Record<string, string>;
+  sentBy?: string | null;
+}
+
+async function sendAuthEmail(
+  supabaseAdmin: any,
+  resendApiKey: string,
+  { to, templateKey, defaultSubject, defaultBody, vars: extraVars, sentBy = null }: AuthEmail,
+): Promise<void> {
   const [{ data: templatesData }, { data: brandingsData }] = await Promise.all([
     supabaseAdmin.from('email_templates').select('*'),
     supabaseAdmin.from('email_branding').select('*'),
   ]);
-  const tpl: any = (templatesData ?? []).find((t: any) => t.template_key === 'password_reset');
+  const tpl: any = (templatesData ?? []).find((t: any) => t.template_key === templateKey);
   const branding: any = (brandingsData ?? [])[0] || {};
 
   const brandColour = branding.brand_colour || '#1a56db';
@@ -76,15 +137,14 @@ export async function sendPasswordResetEmail(
   const fromEmail   = `${fromName} <${senderEmail}>`;
 
   const vars: Record<string, string> = {
-    name,
-    reset_link:   resetLink,
     company_name: companyName,
-    sender_name:  senderName || companyName,
+    sender_name:  companyName,
+    ...extraVars,
   };
   const replace = (str: string) => str.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? '');
 
-  const subject = tpl?.subject ? replace(tpl.subject) : 'Reset your ConstructIQ password';
-  const rawBody = tpl?.body_html || DEFAULT_BODY;
+  const subject = tpl?.subject ? replace(tpl.subject) : defaultSubject;
+  const rawBody = tpl?.body_html || defaultBody;
   const bodyContent = replace(rawBody);
   const bodyText = replace(rawBody).replace(/<[^>]+>/g, '').replace(/\n{3,}/g, '\n\n').trim();
 
@@ -118,6 +178,6 @@ export async function sendPasswordResetEmail(
     resend,
     supabaseAdmin,
     { from: fromEmail, to, subject, html: htmlBody, text: bodyText },
-    { kind: 'password_reset', sentBy },
+    { kind: templateKey, sentBy },
   );
 }

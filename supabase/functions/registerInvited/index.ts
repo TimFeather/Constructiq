@@ -101,7 +101,7 @@ Deno.serve(async (req: Request) => {
       }
       if (invite.token_expires_at && new Date(invite.token_expires_at) < new Date()) {
         return Response.json(
-          { error: 'This invitation has expired. Please ask your administrator to resend it.' },
+          { error: 'This invitation link has expired. To get a fresh one, go to the log in page, choose "Forgot password?" and enter your email address — or ask your administrator to resend it.' },
           { status: 403, headers: corsHeaders },
         );
       }

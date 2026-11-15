@@ -31,13 +31,19 @@ export default function Login() {
       // "Email not confirmed" is Supabase's wording for an account left
       // unverified by the old registration flow (which emailed a one-time link
       // that mail scanners routinely consumed). Registration now confirms on
-      // creation, so re-opening the invite link repairs the account — say so,
+      // creation, and a reset link confirms the account too (unlike the invite
+      // link, it can't have expired) — say so,
       // because the raw message tells the user nothing they can act on.
       const raw = err.message || "";
       setError(
         /email not confirmed/i.test(raw)
-          ? "This account was never activated. Open the \"Create a free account\" link in your invitation email again to finish setting it up — you can reuse this email address and choose a new password."
-          : raw || "Invalid email or password"
+          ? "This account was never activated. Choose \"Forgot password?\" below and we'll email you a link to set a password and finish setting it up."
+          // Also what someone who was invited but never registered sees: they
+          // have no account yet. "Forgot password?" covers them too — it emails
+          // an account-setup link instead (requestPasswordReset).
+          : /invalid login credentials/i.test(raw)
+            ? "Incorrect email or password. If you were invited but haven't created your account yet — or can't remember your password — choose \"Forgot password?\" and we'll email you a link."
+            : raw || "Invalid email or password"
       );
     } finally {
       setLoading(false);

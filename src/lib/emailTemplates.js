@@ -303,6 +303,22 @@ export const DEFAULT_TEMPLATES = {
   If you did not expect this invitation, you can safely ignore this email.
 </p>`,
   },
+  account_setup: {
+    name: 'Account Setup Link',
+    subject: 'Finish setting up your ConstructIQ account',
+    body_html: `
+<p>Hi <strong>{name}</strong>,</p>
+<p>You asked to reset your <strong>{company_name}</strong> password, but your account hasn't been set up yet — you were invited, and the invitation was never completed.</p>
+<p>Click the button below to create your account and choose a password. It takes about a minute.</p>
+<p style="margin-top:24px;">
+  <a href="{setup_link}" style="display:inline-block;padding:10px 24px;background:#1a56db;color:#fff;text-decoration:none;border-radius:6px;font-weight:500;font-size:14px;">
+    Set up your account
+  </a>
+</p>
+<p style="font-size:13px;color:#6b7280;margin-top:16px;">
+  Use this email address to log in afterwards. If you did not request this, you can safely ignore this email.
+</p>`,
+  },
   password_reset: {
     name: 'Password Reset',
     subject: 'Reset your ConstructIQ password',
@@ -501,6 +517,11 @@ export const TEMPLATE_VARIABLES = {
     { key: 'project_context', desc: 'Optional project name paragraph' },
     { key: 'quote_context', desc: 'Optional accepted-quote paragraph (subcontractors added with a quote ref)' },
     { key: 'invite_link', desc: 'Registration link' },
+  ],
+  account_setup: [
+    { key: 'name', desc: "Invitee's name (or email if no name)" },
+    { key: 'setup_link', desc: 'Link to create their account (the registration page)' },
+    { key: 'company_name', desc: 'Your company name' },
   ],
   password_reset: [
     { key: 'name', desc: "Recipient's name (or email if no name)" },
