@@ -47,6 +47,22 @@ async function getSystemRoleFromDb(projectRoleName: string) {
   return 'external';
 }
 
+// Only an admin can hand out the admin permission role. A non-admin inviter
+// asking for it (e.g. an internal user picking the "Admin" project role in the
+// team manager) still gets their invite sent, with the invitee's permission
+// role held at the inviter's own level. The project role label is unaffected.
+function capRoleForInviter(requestedRole: string, inviterRole: string) {
+  return requestedRole === 'admin' && inviterRole !== 'admin' ? inviterRole : requestedRole;
+}
+
+// An invite token creates the account for that email (registerInvited), so it
+// goes to the invitee's inbox only — never back to the browser that asked.
+function withoutToken(invite: any) {
+  if (!invite) return invite;
+  const { token: _token, ...rest } = invite;
+  return rest;
+}
+
 function generateToken() { return crypto.randomUUID(); }
 
 // Optional accepted-quote paragraph for add/invite emails. Empty string when no
@@ -253,10 +269,10 @@ Deno.serve(async (req) => {
       if (existingUser) return Response.json({ status: 'existing_user', user: existingUser }, { headers: corsHeaders });
 
       const pendingInvite = (invitedUsers ?? []).find((i: any) => i.status === 'Pending');
-      if (pendingInvite) return Response.json({ status: 'pending', invitedUser: pendingInvite }, { headers: corsHeaders });
+      if (pendingInvite) return Response.json({ status: 'pending', invitedUser: withoutToken(pendingInvite) }, { headers: corsHeaders });
 
       const expiredInvite = (invitedUsers ?? []).find((i: any) => i.status === 'Expired');
-      if (expiredInvite) return Response.json({ status: 'expired', invitedUser: expiredInvite }, { headers: corsHeaders });
+      if (expiredInvite) return Response.json({ status: 'expired', invitedUser: withoutToken(expiredInvite) }, { headers: corsHeaders });
 
       return Response.json({ status: 'new' }, { headers: corsHeaders });
     }
@@ -267,9 +283,12 @@ Deno.serve(async (req) => {
       if (!email) return Response.json({ error: 'email required' }, { status: 400, headers: corsHeaders });
 
       const normalEmail = normalizeEmail(email);
-      const permissionRole = VALID_APP_ROLES.includes((appRole || '').toLowerCase().trim())
-        ? (appRole || '').toLowerCase().trim()
-        : 'external';
+      const permissionRole = capRoleForInviter(
+        VALID_APP_ROLES.includes((appRole || '').toLowerCase().trim())
+          ? (appRole || '').toLowerCase().trim()
+          : 'external',
+        user.role,
+      );
       const now = new Date().toISOString();
 
       const { data: brandings } = await supabaseAdmin.from('email_branding').select('*').limit(1);
@@ -337,7 +356,7 @@ Deno.serve(async (req) => {
         created_date: now,
       }).then(null, () => {});
 
-      return Response.json({ success: true, isNewInvite, invitedUser }, { headers: corsHeaders });
+      return Response.json({ success: true, isNewInvite, invitedUser: withoutToken(invitedUser) }, { headers: corsHeaders });
     }
 
     // ── invite ───────────────────────────────────────────────────────────────
@@ -347,9 +366,12 @@ Deno.serve(async (req) => {
         return Response.json({ error: 'email, projectId, role required' }, { status: 400, headers: corsHeaders });
       }
 
-      const permissionRole = VALID_APP_ROLES.includes((appRole || '').toLowerCase().trim())
-        ? toPermissionRole(appRole)
-        : await getSystemRoleFromDb(projectRole || role);
+      const permissionRole = capRoleForInviter(
+        VALID_APP_ROLES.includes((appRole || '').toLowerCase().trim())
+          ? toPermissionRole(appRole)
+          : await getSystemRoleFromDb(projectRole || role),
+        user.role,
+      );
 
       const normalEmail = normalizeEmail(email);
       const now = new Date().toISOString();
@@ -450,7 +472,7 @@ Deno.serve(async (req) => {
         created_date: now,
       }).then(null, () => {});
 
-      return Response.json({ success: true, isNewInvite, duplicateAssignment: !!activeAssignment, invitedUser, assignment }, { headers: corsHeaders });
+      return Response.json({ success: true, isNewInvite, duplicateAssignment: !!activeAssignment, invitedUser: withoutToken(invitedUser), assignment }, { headers: corsHeaders });
     }
 
     // ── resend ───────────────────────────────────────────────────────────────
