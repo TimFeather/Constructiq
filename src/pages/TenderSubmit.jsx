@@ -645,7 +645,7 @@ export default function TenderSubmit() {
                         {(q.tender_rfi_responses || []).map((r) => (
                           <div key={r.id} className="bg-blue-50 rounded p-3">
                             <p className="text-xs font-medium text-blue-700">{r.author_name || 'Issued By'}</p>
-                            <p className="text-sm mt-1">{r.content}</p>
+                            <p className="text-sm mt-1 whitespace-pre-wrap">{r.content}</p>
                           </div>
                         ))}
                       </div>

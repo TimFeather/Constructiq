@@ -138,6 +138,9 @@ export default function TenderDetail() {
   const [deleteQuestionId, setDeleteQuestionId] = useState(null);
   const [editQuestion, setEditQuestion] = useState(null); // { id, subject, description }
   const [editQuestionSaving, setEditQuestionSaving] = useState(false);
+  // Editing a reply already sent (e.g. Reply pressed before the answer was finished)
+  const [editResponse, setEditResponse] = useState(null); // { id, rfiId, content, original, resend, rfiSubject, inviteeEmail, inviteeName }
+  const [editResponseSaving, setEditResponseSaving] = useState(false);
 
   const handleReply = async (rfiId, inviteeEmail, inviteeName, rfiSubject) => {
     const { supabase } = await import('@/api/supabaseClient');
@@ -206,6 +209,51 @@ export default function TenderDetail() {
       toast({ title: 'Failed to update', description: e.message, variant: 'destructive' });
     } finally {
       setEditQuestionSaving(false);
+    }
+  };
+
+  const handleEditResponse = async () => {
+    if (!editResponse) return;
+    const content = editResponse.content.trim();
+    if (!content) return;
+    setEditResponseSaving(true);
+    const { supabase } = await import('@/api/supabaseClient');
+    try {
+      const { error } = await supabase.from('tender_rfi_responses').update({
+        content,
+        edited_at:       new Date().toISOString(),
+        edited_by_email: user.email,
+      }).eq('id', editResponse.id);
+      if (error) throw error;
+
+      // The asker already has the first version by email — optionally send them the corrected one
+      let emailed = false;
+      if (editResponse.resend && editResponse.inviteeEmail) {
+        emailed = await invokeFunction('tenderPublicApi', {
+          action: 'respondQuestion',
+          token: '__admin_reply__',
+          rfi_id: editResponse.rfiId,
+          content,
+          invitee_email: editResponse.inviteeEmail,
+          invitee_name: editResponse.inviteeName,
+          rfi_subject: editResponse.rfiSubject,
+          tender_id: id,
+        }).then(() => true).catch(() => false);
+      }
+
+      refetchQuestions();
+      toast({
+        title: 'Reply updated',
+        description: editResponse.resend
+          ? (emailed ? `Corrected answer emailed to ${editResponse.inviteeName || editResponse.inviteeEmail}` : 'Saved, but the email could not be sent')
+          : 'The tender portal now shows the corrected answer',
+      });
+      logActivity('note_added', `Answer edited: "${editResponse.rfiSubject}"${emailed ? ` — corrected answer emailed to ${editResponse.inviteeName || editResponse.inviteeEmail}` : ''}`);
+      setEditResponse(null);
+    } catch (e) {
+      toast({ title: 'Failed to update reply', description: e.message, variant: 'destructive' });
+    } finally {
+      setEditResponseSaving(false);
     }
   };
 
@@ -742,9 +790,30 @@ export default function TenderDetail() {
                     <div className="space-y-2 pl-4 border-l-2 border-primary/20">
                       {(q.tender_rfi_responses || []).map((r) => (
                         <div key={r.id} className="bg-blue-50 rounded p-3">
-                          <p className="text-xs font-medium text-blue-700">{r.author_name || r.author_email}</p>
-                          <p className="text-sm mt-1">{r.content}</p>
-                          <p className="text-xs text-muted-foreground mt-1">{new Date(r.created_at).toLocaleDateString('en-NZ')}</p>
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-xs font-medium text-blue-700">{r.author_name || r.author_email}</p>
+                            {effectiveCanManage && (
+                              <Button size="sm" variant="ghost" className="h-7 -mt-1 -mr-1 px-2 gap-1 text-xs text-muted-foreground hover:bg-blue-100"
+                                title="Edit this reply"
+                                onClick={() => setEditResponse({
+                                  id: r.id,
+                                  rfiId: q.id,
+                                  content: r.content || '',
+                                  original: r.content || '',
+                                  resend: true,
+                                  rfiSubject: q.subject,
+                                  inviteeEmail: q.created_by_email,
+                                  inviteeName: q.created_by_name,
+                                })}>
+                                <Pencil className="w-3 h-3" /> Edit
+                              </Button>
+                            )}
+                          </div>
+                          <p className="text-sm mt-1 whitespace-pre-wrap">{r.content}</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {new Date(r.created_at).toLocaleDateString('en-NZ')}
+                            {r.edited_at && <span className="italic ml-1">(edited {new Date(r.edited_at).toLocaleDateString('en-NZ')})</span>}
+                          </p>
                         </div>
                       ))}
                     </div>
@@ -844,6 +913,54 @@ export default function TenderDetail() {
               <Button variant="outline" onClick={() => setEditQuestion(null)} disabled={editQuestionSaving}>Cancel</Button>
               <Button onClick={handleEditQuestion} disabled={editQuestionSaving || !editQuestion.subject.trim()}>
                 {editQuestionSaving ? 'Saving...' : 'Save Changes'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit reply dialog */}
+      {editResponse && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-background rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 space-y-4">
+            <div>
+              <h2 className="text-base font-semibold">Edit Reply</h2>
+              <p className="text-xs text-muted-foreground mt-0.5 break-words">Question: {editResponse.rfiSubject}</p>
+            </div>
+            <div>
+              <Label className="text-xs font-medium">Answer</Label>
+              <Textarea
+                value={editResponse.content}
+                onChange={e => setEditResponse(r => ({ ...r, content: e.target.value }))}
+                rows={6}
+                className="mt-1"
+                autoFocus
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                The tender portal shows the corrected answer as soon as you save.
+              </p>
+            </div>
+            {editResponse.inviteeEmail && (
+              <label className="flex items-start gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 flex-shrink-0"
+                  checked={editResponse.resend}
+                  onChange={e => setEditResponse(r => ({ ...r, resend: e.target.checked }))}
+                />
+                <span>
+                  Email the corrected answer to {editResponse.inviteeName || editResponse.inviteeEmail}
+                  <span className="block text-xs text-muted-foreground">They already received the first version by email.</span>
+                </span>
+              </label>
+            )}
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setEditResponse(null)} disabled={editResponseSaving}>Cancel</Button>
+              <Button
+                onClick={handleEditResponse}
+                disabled={editResponseSaving || !editResponse.content.trim() || editResponse.content.trim() === editResponse.original.trim()}
+              >
+                {editResponseSaving ? 'Saving...' : editResponse.resend && editResponse.inviteeEmail ? 'Save & Email' : 'Save'}
               </Button>
             </div>
           </div>
