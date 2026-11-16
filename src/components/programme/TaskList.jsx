@@ -77,6 +77,9 @@ export default function TaskList({
   editable = false,      // whether the grid is editable
   totalWorkingDays = null, // overall project span in working days (title bar)
   showCritical = false,  // red critical styling only when the Critical toggle is on
+  revealTaskId = null,   // a just-created task to scroll to, select and flash
+  onRevealed,            // () => void — called once revealTaskId has been shown
+  onCursorTaskChange,    // (task | null) => void — the task under the grid cursor
 }) {
   // The 112px Assigned column is matched by the panel width in Programme.jsx
   const COLS = baselineMap
@@ -143,6 +146,31 @@ export default function TaskList({
     const el = scrollRef.current.querySelector(`[data-row-idx="${key}"]`);
     el?.scrollIntoView({ block: 'nearest' });
   }, [cursor, scrollRef]);
+
+  // Tell the page which task the cursor is on (Add Task defaults to its group).
+  const cursorTaskId = cursor && !cursor.isGhost ? (visibleTasks[cursor.rowIdx]?.id ?? null) : null;
+  useEffect(() => {
+    onCursorTaskChange?.(cursorTaskId ? visibleTasks.find(t => t.id === cursorTaskId) || null : null);
+  }, [cursorTaskId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reveal a just-created task: wait for it to arrive in visibleTasks (the page
+  // has expanded its groups), then centre it, put the cursor on it and flash it.
+  const [flashTaskId, setFlashTaskId] = useState(null);
+  useEffect(() => {
+    if (!revealTaskId) return;
+    const rowIdx = visibleTasks.findIndex(t => t.id === revealTaskId);
+    if (rowIdx === -1) return;
+    setCursor({ rowIdx, colKey: 'name', isGhost: false });
+    setEditing(false);
+    scrollRef?.current?.querySelector(`[data-row-idx="${rowIdx}"]`)?.scrollIntoView({ block: 'center' });
+    setFlashTaskId(revealTaskId);
+    onRevealed?.();
+  }, [revealTaskId, visibleTasks]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!flashTaskId) return undefined;
+    const timer = setTimeout(() => setFlashTaskId(null), 3000);
+    return () => clearTimeout(timer);
+  }, [flashTaskId]);
 
   function startEdit(rowIdx, colKey, initial, isGhost = false) {
     setCursor({ rowIdx, colKey, isGhost });
@@ -428,6 +456,7 @@ export default function TaskList({
                 isCritical ? 'border-l-red-500 bg-red-50/30 dark:bg-red-950/10' : (levelColors[depth] || 'border-l-muted'),
                 isSummary && !isCritical && 'bg-primary/15 dark:bg-primary/20',
                 hoveredTaskId === task.id && 'bg-muted/60',
+                flashTaskId === task.id && 'bg-amber-200/70 dark:bg-amber-500/30',
               )}
               onClick={() => { if (!editable) onTaskClick?.(task); }}
               onMouseEnter={() => onHoverTask?.(task.id)}

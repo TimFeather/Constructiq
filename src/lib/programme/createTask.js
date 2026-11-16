@@ -77,7 +77,7 @@ function computeAnchorSortOrder(tasks, anchorTask, position) {
  *   insert beside an existing row (context-menu Insert Above/Below); lands in the
  *   anchor's own group. Takes precedence over parentId/predecessorId placement and
  *   never creates a dependency link.
- * @returns {Promise<object>} the created task record
+ * @returns {Promise<object>} the created task record, with its assigned `wbs`
  */
 export async function createTaskInline({
   projectId, name, tasks, scheduleOptions,
@@ -117,6 +117,7 @@ export async function createTaskInline({
 
   // WBS renumber cascade: visibleTasks sorts by WBS before sort_order, so
   // an unnumbered insert would otherwise sort to the top of its group.
+  let wbs = created?.wbs;
   if (created?.id) {
     const postInsertTasks = [...tasks, created];
     const wbsPatches = computeWBS(postInsertTasks).filter(p => {
@@ -126,7 +127,9 @@ export async function createTaskInline({
     if (wbsPatches.length) {
       await bulkUpdateTaskWbs(wbsPatches);
     }
+    wbs = wbsPatches.find(p => p.id === created.id)?.wbs ?? wbs;
   }
 
-  return created;
+  // Hand back the number the task was just given, so callers can say where it went
+  return created ? { ...created, wbs } : created;
 }

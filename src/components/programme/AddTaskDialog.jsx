@@ -3,16 +3,21 @@
  * Creates the task, then (optionally) links a predecessor through the
  * scheduling service so the engine places it straight away.
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { Check, ChevronsUpDown } from 'lucide-react';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { useToast } from '@/components/ui/use-toast';
+import { cn } from '@/lib/utils';
 import { createTaskInline } from '@/lib/programme/createTask';
+import { taskPathLabel, inOutlineOrder } from '@/lib/programme/taskPath';
 
 const NONE = '__none__';
 
@@ -28,7 +33,70 @@ function todayStr() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-export default function AddTaskDialog({ open, onOpenChange, projectId, tasks, scheduleOptions }) {
+// Every search word must appear somewhere in the option's WBS, name or path.
+const matchAllWords = (_value, search, keywords) => {
+  const haystack = (keywords || []).join(' ').toLowerCase();
+  return search.toLowerCase().split(/\s+/).filter(Boolean).every(w => haystack.includes(w)) ? 1 : 0;
+};
+
+function OptionLabel({ option }) {
+  return (
+    <span className="min-w-0">
+      <span className="block truncate">{option.wbs ? `${option.wbs} ` : ''}{option.name}</span>
+      {option.path && <span className="block truncate text-[11px] text-muted-foreground">{option.path}</span>}
+    </span>
+  );
+}
+
+/**
+ * Searchable task picker. Each option shows the groups it sits under, because
+ * imported programmes repeat names ("UNITS 6 & 7") under different parents.
+ * options: [{ id, wbs, name, path }]
+ */
+function TaskPicker({ value, onChange, options, noneLabel, placeholder }) {
+  const [open, setOpen] = useState(false);
+  const selected = value !== NONE ? options.find(o => o.id === value) : null;
+  const pick = (id) => { onChange(id); setOpen(false); };
+
+  return (
+    // modal: lets the list scroll with the wheel inside the dialog
+    <Popover open={open} onOpenChange={setOpen} modal>
+      <PopoverTrigger asChild>
+        <Button type="button" variant="outline" role="combobox" aria-expanded={open}
+          className="mt-1 w-full justify-between font-normal h-auto min-h-9 py-1.5 text-left">
+          {selected ? <OptionLabel option={selected} /> : <span>{noneLabel}</span>}
+          <ChevronsUpDown className="w-4 h-4 opacity-50 flex-shrink-0" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="p-0 w-[--radix-popover-trigger-width] min-w-[20rem]">
+        <Command filter={matchAllWords}>
+          <CommandInput placeholder={placeholder} />
+          <CommandList>
+            <CommandEmpty>Nothing matches.</CommandEmpty>
+            <CommandItem value={NONE} keywords={[noneLabel]} onSelect={() => pick(NONE)}>
+              <Check className={cn('w-4 h-4', value === NONE ? 'opacity-100' : 'opacity-0')} />
+              {noneLabel}
+            </CommandItem>
+            {options.map(o => (
+              <CommandItem key={o.id} value={o.id} keywords={[o.wbs || '', o.name || '', o.path]} onSelect={() => pick(o.id)}>
+                <Check className={cn('w-4 h-4', value === o.id ? 'opacity-100' : 'opacity-0')} />
+                <OptionLabel option={o} />
+              </CommandItem>
+            ))}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * @param {() => object|null} [getAnchorTask] — the row selected in the task table
+ *   when the dialog opens; the new task defaults to that row's group.
+ * @param {(created: object) => void} [onCreated] — called with the new task
+ *   (including its WBS number) so the page can reveal it.
+ */
+export default function AddTaskDialog({ open, onOpenChange, projectId, tasks, scheduleOptions, getAnchorTask, onCreated }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [saving, setSaving] = useState(false);
@@ -36,20 +104,57 @@ export default function AddTaskDialog({ open, onOpenChange, projectId, tasks, sc
     name: '', duration: 5, start_date: '', is_milestone: false,
     parent_id: NONE, predecessor_id: NONE, dep_type: 'FS', lag_days: 0,
   });
+  // The parent follows the selected row / the predecessor until the user picks one themselves
+  const [parentTouched, setParentTouched] = useState(false);
+  const [defaultParentId, setDefaultParentId] = useState(NONE);
+
+  const tasksById = useMemo(() => new Map(tasks.map(t => [t.id, t])), [tasks]);
+  const summaryIds = useMemo(() => new Set(tasks.filter(t => t.parent_id).map(t => t.parent_id)), [tasks]);
 
   useEffect(() => {
     if (open) {
+      // Default to the group of the row selected in the table: the row itself
+      // if it is a group, otherwise the group it sits in.
+      const anchor = getAnchorTask?.();
+      const liveAnchor = anchor ? tasksById.get(anchor.id) : null;
+      const anchorParent = !liveAnchor ? NONE
+        : summaryIds.has(liveAnchor.id) ? liveAnchor.id
+        : (liveAnchor.parent_id || NONE);
+      setDefaultParentId(anchorParent);
+      setParentTouched(false);
       setForm({
         name: '', duration: 5,
         start_date: scheduleOptions?.dataDate || todayStr(),
-        is_milestone: false, parent_id: NONE, predecessor_id: NONE, dep_type: 'FS', lag_days: 0,
+        is_milestone: false, parent_id: anchorParent, predecessor_id: NONE, dep_type: 'FS', lag_days: 0,
       });
     }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const parentOptions = tasks.filter(t => tasks.some(c => c.parent_id === t.id) || !t.parent_id);
+  const { parentOptions, predecessorOptions } = useMemo(() => {
+    const toOption = (t) => ({ id: t.id, wbs: t.wbs, name: t.name, path: taskPathLabel(t, tasksById) });
+    const outline = inOutlineOrder(tasks);
+    return {
+      parentOptions: outline.filter(t => summaryIds.has(t.id) || !t.parent_id).map(toOption),
+      predecessorOptions: outline.filter(t => !summaryIds.has(t.id)).map(toOption),
+    };
+  }, [tasks, tasksById, summaryIds]);
 
-  const predecessor = form.predecessor_id !== NONE ? tasks.find(t => t.id === form.predecessor_id) : null;
+  const handleParentChange = (id) => {
+    setParentTouched(true);
+    setForm(f => ({ ...f, parent_id: id }));
+  };
+
+  // Picking a predecessor moves the task into the predecessor's group (so it
+  // lands directly below it) unless the user has chosen a parent themselves.
+  const handlePredecessorChange = (id) => {
+    setForm(f => {
+      if (parentTouched) return { ...f, predecessor_id: id };
+      const pred = id !== NONE ? tasksById.get(id) : null;
+      return { ...f, predecessor_id: id, parent_id: pred ? (pred.parent_id || NONE) : defaultParentId };
+    });
+  };
+
+  const predecessor = form.predecessor_id !== NONE ? tasksById.get(form.predecessor_id) : null;
   const parentId = form.parent_id === NONE ? null : form.parent_id;
   const predecessorInDifferentGroup = !!predecessor && (predecessor.parent_id || null) !== parentId;
 
@@ -57,7 +162,7 @@ export default function AddTaskDialog({ open, onOpenChange, projectId, tasks, sc
     if (!form.name.trim() || !projectId || projectId === 'all') return;
     setSaving(true);
     try {
-      await createTaskInline({
+      const created = await createTaskInline({
         projectId,
         name: form.name,
         tasks,
@@ -72,8 +177,14 @@ export default function AddTaskDialog({ open, onOpenChange, projectId, tasks, sc
       });
 
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      toast({ title: 'Task added', description: form.name.trim(), duration: 2500 });
+      const where = created ? taskPathLabel(created, tasksById) : '';
+      toast({
+        title: `Task added${created?.wbs ? ` as ${created.wbs}` : ''}`,
+        description: where ? `${form.name.trim()} — under ${where}` : form.name.trim(),
+        duration: 5000,
+      });
       onOpenChange(false);
+      if (created) onCreated?.(created);
     } catch (e) {
       toast({ title: 'Could not add task', description: e.message, variant: 'destructive' });
     } finally {
@@ -110,27 +221,23 @@ export default function AddTaskDialog({ open, onOpenChange, projectId, tasks, sc
           </div>
           <div>
             <Label>Parent (WBS group)</Label>
-            <Select value={form.parent_id} onValueChange={v => setForm(f => ({ ...f, parent_id: v }))}>
-              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NONE}>None (top level)</SelectItem>
-                {parentOptions.map(t => (
-                  <SelectItem key={t.id} value={t.id}>{t.wbs ? `${t.wbs} ` : ''}{t.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <TaskPicker
+              value={form.parent_id}
+              onChange={handleParentChange}
+              options={parentOptions}
+              noneLabel="None (top level)"
+              placeholder="Search groups…"
+            />
           </div>
           <div>
             <Label>Predecessor (optional)</Label>
-            <Select value={form.predecessor_id} onValueChange={v => setForm(f => ({ ...f, predecessor_id: v }))}>
-              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NONE}>None</SelectItem>
-                {tasks.filter(t => !tasks.some(c => c.parent_id === t.id)).map(t => (
-                  <SelectItem key={t.id} value={t.id}>{t.wbs ? `${t.wbs} ` : ''}{t.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <TaskPicker
+              value={form.predecessor_id}
+              onChange={handlePredecessorChange}
+              options={predecessorOptions}
+              noneLabel="None"
+              placeholder="Search tasks…"
+            />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>

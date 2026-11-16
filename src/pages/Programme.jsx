@@ -112,6 +112,10 @@ export default function Programme() {
 
   const [showCriticalPath, setShowCriticalPath] = useState(false); // critical-only filter
   const [showAddTask, setShowAddTask] = useState(false);
+  // A just-created task for the task table to scroll to, select and flash
+  const [revealTaskId, setRevealTaskId] = useState(null);
+  // The task under the table's grid cursor — Add Task defaults to its group
+  const cursorTaskRef = useRef(null);
   const [selectedBaselineId, setSelectedBaselineId] = useState(null); // baseline overlay
   const [isExportingPdf, setIsExportingPdf] = useState(false);
 
@@ -386,6 +390,27 @@ export default function Programme() {
     }
   }, [tasks, scheduleOptions, afterScheduleChange, toast]);
 
+  // Show a just-created task: open every group above it and hand it to the
+  // task table, which scrolls to it once the refetch brings it in.
+  const revealTask = useCallback((created) => {
+    if (!created?.id) return;
+    const byId = new Map(tasks.map(t => [t.id, t]));
+    const ancestorIds = [];
+    for (let id = created.parent_id; id && byId.has(id) && !ancestorIds.includes(id); id = byId.get(id).parent_id) {
+      ancestorIds.push(id);
+    }
+    if (ancestorIds.length) {
+      setExpandedIds(prev => {
+        const next = new Set(prev);
+        ancestorIds.forEach(id => next.add(id));
+        return next;
+      });
+    }
+    setActiveTab('gantt');
+    setTaskListCollapsed(false);
+    setRevealTaskId(created.id);
+  }, [tasks]);
+
   // "Add task…" ghost row at the bottom of the table — root-level, appended last.
   const handleCreateInline = useCallback(async (name) => {
     try {
@@ -443,11 +468,12 @@ export default function Programme() {
         await handleHierarchyChange(patches);
         setExpandedIds(prev => new Set(prev).add(task.id));
       } else if (action === 'insert-above' || action === 'insert-below') {
-        await createTaskInline({
+        const created = await createTaskInline({
           projectId: selectedProjectId, name: 'New Task', tasks, scheduleOptions,
           anchor: { task, position: action === 'insert-above' ? 'above' : 'below' },
         });
         queryClient.invalidateQueries({ queryKey: ['tasks'] });
+        revealTask(created);
       } else if (action === 'convert-milestone') {
         const { patches } = await updateTaskFull(task.id, { is_milestone: true, duration: 0 }, tasks, scheduleOptions);
         afterScheduleChange(patches.length);
@@ -455,7 +481,7 @@ export default function Programme() {
     } catch (e) {
       toast({ title: 'Action failed', description: e.message, variant: 'destructive' });
     }
-  }, [tasks, scheduleOptions, handleHierarchyChange, selectedProjectId, queryClient, toast, afterScheduleChange]);
+  }, [tasks, scheduleOptions, handleHierarchyChange, selectedProjectId, queryClient, toast, afterScheduleChange, revealTask]);
 
   // Overall project span in working days (first start → last finish), for the
   // TaskList title bar — matches MS Project's summary-duration convention.
@@ -1243,6 +1269,9 @@ export default function Programme() {
                     editable={programmeEditable}
                     totalWorkingDays={totalWorkingDays}
                     showCritical={showCriticalPath}
+                    revealTaskId={revealTaskId}
+                    onRevealed={() => setRevealTaskId(null)}
+                    onCursorTaskChange={(task) => { cursorTaskRef.current = task; }}
                     scrollRef={taskScrollRef}
                     onScroll={() => {
                       if (taskScrollRef.current && ganttScrollRef.current) {
@@ -1326,6 +1355,8 @@ export default function Programme() {
         projectId={selectedProjectId}
         tasks={tasks}
         scheduleOptions={scheduleOptions}
+        getAnchorTask={() => cursorTaskRef.current}
+        onCreated={revealTask}
       />
 
       {/* MS Project resources → team members (before the diff / calendar steps) */}
