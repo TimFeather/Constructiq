@@ -19,7 +19,7 @@ import {
 import {
   PanelLeftClose, PanelLeftOpen, Upload, Printer, ZoomIn, ZoomOut,
   Trash2, Target, Calendar, LayoutDashboard, CalendarDays,
-  ChevronsDownUp, ChevronsUpDown, Download, Plus, Lock, Unlock, Send, MoreHorizontal,
+  ChevronsDownUp, ChevronsUpDown, Download, Plus, Lock, Unlock, Send, MoreHorizontal, HardHat,
 } from 'lucide-react';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
@@ -45,6 +45,7 @@ import ImportDiffDialog from '@/components/programme/ImportDiffDialog';
 import ImportCalendarWarning from '@/components/programme/ImportCalendarWarning';
 import ImportResourcesDialog from '@/components/programme/ImportResourcesDialog';
 import AddTaskDialog from '@/components/programme/AddTaskDialog';
+import AssignSubsDialog from '@/components/programme/AssignSubsDialog';
 import ScheduleSettingsPopover from '@/components/programme/ScheduleSettingsPopover';
 import BaselineManager from '@/components/programme/BaselineManager';
 import { buildBaselineMap } from '@/lib/scheduling/baselineEngine';
@@ -112,6 +113,7 @@ export default function Programme() {
 
   const [showCriticalPath, setShowCriticalPath] = useState(false); // critical-only filter
   const [showAddTask, setShowAddTask] = useState(false);
+  const [showAssignSubs, setShowAssignSubs] = useState(false);
   // A just-created task for the task table to scroll to, select and flash
   const [revealTaskId, setRevealTaskId] = useState(null);
   // The task under the table's grid cursor — Add Task defaults to its group
@@ -271,6 +273,10 @@ export default function Programme() {
   const progressEditable = canEdit(user, 'programme');
   const canImportExport = canImport(user, 'programme') && canExport(user, 'programme');
   const canPublish = ['admin', 'internal', 'pricing'].includes(user?.role) && selectedProjectId !== 'all';
+  // Assignees aren't schedule fields, so the publish lock doesn't stop this
+  const selectedTeam = projects.find(p => p.id === selectedProjectId)?.team || [];
+  const canAssignSubs = canEdit(user, 'programme') && selectedProjectId !== 'all' && tasks.length > 0
+    && selectedTeam.some(m => m.role === 'Subcontractor');
 
   const [isLocking, setIsLocking] = useState(false);
   const [isNotifying, setIsNotifying] = useState(false);
@@ -1080,6 +1086,12 @@ export default function Programme() {
                 <Plus className="w-3.5 h-3.5" /> Add Task
               </Button>
             )}
+            {canAssignSubs && (
+              <Button variant="outline" size="sm" onClick={() => setShowAssignSubs(true)} className="gap-1.5 text-xs h-9"
+                title="Put the project's subcontractors on unassigned tasks by trade">
+                <HardHat className="w-3.5 h-3.5" /> Assign Subs
+              </Button>
+            )}
             </div>
             <Button
               variant={showCriticalPath ? 'destructive' : 'outline'} size="sm"
@@ -1159,6 +1171,9 @@ export default function Programme() {
                 <DropdownMenuContent align="end" className="w-56">
                   {programmeEditable && (
                     <DropdownMenuItem onClick={() => setShowAddTask(true)}><Plus className="w-4 h-4 mr-2" /> Add task</DropdownMenuItem>
+                  )}
+                  {canAssignSubs && (
+                    <DropdownMenuItem onClick={() => setShowAssignSubs(true)}><HardHat className="w-4 h-4 mr-2" /> Assign subs to tasks</DropdownMenuItem>
                   )}
                   {canPublish && !programmeLocked && (
                     <DropdownMenuItem onClick={handleLock} disabled={isLocking || tasks.length === 0}><Lock className="w-4 h-4 mr-2" /> Lock programme</DropdownMenuItem>
@@ -1358,6 +1373,16 @@ export default function Programme() {
         getAnchorTask={() => cursorTaskRef.current}
         onCreated={revealTask}
       />
+
+      {showAssignSubs && (
+        <AssignSubsDialog
+          projectId={selectedProjectId}
+          team={selectedTeam}
+          tasks={tasks}
+          userId={user?.id || null}
+          onClose={() => setShowAssignSubs(false)}
+        />
+      )}
 
       {/* MS Project resources → team members (before the diff / calendar steps) */}
       <ImportResourcesDialog

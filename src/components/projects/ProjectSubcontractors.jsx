@@ -1,5 +1,5 @@
 import { invokeFunction } from '@/api/supabaseClient';
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Project, User, TenderSubmission } from '@/api/entities';
 import { fetchTaskAssignees, linkProgrammeToTeam } from '@/api/programmeData';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -16,7 +16,9 @@ import { normalizeEmail } from '@/lib/normalizeEmail';
 import { isUserDeactivated } from '@/lib/userStatus';
 import { isDraftMember, memberEmail } from '@/lib/teamInvites';
 import { linkTradeAssignees } from '@/lib/scheduleImportResources';
+import { proposeSubAssignments } from '@/lib/programme/subTaskMatch';
 import { useTradeList } from '@/hooks/useTradeList';
+import AssignSubsDialog from '@/components/programme/AssignSubsDialog';
 import PersonAutocomplete from '@/components/shared/PersonAutocomplete';
 import { ContactButtons, EmailLink, PhoneLink } from '@/components/shared/ContactActions';
 import TradeSelect from '@/components/projects/TradeSelect';
@@ -55,6 +57,7 @@ export default function ProjectSubcontractors({ project, linkedTenderId }) {
   const [showSendConfirm, setShowSendConfirm] = useState(false);
   const [sending, setSending] = useState(false);
   const [linking, setLinking] = useState(false);
+  const [showAssignSubs, setShowAssignSubs] = useState(false);
 
   const { data: allUsers = [] } = useQuery({
     queryKey: ['users'],
@@ -107,6 +110,12 @@ export default function ProjectSubcontractors({ project, linkedTenderId }) {
     }
   }
   const unlinkedTaskCount = linkTradeAssignees(taskAssignees, team).length;
+  // Unassigned programme tasks whose name (or group) is a sub's trade
+  const assignableTaskCount = useMemo(() => {
+    if (!isAllowed || !taskAssignees.length) return 0;
+    const proposal = proposeSubAssignments(taskAssignees, team);
+    return proposal.candidateCount - proposal.unmatchedIds.length;
+  }, [isAllowed, taskAssignees, team]);
 
   const busy = sending || linking;
 
@@ -449,6 +458,32 @@ export default function ProjectSubcontractors({ project, linkedTenderId }) {
             Link to Subs
           </Button>
         </div>
+      )}
+
+      {/* Programme tasks with nobody on them that a sub's trade covers */}
+      {isAllowed && assignableTaskCount > 0 && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-amber-50 dark:bg-amber-950/20 rounded-lg border border-amber-200 dark:border-amber-800">
+          <div>
+            <p className="text-sm font-medium text-amber-900 dark:text-amber-100">Programme tasks without a sub</p>
+            <p className="text-xs text-amber-700 dark:text-amber-300">
+              {assignableTaskCount} unassigned programme task{assignableTaskCount !== 1 ? 's match' : ' matches'} a trade these subs cover
+            </p>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => setShowAssignSubs(true)} disabled={busy}
+            className="gap-2 border-amber-300 text-amber-800 hover:bg-amber-100">
+            <HardHat className="w-3.5 h-3.5" /> Assign Subs
+          </Button>
+        </div>
+      )}
+
+      {showAssignSubs && (
+        <AssignSubsDialog
+          projectId={project.id}
+          team={team}
+          tasks={taskAssignees}
+          userId={user?.id || null}
+          onClose={() => setShowAssignSubs(false)}
+        />
       )}
 
       {subs.length === 0 ? (

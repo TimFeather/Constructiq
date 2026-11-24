@@ -265,31 +265,25 @@ export async function upsertProgramme(projectId, fields) {
 }
 
 /**
- * Just the assignees of a project's tasks — for screens outside the
- * programme that only need who is on what (not the ['tasks'] cache key,
- * which belongs to fetchProgrammeTasks).
+ * Just who is on which of a project's tasks (plus the names and hierarchy
+ * the Assign Subs matcher reads) — for screens outside the programme (not the
+ * ['tasks'] cache key, which belongs to fetchProgrammeTasks).
  */
 export function fetchTaskAssignees(projectId) {
   return fetchAllRows(() => supabase
-    .from('tasks').select('id, assignees', { count: 'exact' })
+    .from('tasks').select('id, name, wbs, parent_id, sort_order, assignees', { count: 'exact' })
     .eq('project_id', projectId)
     .order('id', { ascending: true }));
 }
 
 /**
- * Point a project's name-only programme resources ("Plumber", "ABC Plumbing")
- * at the team member they name — see linkTradeAssignees. Run after subs join
- * the team so a programme built on trades links up to them. Assignees aren't
+ * Write new assignees onto tasks, logged like an editor save. Assignees aren't
  * schedule fields (the publish lock leaves them editable), so tasks are
- * updated directly, with the change logged like an editor save.
+ * updated directly.
  *
- * @returns {Promise<number>} how many tasks were relinked
+ * @param {Array<{ id, before, assignees }>} changes
  */
-export async function linkProgrammeToTeam(projectId, team, userId = null) {
-  if (!projectId) return 0;
-  const rows = await fetchTaskAssignees(projectId);
-
-  const changes = linkTradeAssignees(rows, team);
+export async function saveTaskAssignees(projectId, changes, userId = null) {
   const CHUNK = 20;
   for (let i = 0; i < changes.length; i += CHUNK) {
     await Promise.all(changes.slice(i, i + CHUNK).map(c => Task.update(c.id, { assignees: c.assignees })));
@@ -303,8 +297,23 @@ export async function linkProgrammeToTeam(projectId, team, userId = null) {
       new_value: JSON.stringify(c.assignees),
       changed_by: userId,
       trigger_task_id: null,
-    }))).catch(err => console.warn('task_change_log write failed (link unaffected):', err.message));
+    }))).catch(err => console.warn('task_change_log write failed (assignees saved):', err.message));
   }
+}
+
+/**
+ * Point a project's name-only programme resources ("Plumber", "ABC Plumbing")
+ * at the team member they name — see linkTradeAssignees. Run after subs join
+ * the team so a programme built on trades links up to them.
+ *
+ * @returns {Promise<number>} how many tasks were relinked
+ */
+export async function linkProgrammeToTeam(projectId, team, userId = null) {
+  if (!projectId) return 0;
+  const rows = await fetchTaskAssignees(projectId);
+
+  const changes = linkTradeAssignees(rows, team);
+  await saveTaskAssignees(projectId, changes, userId);
 
   // The saved import choices too, or the next MS Project update re-labels them.
   const programme = await fetchProgramme(projectId);

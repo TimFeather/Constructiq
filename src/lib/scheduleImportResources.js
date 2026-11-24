@@ -75,6 +75,11 @@ const TRADE_ALIASES = {
   drainage: ['drainage', 'drainlayer', 'drain layer', 'drainlaying'],
   cladding: ['cladding', 'cladder'],
   insulation: ['insulation', 'insulator', 'insulation installer'],
+  // Trades on live project teams that weren't covered (2026-11-24)
+  foundations: ['foundations', 'foundation'],
+  'site works': ['site works', 'siteworks', 'civil works', 'civils', 'civil'],
+  'frame and truss': ['frame and truss', 'frames and trusses', 'frame truss', 'prenail', 'pre nail'],
+  surveying: ['surveying', 'surveyor', 'land surveyor', 'land surveying'],
 };
 const TRADE_KEY = new Map(
   Object.entries(TRADE_ALIASES).flatMap(([key, aliases]) => aliases.map(a => [normalizeName(a), key]))
