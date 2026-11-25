@@ -57,13 +57,15 @@ function todayStr() {
 }
 
 /**
+ * @param {string} [groupPath] - groups the task sits under ("UNIT 8 › STRUCTURE"), so
+ *   they can see which unit they're updating before they save
  * @param {boolean} [canExtend] - show "Need more time?" (task not a milestone, programme not locked)
  * @param {boolean} [locked] - programme is locked, so explain why days can't be added
  * @param {Function} [previewExtension] - (percent, extraDays) => { duration, finishStr }
  * @param {Function} [extraDaysForFinish] - (currentFinishStr, newFinishStr) => working days
  */
 export default function QuickProgressSheet({
-  task, planned, projectName, open, onOpenChange, saving, onSave,
+  task, planned, projectName, groupPath = null, open, onOpenChange, saving, onSave,
   canExtend = false, locked = false, previewExtension, extraDaysForFinish,
 }) {
   const [percent, setPercent] = useState(0);
@@ -137,6 +139,10 @@ export default function QuickProgressSheet({
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent className="max-h-[92dvh]">
         <DrawerHeader>
+          {groupPath && (
+            // Left-aligned to sit over the task name (the header centres plain text on phones)
+            <p className="text-left text-xs font-medium text-primary leading-snug">{groupPath}</p>
+          )}
           <DrawerTitle className="flex items-center gap-2 flex-wrap">
             <span className="truncate">{task.name}</span>
             {task.wbs && <Badge variant="outline" className="text-xs font-mono">{task.wbs}</Badge>}

@@ -8,6 +8,7 @@ import { useAuth } from '@/lib/AuthContext';
 import QuickProgressSheet from '@/components/programme/QuickProgressSheet';
 import useQuickProgress from '@/components/programme/useQuickProgress';
 import { assigneeNames, isAssignedTo, assigneeFilterOptions, hasAssigneeKey } from '@/lib/programme/assignees';
+import { groupPathLabels } from '@/lib/programme/taskPath';
 
 const WINDOWS = [
   { label: '2 Week', days: 14 },
@@ -40,6 +41,10 @@ export default function LookAhead({ tasks, scheduledMap, allTasks, programmesByP
   const myEmail = user?.email || '';
 
   const assigneeOptions = useMemo(() => assigneeFilterOptions(tasks), [tasks]);
+
+  // "UNIT 8 › STRUCTURE" per task — every unit repeats the same task names,
+  // so without this a phone row only tells them apart by WBS number.
+  const groupPaths = useMemo(() => groupPathLabels(tasks), [tasks]);
 
   const { activeTasks, milestones, critical, overdue } = useMemo(() => {
     const active = [], miles = [], crit = [], late = [];
@@ -106,6 +111,7 @@ export default function LookAhead({ tasks, scheduledMap, allTasks, programmesByP
     const status = getStatus(task, isOverdue, pct);
     const daysLeft = differenceInDays(end, today);
     const clickable = canUpdateProgress && isLeaf && !isMilestone;
+    const groupPath = groupPaths.get(task.id);
 
     return (
       <div
@@ -125,6 +131,12 @@ export default function LookAhead({ tasks, scheduledMap, allTasks, programmesByP
           {showProject && (
             <span className="block text-[9px] text-muted-foreground uppercase tracking-wide truncate">
               {projectsById?.get(task.project_id) || '—'}
+            </span>
+          )}
+          {groupPath && (
+            // Unit first, so a long path loses the stage rather than the unit
+            <span className="block text-[10px] font-medium text-primary leading-snug line-clamp-2 md:line-clamp-1" title={groupPath}>
+              {groupPath}
             </span>
           )}
           <div className="flex items-center gap-1 flex-wrap">
@@ -272,6 +284,7 @@ export default function LookAhead({ tasks, scheduledMap, allTasks, programmesByP
           task={activeTask}
           planned={activeTask ? plannedFor(activeTask) : null}
           projectName={null}
+          groupPath={activeTask ? groupPaths.get(activeTask.id) : null}
           open={!!activeTask}
           onOpenChange={open => { if (!open && !saving) setActiveTask(null); }}
           saving={saving}

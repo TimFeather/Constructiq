@@ -24,6 +24,41 @@ export function taskPathLabel(task, tasksById) {
   return taskAncestors(task, tasksById).map(t => t.name).join(' › ');
 }
 
+/**
+ * Map of task id → "UNIT 8 › STRUCTURE" for every task with groups above it,
+ * so a list of bare task names (the Look Ahead on a phone) still says which
+ * building each one belongs to.
+ *
+ * Most programmes wrap the whole outline in one top-level group named after
+ * the job ("Kainga Ora - Template", "BUILD SCHEDULE"). It sits above every
+ * task, so it says nothing about where a task is — when a project has exactly
+ * one top-level group, that group is left out. Loose top-level tasks (a
+ * milestone outside the wrapper) don't count as groups.
+ */
+export function groupPathLabels(tasks) {
+  const byId = new Map(tasks.map(t => [t.id, t]));
+  const parentIds = new Set(tasks.map(t => t.parent_id).filter(Boolean));
+  const topGroups = new Map(); // project_id → number of top-level groups
+  for (const t of tasks) {
+    if (!t.parent_id && parentIds.has(t.id)) {
+      topGroups.set(t.project_id, (topGroups.get(t.project_id) || 0) + 1);
+    }
+  }
+
+  const labels = new Map();
+  for (const t of tasks) {
+    let chain = taskAncestors(t, byId);
+    // chain[0] is only the true top when its own parent_id is empty — a broken
+    // chain (parent not loaded) keeps everything it found.
+    if (chain.length && !chain[0].parent_id && topGroups.get(chain[0].project_id) === 1) {
+      chain = chain.slice(1);
+    }
+    const label = chain.map(a => a.name).filter(Boolean).join(' › ');
+    if (label) labels.set(t.id, label);
+  }
+  return labels;
+}
+
 const parseWbs = (w) => (w || '').split('.').map(n => parseInt(n, 10) || 0);
 
 /** Tasks in outline (WBS) order, falling back to sort_order for ties. */
