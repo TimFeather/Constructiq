@@ -8,6 +8,7 @@ const roles = [
   { name: 'Client', permission_role: 'external' },
   { name: 'External Project Management', permission_role: 'external' },
   { name: 'THS Project Manager', permission_role: 'internal' },
+  { name: 'Worker', permission_role: 'external' },
 ];
 
 describe('teamGroupFor', () => {
@@ -16,6 +17,12 @@ describe('teamGroupFor', () => {
     expect(teamGroupFor({ role: 'Site Manager' }, roles)).toBe('ths');
     expect(teamGroupFor({ role: 'Admin' }, roles)).toBe('ths');
     expect(teamGroupFor({ role: 'External Project Management' }, roles)).toBe('other');
+  });
+
+  it('keeps THS workers with THS even though they only get external access', () => {
+    expect(teamGroupFor({ role: 'Worker' }, roles)).toBe('ths');
+    expect(teamGroupFor({ role: 'worker' }, [])).toBe('ths');
+    expect(teamGroupFor({ role: 'THS Labourer' }, [{ name: 'THS Labourer', permission_role: 'external' }])).toBe('ths');
   });
 
   it('puts clients and subcontractors in their own groups', () => {

@@ -6,6 +6,9 @@
  * (admin / internal / pricing) in project_roles. External viewers can't read
  * project_roles, so when a role isn't in the list we fall back to the role
  * names THS uses for its own staff.
+ *
+ * Some THS staff deliberately get external-level access (Worker), and any role
+ * named "THS ..." is THS by name — those group with THS whatever they map to.
  */
 
 export const TEAM_GROUPS = [
@@ -17,6 +20,8 @@ export const TEAM_GROUPS = [
 
 const INTERNAL_PERMISSIONS = ['admin', 'internal', 'pricing'];
 const KNOWN_INTERNAL_ROLES = ['admin', 'site manager', 'internal project manager', 'quantity surveyor'];
+// THS staff roles with limited (external) access — still THS Team.
+const THS_STAFF_ROLES = ['worker'];
 
 const norm = (s) => String(s || '').trim().toLowerCase();
 
@@ -24,9 +29,10 @@ export function teamGroupFor(member, roles = []) {
   const role = norm(member?.role);
   if (role === 'subcontractor') return 'subcontractor';
   if (/^client\b/.test(role)) return 'client';
+  if (THS_STAFF_ROLES.includes(role) || /^ths\b/.test(role)) return 'ths';
   const match = roles.find(r => norm(r.name) === role);
   if (match) return INTERNAL_PERMISSIONS.includes(match.permission_role) ? 'ths' : 'other';
-  if (KNOWN_INTERNAL_ROLES.includes(role) || /^ths\b/.test(role)) return 'ths';
+  if (KNOWN_INTERNAL_ROLES.includes(role)) return 'ths';
   return 'other';
 }
 
